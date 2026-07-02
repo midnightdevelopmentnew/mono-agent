@@ -14,6 +14,10 @@ export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
 
+export function ApproveHIL(arg1, arg2) {
+  return window['go']['main']['App']['ApproveHIL'](arg1, arg2);
+}
+
 export function CancelWorkflow(arg1) {
   return window['go']['main']['App']['CancelWorkflow'](arg1);
 }
@@ -36,6 +40,10 @@ export function ConnectPlatformOAuth(arg1) {
 
 export function CreateAction(arg1) {
   return window['go']['main']['App']['CreateAction'](arg1);
+}
+
+export function CreateProfile(arg1) {
+  return window['go']['main']['App']['CreateProfile'](arg1);
 }
 
 export function CreateResource(arg1, arg2, arg3, arg4) {
@@ -94,6 +102,10 @@ export function GetActions(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetActions'](arg1, arg2, arg3);
 }
 
+export function GetActiveProfile() {
+  return window['go']['main']['App']['GetActiveProfile']();
+}
+
 export function GetAllTags() {
   return window['go']['main']['App']['GetAllTags']();
 }
@@ -116,6 +128,10 @@ export function GetDashboardStats() {
 
 export function GetExecutionDetail(arg1) {
   return window['go']['main']['App']['GetExecutionDetail'](arg1);
+}
+
+export function GetHILItems() {
+  return window['go']['main']['App']['GetHILItems']();
 }
 
 export function GetLogs() {
@@ -160,6 +176,10 @@ export function GetPostComments(arg1) {
 
 export function GetPostDetail(arg1) {
   return window['go']['main']['App']['GetPostDetail'](arg1);
+}
+
+export function GetProfiles() {
+  return window['go']['main']['App']['GetProfiles']();
 }
 
 export function GetRecentExecutions(arg1) {
@@ -258,6 +278,10 @@ export function OpenVaultFilePicker() {
   return window['go']['main']['App']['OpenVaultFilePicker']();
 }
 
+export function RejectHIL(arg1) {
+  return window['go']['main']['App']['RejectHIL'](arg1);
+}
+
 export function RemoveConnection(arg1) {
   return window['go']['main']['App']['RemoveConnection'](arg1);
 }
@@ -286,6 +310,10 @@ export function SaveCredential(arg1) {
   return window['go']['main']['App']['SaveCredential'](arg1);
 }
 
+export function SaveVaultImageToFile(arg1, arg2) {
+  return window['go']['main']['App']['SaveVaultImageToFile'](arg1, arg2);
+}
+
 export function SaveWorkflow(arg1) {
   return window['go']['main']['App']['SaveWorkflow'](arg1);
 }
@@ -308,6 +336,10 @@ export function SetWorkflowActive(arg1, arg2) {
 
 export function StreamAIChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['StreamAIChat'](arg1, arg2, arg3, arg4);
+}
+
+export function SwitchProfile(arg1) {
+  return window['go']['main']['App']['SwitchProfile'](arg1);
 }
 
 export function TestAIProvider(arg1) {

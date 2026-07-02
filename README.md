@@ -13,7 +13,7 @@
 ╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
 ```
 
-**Workflow automation engine for social platforms, AI services, and browser automation**
+**Multi-profile workflow automation engine for social platforms, AI services, image processing, and browser automation**
 
 [![Go Version](https://img.shields.io/badge/Go-1.25-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://golang.org)
 [![License](https://img.shields.io/badge/License-MIT-purple?style=for-the-badge)](LICENSE)
@@ -43,46 +43,66 @@
 - 🔁 **Visual workflow engine** — DAG-based execution with 70+ built-in node types
 - 🌐 **Real browser automation** — Stealth Chrome control for social platforms via Rod
 - 🤖 **AI-powered intelligence** — OpenRouter, HuggingFace, and Gemini integrations
-- 🖥️ **Desktop GUI** — Wails 2 + React canvas workflow editor
+- 🖥️ **Desktop GUI** — Wails 2 + React canvas workflow editor with AI canvas chat
 - ⚡ **CLI-first** — 70+ commands for scripting, scheduling, and automation
+- 👤 **Multi-profile isolation** — switch between named profiles; all data fully isolated per profile
+- 🖼️ **Image Vault** — built-in image storage, labeling, and fullscreen editor
+- 🤝 **Human-in-Loop** — pause workflows for human review/editing before continuing
+- 📧 **Outlook integration** — read and send Outlook mail natively
 
-Think of it as **n8n meets Playwright** — a fully self-hosted, code-first automation platform with a visual editor.
+Think of it as **n8n meets Playwright** — a fully self-hosted, code-first automation platform with a visual editor, multi-account profiles, and human-in-the-loop controls.
 
 <br/>
 
 <div align="center">
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      MONO AGENT STACK                           │
-│                                                                 │
-│   ┌──────────────────┐      ┌──────────────────────────────┐   │
-│   │   Desktop GUI    │      │         CLI (70+ cmds)       │   │
-│   │  Wails + React   │      │      cobra · zerolog · tabwriter │
-│   └────────┬─────────┘      └──────────────┬───────────────┘   │
-│            │                               │                    │
-│            └───────────────┬───────────────┘                    │
-│                            ▼                                    │
-│   ┌─────────────────────────────────────────────────────────┐   │
-│   │                  Workflow Engine                        │   │
-│   │   DAG executor · Trigger manager · Expression eval     │   │
-│   │   Hybrid store (JSON files + SQLite) · BFS scheduler   │   │
-│   └──────────────────────────┬──────────────────────────────┘  │
-│                              │                                  │
-│        ┌─────────────────────┼─────────────────────┐           │
-│        ▼                     ▼                     ▼           │
-│   ┌──────────┐        ┌────────────┐       ┌─────────────┐     │
-│   │  Browser │        │  Services  │       │   Control   │     │
-│   │   Nodes  │        │   Nodes    │       │    Nodes    │     │
-│   │ Rod/CDP  │        │ 16 APIs    │       │ 14 types    │     │
-│   └──────────┘        └────────────┘       └─────────────┘     │
-│        │                     │                     │           │
-│        ▼                     ▼                     ▼           │
-│   Instagram        Google Sheets            if · filter        │
-│   LinkedIn         OpenRouter               set · code (JS)    │
-│   X / TikTok       HuggingFace              cron · webhook     │
-│   Telegram         GitHub · Notion          split · merge      │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         MONO AGENT STACK                             │
+│                                                                      │
+│   ┌──────────────────────┐      ┌──────────────────────────────┐    │
+│   │     Desktop GUI      │      │        CLI (70+ cmds)        │    │
+│   │  Wails + React       │      │   cobra · zerolog · tabwriter│    │
+│   │  AI Canvas Chat      │      │   --profile flag on all cmds │    │
+│   │  Image Vault + Editor│      │                              │    │
+│   │  HIL Review Panel    │      │                              │    │
+│   └──────────┬───────────┘      └──────────────┬──────────────┘    │
+│              │                                 │                    │
+│              └────────────────┬────────────────┘                    │
+│                               ▼                                     │
+│   ┌──────────────────────────────────────────────────────────────┐  │
+│   │                     Profile Layer                            │  │
+│   │   Named profiles · per-profile DB isolation · context        │  │
+│   │   actions / people / workflows / vault / sessions / HIL      │  │
+│   └──────────────────────────┬───────────────────────────────────┘  │
+│                              │                                      │
+│   ┌──────────────────────────▼───────────────────────────────────┐  │
+│   │                   Workflow Engine                            │  │
+│   │   DAG executor · Trigger manager · Expression eval          │  │
+│   │   Hybrid store (JSON files + SQLite) · BFS scheduler        │  │
+│   └──────────────────────────┬───────────────────────────────────┘  │
+│                              │                                      │
+│       ┌──────────────────────┼─────────────────────┐               │
+│       ▼                      ▼                     ▼               │
+│  ┌──────────┐        ┌────────────┐       ┌─────────────┐          │
+│  │  Browser │        │  Services  │       │   Control   │          │
+│  │   Nodes  │        │   Nodes    │       │    Nodes    │          │
+│  │ Rod/CDP  │        │ 18 APIs    │       │ 15 types    │          │
+│  └──────────┘        └────────────┘       └──────┬──────┘          │
+│       │                     │                    │                 │
+│       ▼                     ▼                    ▼                 │
+│  Instagram         Google Sheets          if · filter              │
+│  LinkedIn          OpenRouter             set · code (JS)          │
+│  X / TikTok        HuggingFace            cron · webhook           │
+│  Telegram          GitHub · Notion        split · merge            │
+│                    Outlook (read/send)    human_in_loop ← NEW      │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────┐      │
+│  │                    Image Vault                           │      │
+│  │   Register · Resolve · Label · Background removal        │      │
+│  │   Profile-scoped · Fullscreen editor · Metadata          │      │
+│  └──────────────────────────────────────────────────────────┘      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 </div>
@@ -161,13 +181,59 @@ Think of it as **n8n meets Playwright** — a fully self-hosted, code-first auto
 
 </td>
 </tr>
+<tr>
+<td width="50%">
+
+### 👤 Multi-Profile Isolation
+- Create named profiles (`default`, `client-a`, `work`, …)
+- Switch active profile in CLI (`--profile`) or GUI sidebar
+- **Full data isolation per profile**: actions, people, sessions, workflows, connections, vault images, HIL items, social lists, tags — all scoped to the active profile
+- Running workflows from one profile are unaffected when you switch to another
+- Profile ID carried through context for vault, workflow engine, AI tools, and all browser nodes
+
+</td>
+<td width="50%">
+
+### 🖼️ Image Vault & Processing
+- Dedicated Image Vault tab in the GUI — browse, label, and manage all generated/imported images
+- Fullscreen editor with crop, resize, rotate, and filter tools
+- Detail modal with metadata and workflow provenance
+- AI background removal (Tier-1 image processing nodes)
+- Images are profile-scoped — each profile sees only its own vault
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 🤝 Human-in-Loop Node (`core.human_in_loop`)
+- Drop a HIL node anywhere in a workflow to pause execution and request human review
+- **Read-only section** — shows context data (e.g. contact name, LinkedIn URL, profile info)
+- **Editable section** — lets the reviewer edit content before it proceeds (e.g. message text, images)
+- **Rich text editor** built into the GUI review panel
+- Configurable field visibility per node
+- Approve → workflow resumes; Reject → item is dropped
+- Optional timeout — auto-reject if no response within N minutes
+
+</td>
+<td width="50%">
+
+### 🤖 AI Canvas Chat
+- Conversational workflow builder inside the GUI
+- Type natural-language instructions to create, modify, or explain workflows on the canvas
+- AI generates nodes, wires connections, and sets config via chat
+- Uses OpenRouter (any model) or Gemini
+- Profile-aware — workflows created via chat are scoped to the active profile
+
+</td>
+</tr>
 </table>
 
 ---
 
 ## ✦ Node Library
 
-> 70+ built-in node types across 10 categories
+> 72+ built-in node types across 10 categories
 
 <details>
 <summary><strong>⚙️ Core Control (14 nodes)</strong></summary>
@@ -188,6 +254,7 @@ Think of it as **n8n meets Playwright** — a fully self-hosted, code-first auto
 | `core.compare_datasets` | Diff two item streams |
 | `core.aggregate` | Sum, avg, count, min, max over a field |
 | `core.stop_error` | Halt workflow with a custom error message |
+| `core.human_in_loop` | Pause execution — human reviews read-only data, edits content, then approves or rejects |
 
 </details>
 
@@ -217,7 +284,7 @@ Think of it as **n8n meets Playwright** — a fully self-hosted, code-first auto
 <details>
 <summary><strong>📣 Communication (7 nodes)</strong></summary>
 
-`comm.email_send` · `comm.email_read` · `comm.slack` · `comm.telegram` · `comm.discord` · `comm.twilio` · `comm.whatsapp`
+`comm.email_send` · `comm.email_read` · `comm.slack` · `comm.telegram` · `comm.discord` · `comm.twilio` · `comm.whatsapp` · `comm.outlook_read` · `comm.outlook_send`
 
 </details>
 
@@ -325,6 +392,42 @@ The **Instagram Daily Post** workflow — reads captions from Google Sheets, gen
         "operation": "update_rows", "range": "{{item._row_range}}"
     }}
   ]
+}
+```
+
+---
+
+## ✦ Human-in-Loop Example
+
+The **LinkedIn Outreach with Review** workflow — generates personalised messages, pauses for a human to review and edit each one, then sends only approved messages:
+
+```
+[Google Sheets: read_rows]     ← list of prospects
+        │
+        ▼
+[OpenRouter: generate_text]    ← draft personalised LinkedIn message
+        │
+        ▼
+[core.human_in_loop]           ← PAUSE — reviewer sees:
+        │                          Read-only: name, company, LinkedIn URL
+        │                          Editable:  message text
+        │                        Approve → continue  |  Reject → drop item
+        ▼
+[action.linkedin.send_connection_request]  ← sends approved message
+        │
+        ▼
+[Google Sheets: update_rows]   ← marks row "sent"
+```
+
+```json
+{
+  "id": "n3",
+  "type": "core.human_in_loop",
+  "config": {
+    "readonly_fields": ["name", "company", "linkedin_url"],
+    "editable_fields": ["message"],
+    "timeout_minutes": 60
+  }
 }
 ```
 
@@ -460,6 +563,35 @@ monoes schedule remove --id <id>
 
 </details>
 
+<details>
+<summary><strong>Profiles</strong></summary>
+
+Every command accepts `--profile <name>` to scope operations to a named profile. All user data (actions, people, workflows, sessions, vault images, connections, HIL items, social lists, tags) is fully isolated per profile.
+
+```bash
+# Use a named profile (default is "default")
+monoes --profile work workflow list
+monoes --profile client-a login instagram
+monoes --profile work run --workflow instagram-daily-post
+
+# The GUI lets you switch profiles from the sidebar
+# Switching profiles does NOT stop workflows running under other profiles
+```
+
+</details>
+
+<details>
+<summary><strong>Image Vault</strong></summary>
+
+```bash
+# Images are registered automatically when workflow nodes generate them.
+# Browse, label, and manage images from the GUI Image Vault tab.
+# Via CLI:
+monoes workflow run --id my-image-workflow   # vault images are saved to active profile
+```
+
+</details>
+
 ---
 
 ## ✦ Architecture
@@ -472,54 +604,74 @@ mono-agent/
 │   ├── workflow.go          # workflow subcommands + engine builder
 │   ├── node.go              # node run + registry builder
 │   ├── login.go             # browser session auth
-│   └── ...
+│   ├── ref.go               # --profile flag wiring
+│   ├── init.go              # project init
+│   └── crawl.go             # crawler commands
 │
 ├── internal/
 │   ├── workflow/            # Core workflow engine
-│   │   ├── engine.go        # WorkflowEngine — orchestration
+│   │   ├── engine.go        # WorkflowEngine — orchestration + profile isolation
+│   │   ├── models.go        # Workflow, WorkflowNode, … (ProfileID field)
+│   │   ├── storage.go       # SQLiteWorkflowStore — profile-scoped CRUD
+│   │   ├── hybrid_store.go  # Hybrid (JSON files + SQLite)
 │   │   ├── dag.go           # Topological sort, cycle detection
 │   │   ├── execution.go     # Run state machine
 │   │   ├── expression.go    # {{template}} evaluation
-│   │   ├── store_file.go    # JSON file store
-│   │   ├── store_sqlite.go  # SQLite store
-│   │   ├── hybrid_store.go  # Hybrid (file + SQLite)
 │   │   ├── trigger.go       # Cron / webhook triggers
 │   │   └── schemas/         # 70+ embedded JSON schemas
 │   │
 │   ├── nodes/               # Node executor implementations
 │   │   ├── browser_adapter.go  # BrowserNode → ActionExecutor bridge
-│   │   ├── control/         # if, set, filter, code, merge...
-│   │   ├── service/         # google_sheets, openrouter, huggingface...
+│   │   ├── control/
+│   │   │   ├── human_in_loop.go  # core.human_in_loop — pause + review
+│   │   │   └── ...              # if, set, filter, code, merge…
+│   │   ├── service/         # google_sheets, openrouter, huggingface…
 │   │   ├── http/            # request, ftp, ssh
 │   │   ├── db/              # mysql, postgres, mongodb, redis
-│   │   ├── comm/            # email, slack, telegram, discord
-│   │   ├── data/            # datetime, html, xml, crypto...
+│   │   ├── comm/            # email, slack, telegram, discord, outlook
+│   │   ├── data/            # datetime, html, xml, crypto…
+│   │   ├── people/          # save.go — profile-scoped contact upsert
 │   │   └── system/          # execute_command, rss_read
+│   │
+│   ├── vault/               # Image Vault
+│   │   └── vault.go         # Register/Resolve/ProfileIDFromContext
+│   │
+│   ├── ai/chat/             # AI Canvas Chat
+│   │   ├── service.go       # ChatService + SetProfileID
+│   │   └── tools.go         # CanvasTools — AI creates workflows
 │   │
 │   ├── action/              # Legacy browser action executor
 │   │   ├── executor.go      # Step runner with variable resolution
-│   │   ├── steps.go         # navigate, click, type, extract, loop...
+│   │   ├── steps.go         # navigate, click, type, extract, loop…
 │   │   └── variables.go     # {{path.to.variable}} resolver
 │   │
 │   ├── bot/                 # Platform browser adapters
-│   │   ├── instagram/       # IsLoggedIn, ExtractUsername, methods
+│   │   ├── instagram/
 │   │   ├── linkedin/
 │   │   ├── tiktok/
 │   │   └── x/
 │   │
 │   ├── connections/         # Unified credential storage
-│   │   ├── storage.go       # Connection CRUD (SQLite)
+│   │   ├── storage.go       # Connection CRUD — profile-scoped Delete
 │   │   ├── manager.go       # OAuth, API key, browser auth flows
 │   │   └── registry.go      # Platform definitions + auth methods
 │   │
-│   ├── config/              # AI-assisted selector generation
+│   ├── config/              # Profile config + AI-assisted selector generation
 │   ├── scheduler/           # Cron scheduler wrapper
-│   └── storage/             # DB init + migrations
+│   └── storage/             # DB init + migrations (profile_id columns)
 │
 ├── wails-app/               # Desktop GUI
-│   ├── app.go               # Wails App struct (all RPC methods)
+│   ├── app.go               # Wails App struct — all RPC methods, activeProfileID
 │   └── frontend/src/
-│       └── pages/Workflow.jsx  # Visual workflow canvas editor
+│       ├── pages/
+│       │   ├── Workflow.jsx     # Visual workflow canvas editor
+│       │   ├── ImageVault.jsx   # Image Vault browser + management
+│       │   └── Settings.jsx     # Profile management + app settings
+│       └── components/
+│           ├── ImageDetailModal.jsx       # Image metadata + provenance
+│           ├── ImageEditorPanel.jsx       # Inline image editor
+│           ├── ImageEditorFullscreen.jsx  # Fullscreen editor with tools
+│           └── Sidebar.jsx               # Profile switcher + navigation
 │
 └── data/actions/            # 53 embedded JSON action definitions
     ├── instagram/
@@ -551,13 +703,22 @@ mono-agent/
 
 ## ✦ Roadmap
 
+**Recently shipped**
+- [x] Multi-profile isolation — all user data scoped per named profile
+- [x] Image Vault — built-in image storage, labeling, fullscreen editor
+- [x] Human-in-Loop node (`core.human_in_loop`) — pause + review + approve/reject
+- [x] AI Canvas Chat — conversational workflow builder in the GUI
+- [x] Outlook integration — read and send email natively
+- [x] AI background removal — Tier-1 image processing nodes
+
+**Coming next**
 - [ ] More trigger types — email, file watcher, database change
 - [ ] Workflow versioning and rollback
 - [ ] Sub-workflow / reusable workflow node
 - [ ] Visual debugger — step-through execution in GUI
 - [ ] Marketplace — shareable workflow templates
 - [ ] WhatsApp & WeChat platform bots
-- [ ] Metrics dashboard — success rates, throughput, latency
+- [ ] Metrics dashboard — success rates, throughput, latency per profile
 
 ---
 

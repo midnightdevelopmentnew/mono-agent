@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,14 @@ func (b *GeminiBot) GetMethodByName(name string) (func(ctx context.Context, args
 		return b.methodExtractAndDownloadImages, true
 	case "upload_image":
 		return b.methodUploadImage, true
+	case "navigate_to_session":
+		return b.methodNavigateToSession, true
+	case "get_session_id":
+		return b.methodGetSessionID, true
+	case "wait_for_any_response":
+		return b.methodWaitForAnyResponse, true
+	case "extract_response_by_mode":
+		return b.methodExtractResponseByMode, true
 	default:
 		return nil, false
 	}
@@ -948,4 +957,96 @@ func (b *GeminiBot) methodExtractAndDownloadImages(ctx context.Context, args ...
 		"images":      downloaded,
 		"image_count": len(downloaded),
 	}, nil
+}
+
+// methodNavigateToSession navigates to an existing Gemini session by session ID.
+// If session_id is empty or missing, it is a no-op (caller already navigated to /app).
+func (b *GeminiBot) methodNavigateToSession(_ context.Context, args ...interface{}) (interface{}, error) {
+	page, err := extractPage(args, "navigate_to_session")
+	if err != nil {
+		return nil, err
+	}
+	if len(args) < 2 {
+		return map[string]interface{}{"success": true, "skipped": true, "reason": "no session_id"}, nil
+	}
+	sessionID, _ := args[1].(string)
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return map[string]interface{}{"success": true, "skipped": true, "reason": "empty session_id"}, nil
+	}
+	targetURL := "https://gemini.google.com/app/" + sessionID
+	if err := page.Navigate(targetURL); err != nil {
+		return nil, fmt.Errorf("navigate_to_session: %w", err)
+	}
+	time.Sleep(4 * time.Second)
+	return map[string]interface{}{"success": true, "url": targetURL}, nil
+}
+
+// methodGetSessionID extracts the Gemini session ID from the current page URL.
+// URL format: https://gemini.google.com/app/{sessionID}
+func (b *GeminiBot) methodGetSessionID(_ context.Context, args ...interface{}) (interface{}, error) {
+	page, err := extractPage(args, "get_session_id")
+	if err != nil {
+		return nil, err
+	}
+	currentURL, err := page.GetURL()
+	if err != nil {
+		return nil, fmt.Errorf("get_session_id: could not get page URL: %w", err)
+	}
+	u, err := url.Parse(currentURL)
+	if err != nil {
+		return nil, fmt.Errorf("get_session_id: invalid URL %q: %w", currentURL, err)
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	// path is "app/{sessionID}"
+	if len(parts) >= 2 && parts[0] == "app" && parts[1] != "" {
+		return map[string]interface{}{"success": true, "session_id": parts[1]}, nil
+	}
+	return nil, fmt.Errorf("get_session_id: no session ID in URL: %s", currentURL)
+}
+
+// methodWaitForAnyResponse dispatches to the text or image wait method based on mode.
+// args: page, mode ("text"|"image"), maxWaitSeconds (optional)
+func (b *GeminiBot) methodWaitForAnyResponse(ctx context.Context, args ...interface{}) (interface{}, error) {
+	page, err := extractPage(args, "wait_for_any_response")
+	if err != nil {
+		return nil, err
+	}
+	mode := "text"
+	if len(args) >= 2 {
+		if m, ok := args[1].(string); ok && m != "" {
+			mode = strings.ToLower(m)
+		}
+	}
+	delegateArgs := []interface{}{page}
+	if len(args) >= 3 {
+		delegateArgs = append(delegateArgs, args[2])
+	}
+	if mode == "image" {
+		return b.methodWaitForImageResponse(ctx, delegateArgs...)
+	}
+	return b.methodWaitForResponse(ctx, delegateArgs...)
+}
+
+// methodExtractResponseByMode dispatches to text or image extraction based on mode.
+// args: page, mode ("text"|"image"), downloadDir (optional, image mode only)
+func (b *GeminiBot) methodExtractResponseByMode(ctx context.Context, args ...interface{}) (interface{}, error) {
+	page, err := extractPage(args, "extract_response_by_mode")
+	if err != nil {
+		return nil, err
+	}
+	mode := "text"
+	if len(args) >= 2 {
+		if m, ok := args[1].(string); ok && m != "" {
+			mode = strings.ToLower(m)
+		}
+	}
+	if mode == "image" {
+		delegateArgs := []interface{}{page}
+		if len(args) >= 3 {
+			delegateArgs = append(delegateArgs, args[2])
+		}
+		return b.methodExtractAndDownloadImages(ctx, delegateArgs...)
+	}
+	return b.methodExtractTextResponse(ctx, page)
 }

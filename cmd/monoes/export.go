@@ -39,13 +39,13 @@ Files are written to the output directory, defaulting to the global --output-dir
 			}
 
 			// Export people.
-			peopleCount, err := exportPeopleData(db, dir)
+			peopleCount, err := exportPeopleData(db, dir, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("exporting people: %w", err)
 			}
 
 			// Export actions.
-			actionsCount, err := exportActionsData(db, dir)
+			actionsCount, err := exportActionsData(db, dir, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("exporting actions: %w", err)
 			}
@@ -70,7 +70,10 @@ Files are written to the output directory, defaulting to the global --output-dir
 	return cmd
 }
 
-func exportPeopleData(db *storage.Database, outputDir string) (int, error) {
+func exportPeopleData(db *storage.Database, outputDir, profileID string) (int, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	rows, err := db.DB.Query(
 		`SELECT id, platform_username, platform, COALESCE(full_name,''),
 		        COALESCE(image_url,''), COALESCE(contact_details,''),
@@ -78,7 +81,9 @@ func exportPeopleData(db *storage.Database, outputDir string) (int, error) {
 		        following_count, COALESCE(introduction,''), is_verified,
 		        COALESCE(category,''), COALESCE(job_title,''),
 		        created_at, updated_at
-		 FROM people ORDER BY created_at DESC`,
+		 FROM people WHERE COALESCE(profile_id,'default') = ?
+		 ORDER BY created_at DESC`,
+		profileID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("querying people: %w", err)
@@ -124,7 +129,10 @@ func exportPeopleData(db *storage.Database, outputDir string) (int, error) {
 	return len(people), nil
 }
 
-func exportActionsData(db *storage.Database, outputDir string) (int, error) {
+func exportActionsData(db *storage.Database, outputDir, profileID string) (int, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	rows, err := db.DB.Query(
 		`SELECT id, created_at, title, type, state, disabled, target_platform,
 		        position, COALESCE(content_subject,''), COALESCE(content_message,''),
@@ -132,7 +140,9 @@ func exportActionsData(db *storage.Database, outputDir string) (int, error) {
 		        COALESCE(execution_interval,0), COALESCE(start_date,''),
 		        COALESCE(end_date,''), COALESCE(campaign_id,''),
 		        reached_index, COALESCE(keywords,''), action_execution_count
-		 FROM actions ORDER BY position ASC, created_at DESC`,
+		 FROM actions WHERE COALESCE(profile_id,'default') = ?
+		 ORDER BY position ASC, created_at DESC`,
+		profileID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("querying actions: %w", err)

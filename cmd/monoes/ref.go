@@ -753,6 +753,45 @@ is resolved automatically. Omit it entirely and monoes will find it.`,
 		Notes:   "Keep prompts concise. Very long prompts may trigger Gemini's reasoning mode which does not return plain text.",
 	},
 	{
+		Type:     "gemini.chat_session",
+		Category: "gemini",
+		Short:    "Send a prompt to a persistent Gemini session (text or image)",
+		Description: `NO API KEY REQUIRED. Uses browser automation with session persistence.
+
+Unlike generate_text/generate_image which always start a fresh chat, chat_session
+lets you continue an existing conversation. Pass the session_id returned from a
+previous run to resume — Gemini will have full memory of the prior exchange.
+
+Supports both text and image generation in the same node via the mode parameter.
+
+Setup (one-time): run  monoes login gemini  and log in with your Google account.`,
+		Config: `{
+  "prompt":     "Tell me more about goroutines",
+  "session_id": "5c0b84d75812b533",
+  "mode":       "text"
+}
+
+// session_id is OPTIONAL. Omit to start a new chat; the returned session_id
+// can be passed to the next run to continue the same conversation.
+
+// mode: "text" (default) or "image" — controls which response type to wait for.
+
+// referenceImagePath is OPTIONAL — upload a local image before the prompt.
+
+// Full options:
+// {
+//   "prompt":             "Your message",
+//   "session_id":         "<id from previous run>",
+//   "mode":               "text",
+//   "referenceImagePath": "/path/to/image.jpg",
+//   "maxWaitSeconds":     90,
+//   "downloadDir":        "~/.monoes/downloads"
+// }`,
+		Inputs:  "item with prompt (plus optional session_id, mode, referenceImagePath)",
+		Outputs: "session_id, response_text (text mode) | session_id, images, image_count (image mode)",
+		Notes:   "Save the session_id from each run and pass it back as input to maintain conversation context across multiple CLI calls or workflow executions.",
+	},
+	{
 		Type:     "gemini.generate_image",
 		Category: "gemini",
 		Short:    "Generate an image via Gemini — NO API KEY, uses browser session",
@@ -1319,12 +1358,18 @@ var cliDocs = []cmdDoc{
 		Name:  "action",
 		Short: "Manage action definitions",
 		Usage: "monoes action <subcommand>",
-		Flags: `  list          List all available actions
-  get <id>      Show action JSON definition
-  create        Interactive action creator`,
+		Flags: `  list                  List all available actions
+  get <id>              Show action JSON definition
+  create                Interactive action creator
+  template capture      Capture rendered HTML from any URL (for new platforms)
+  template install      Install an AI-generated ActionDef template
+  template list         List user-installed templates`,
 		Examples: []string{
 			"monoes action list",
 			"monoes action get POST_LIKING",
+			"monoes action template capture https://somesite.com/user",
+			"monoes action template install ~/my_template.json",
+			"monoes action template list",
 		},
 	},
 	{
@@ -1430,6 +1475,9 @@ var cliDocs = []cmdDoc{
 			`monoes node run system.rss_read --config '{"url":"https://rss.dw.com/rdf/rss-en-all","limit":5}'`,
 			`# Gemini text — NO API KEY needed, uses browser session (run 'monoes login gemini' first)`,
 			`monoes node run gemini.generate_text --config '{"prompt":"Say hello in Persian"}'`,
+			`# Gemini persistent chat session — start new, then continue with session_id`,
+			`monoes node run gemini.chat_session --config '{"prompt":"Tell me about Go channels","mode":"text"}'`,
+			`monoes node run gemini.chat_session --config '{"prompt":"Now compare them to goroutines","session_id":"<id from above>","mode":"text"}'`,
 			`# Gemini image — NO API KEY needed, downloads to ~/.monoes/downloads/`,
 			`monoes node run gemini.generate_image --config '{"prompt":"sunset over a city skyline","downloadDir":"~/.monoes/downloads"}'`,
 			`# Gemini image with reference (style transfer) — upload a local image, prompt for a new style`,
@@ -1466,7 +1514,8 @@ var cliDocs = []cmdDoc{
   node <type>           Detailed docs for one node type
   workflow              Workflow JSON format
   expressions           Template expression reference
-  examples              Common workflow patterns`,
+  examples              Common workflow patterns
+  crawling              How to automate scraping on new/custom platforms`,
 		Examples: []string{
 			"monoes ref commands",
 			"monoes ref nodes",
@@ -1474,6 +1523,7 @@ var cliDocs = []cmdDoc{
 			"monoes ref workflow",
 			"monoes ref expressions",
 			"monoes ref examples",
+			"monoes ref crawling",
 		},
 	},
 }
@@ -1492,7 +1542,8 @@ Subcommands:
   node <type>           Detailed docs for a specific node type
   workflow              Workflow JSON structure and connection format
   expressions           Template expression syntax and built-in functions
-  examples              Common workflow patterns and use cases`,
+  examples              Common workflow patterns and use cases
+  crawling              How to automate scraping on new/custom platforms`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println("monoes ref — built-in reference")
 			fmt.Println()
@@ -1504,8 +1555,10 @@ Subcommands:
 			fmt.Fprintln(w, "  workflow\tWorkflow JSON structure and connection format")
 			fmt.Fprintln(w, "  expressions\tTemplate expression syntax and built-in functions")
 			fmt.Fprintln(w, "  examples\tCommon workflow patterns and use cases")
+			fmt.Fprintln(w, "  crawling\tHow to scrape/automate new platforms with Claude Code")
 			w.Flush()
 			fmt.Println()
+			fmt.Println("Example:  monoes ref crawling")
 			fmt.Println("Example:  monoes ref node gemini.generate_text")
 			return nil
 		},
@@ -1518,6 +1571,7 @@ Subcommands:
 		refWorkflowCmd(),
 		refExpressionsCmd(),
 		refExamplesCmd(),
+		refCrawlingCmd(),
 	)
 	return root
 }
@@ -1896,7 +1950,34 @@ Or workflow:
     }'
 
 ──────────────────────────────────────────────────────────────
-7. TROUBLESHOOTING CHECKLIST
+7. CRAWL A NEW WEBSITE / CUSTOM PLATFORM (Claude Code integration)
+──────────────────────────────────────────────────────────────
+Use this when you want to automate scraping on any site that does NOT
+have a built-in node type (i.e. not instagram/linkedin/x/tiktok/gemini).
+
+Step 1 — capture the rendered page HTML (real browser, JS executed):
+  monoagent action template capture https://somesite.com/someuser
+  # Saves to: ~/.monoes/captures/somesite_com_<timestamp>.html
+
+Step 2 — generate an ActionDef template with Claude Code:
+  In Claude Code, type:  /action-template-generator
+  The skill reads the HTML, identifies elements using XPath analysis,
+  and writes a JSON template to ~/.monoes/actions/<platform>/<type>.json
+  No API key required — Claude's built-in reasoning does the analysis.
+
+Step 3 — install the template:
+  monoagent action template install ~/.monoes/actions/<platform>/<type>.json
+
+Step 4 — run it like any built-in node:
+  monoagent node run <platform>.<action_type>
+
+List installed templates:
+  monoagent action template list
+
+Full guide:  monoes ref crawling
+
+──────────────────────────────────────────────────────────────
+8. TROUBLESHOOTING CHECKLIST
 ──────────────────────────────────────────────────────────────
   "workflow not found"
     → file must be named exactly <workflow-id>.json in ~/.monoes/workflows/
@@ -1928,6 +2009,110 @@ Or workflow:
 
   Extension port conflict
     → only one monoes process at a time (CLI and Wails share port 9222)
+
+`)
+		},
+	}
+}
+
+func refCrawlingCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "crawling",
+		Short: "How to automate scraping on new or custom platforms",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Print(`
+╔══════════════════════════════════════════════════════════════╗
+║        monoes — crawling new platforms with Claude Code      ║
+╚══════════════════════════════════════════════════════════════╝
+
+Built-in node types cover: instagram, linkedin, x, tiktok, gemini.
+For any other website, use the action template workflow below.
+No API keys required — Claude Code's built-in reasoning does the analysis.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+THE WORKFLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1  Capture the rendered HTML
+──────────────────────────────────
+  monoagent action template capture <url>
+
+  Options:
+    --wait <secs>   Wait for JS rendering (default: 8s)
+    --headless      Run browser invisibly
+    --out <file>    Custom output path
+
+  Example:
+    monoagent action template capture https://www.producthunt.com/posts/new-product
+    # Saves to: ~/.monoes/captures/www_producthunt_com_20240506_143022.html
+
+STEP 2  Generate a template with Claude Code
+─────────────────────────────────────────────
+  In Claude Code, run the skill:
+    /action-template-generator
+
+  The skill will:
+    • Ask for the HTML file path from Step 1
+    • Analyze DOM structure to identify data elements
+    • Build XPath selectors (no @class — stable across deployments)
+    • Output a valid ActionDef JSON template
+    • Save it to ~/.monoes/actions/<platform>/<action_type>.json
+
+STEP 3  Install the template
+─────────────────────────────
+  monoagent action template install <path>
+
+  Validates the JSON, copies it to ~/.monoes/actions/<platform>/,
+  and invalidates the loader cache so it's immediately usable.
+
+  Example:
+    monoagent action template install ~/.monoes/actions/producthunt/scrape_post.json
+
+STEP 4  Run it
+───────────────
+  monoagent node run <platform>.<action_type>
+
+  Example:
+    monoagent node run producthunt.scrape_post \
+      --config '{"url":"https://www.producthunt.com/posts/some-product"}'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANAGE INSTALLED TEMPLATES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  monoagent action template list        # show all installed templates
+  monoagent node list                   # includes installed templates
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ACTIONDEF ALLOWED STEP TYPES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  navigate         Go to a URL and wait for it to load
+  wait             Sleep for N milliseconds
+  find_element     Locate an element by XPath, store as variable
+  extract_text     Extract visible text from an element
+  extract_attribute  Extract an HTML attribute value
+  extract_multiple Extract a list of elements with multiple fields
+  click            Click an element
+  scroll           Scroll the page
+  type             Type text into an input
+  hover            Hover over an element
+  condition        Branch on a variable value
+  log              Emit a debug log message
+  save_data        Persist extracted fields to the run output
+  mark_failed      Mark this target as failed with a reason
+
+  ⚠ DO NOT use: call_bot_method — only works for compiled-in platforms.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+XPATH RULES (automatically enforced by the skill)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • Never use @class (changes on every deploy)
+  • Use @data-testid, @aria-label, @role, @id, @name
+  • Each XPath must match exactly one element
+  • Do not hardcode usernames, IDs, or text content
+  • Prefer structural/semantic attributes over position
 
 `)
 		},

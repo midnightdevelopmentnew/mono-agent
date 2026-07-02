@@ -51,7 +51,7 @@ func newCommentCmd(cfg *globalConfig) *cobra.Command {
 				ContentMessage: text,
 			}
 
-			if err := upsertAction(db, act); err != nil {
+			if err := upsertAction(db, act, cfg.ProfileID); err != nil {
 				return fmt.Errorf("creating comment action: %w", err)
 			}
 

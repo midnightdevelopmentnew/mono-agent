@@ -286,12 +286,14 @@ export default function ImageVault() {
           image={detail}
           onClose={() => setDetail(null)}
           onDelete={handleDelete}
+          onSaved={load}
           onRename={(img) => {
             setDetail({ ...detail, label: img.label })
             load()
           }}
         />
       )}
+
     </div>
   )
 }

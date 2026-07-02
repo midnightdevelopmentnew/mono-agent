@@ -43,6 +43,22 @@ func ExecIDsFromContext(ctx context.Context) (workflowID, executionID string) {
 	return "", ""
 }
 
+type profileCtxKey struct{}
+
+// ContextWithProfileID stores a profile ID in context for vault registration.
+func ContextWithProfileID(ctx context.Context, profileID string) context.Context {
+	return context.WithValue(ctx, profileCtxKey{}, profileID)
+}
+
+// ProfileIDFromContext retrieves the profile ID stored by ContextWithProfileID.
+// Returns "default" if absent.
+func ProfileIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(profileCtxKey{}).(string); ok && v != "" {
+		return v
+	}
+	return "default"
+}
+
 // VaultDir returns the absolute path of the vault directory (~/.monoes/vault/).
 func VaultDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".monoes", "vault")
@@ -120,11 +136,13 @@ func Register(ctx context.Context, db *sql.DB, src, source, workflowID, executio
 		return s
 	}
 
+	profileID := ProfileIDFromContext(ctx)
+
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO vault_images (id, seq, path, filename, size_bytes, source, workflow_id, execution_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO vault_images (id, seq, path, filename, size_bytes, source, workflow_id, execution_id, profile_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, seq, destPath, destFilename, fi.Size(), source,
-		nullStr(workflowID), nullStr(executionID),
+		nullStr(workflowID), nullStr(executionID), profileID,
 	)
 	if err != nil {
 		os.Remove(destPath) // best-effort cleanup
@@ -144,8 +162,11 @@ func Resolve(ctx context.Context, db *sql.DB, ref string) (string, error) {
 		return ref, nil
 	}
 	id := strings.TrimPrefix(ref, "@")
+	profileID := ProfileIDFromContext(ctx)
 	var path string
-	err := db.QueryRowContext(ctx, `SELECT path FROM vault_images WHERE id = ?`, id).Scan(&path)
+	err := db.QueryRowContext(ctx,
+		`SELECT path FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+		id, profileID).Scan(&path)
 	if err == sql.ErrNoRows {
 		return ref, fmt.Errorf("vault.Resolve: image %q not found", id)
 	}

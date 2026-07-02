@@ -97,6 +97,7 @@ func buildEngine(cfg *globalConfig) (*workflow.WorkflowEngine, error) {
 		QueueCapacity:  1000,
 		PruneInterval:  time.Hour,
 		MaxExecHistory: 500,
+		ProfileID:      cfg.ProfileID,
 	}
 
 	hybridStore := newHybridStore(db)
@@ -149,7 +150,7 @@ func newWorkflowListCmd(cfg *globalConfig) *cobra.Command {
 			store := newHybridStore(db)
 			ctx := context.Background()
 
-			workflows, err := store.ListWorkflows(ctx)
+			workflows, err := store.ListWorkflows(ctx, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("list workflows: %w", err)
 			}
@@ -1037,7 +1038,7 @@ func runWorkflowMigrate(cfg *globalConfig) func(cmd *cobra.Command, args []strin
 			return fmt.Errorf("open file store: %w", err)
 		}
 
-		workflows, err := sqliteStore.ListWorkflows(ctx)
+		workflows, err := sqliteStore.ListWorkflows(ctx, "")
 		if err != nil {
 			return fmt.Errorf("list workflows from sqlite: %w", err)
 		}

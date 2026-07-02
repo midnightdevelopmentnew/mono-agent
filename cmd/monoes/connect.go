@@ -89,7 +89,7 @@ func newConnectListCmd(cfg *globalConfig) *cobra.Command {
 				return err
 			}
 
-			conns, err := mgr.List(cmd.Context(), platform)
+			conns, err := mgr.List(cmd.Context(), platform, cfg.ProfileID)
 			if err != nil {
 				return err
 			}
@@ -171,7 +171,7 @@ func newConnectRemoveCmd(cfg *globalConfig) *cobra.Command {
 				return err
 			}
 
-			if err := mgr.Remove(cmd.Context(), args[0]); err != nil {
+			if err := mgr.Remove(cmd.Context(), args[0], cfg.ProfileID); err != nil {
 				return err
 			}
 			fmt.Printf("Connection %s removed.\n", args[0])

@@ -56,6 +56,11 @@ func (n *PeopleSaveNode) Execute(
 	// Config-level platform override.
 	configPlatform, _ := config["platform"].(string)
 
+	profileID, _ := config["profile_id"].(string)
+	if profileID == "" {
+		profileID = "default"
+	}
+
 	tx, err := globalPeopleDB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("people.save: begin tx: %w", err)
@@ -66,8 +71,8 @@ func (n *PeopleSaveNode) Execute(
 		`INSERT INTO people (id, platform_username, platform, full_name, image_url,
 		        contact_details, website, content_count, follower_count,
 		        following_count, introduction, is_verified, category, job_title,
-		        profile_url, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		        profile_url, profile_id, created_at, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(platform_username, platform)
 		 DO UPDATE SET
 		   full_name       = COALESCE(excluded.full_name,       people.full_name),
@@ -159,6 +164,7 @@ func (n *PeopleSaveNode) Execute(
 			nil, // category
 			nullableStr(jobTitle),
 			nullableStr(profileURL),
+			profileID,
 			now,
 			now,
 		)

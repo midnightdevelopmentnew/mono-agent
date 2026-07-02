@@ -62,6 +62,7 @@ type Workflow struct {
 	Description string    `json:"description" db:"description"`
 	IsActive    bool      `json:"is_active" db:"is_active"`
 	Version     int       `json:"version" db:"version"`
+	ProfileID   string    `json:"profile_id,omitempty" db:"profile_id"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 	// Populated by LoadWorkflow — not stored directly

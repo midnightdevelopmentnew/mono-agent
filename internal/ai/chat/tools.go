@@ -22,11 +22,20 @@ type NodeTypeInfo struct {
 type CanvasTools struct {
 	db        *sql.DB
 	nodeTypes []NodeTypeInfo
+	profileID string
 }
 
 // NewCanvasTools creates a CanvasTools backed by the given database.
 func NewCanvasTools(db *sql.DB) *CanvasTools {
-	return &CanvasTools{db: db}
+	return &CanvasTools{db: db, profileID: "default"}
+}
+
+// SetProfileID sets the active profile for new workflow creation.
+func (ct *CanvasTools) SetProfileID(id string) {
+	if id == "" {
+		id = "default"
+	}
+	ct.profileID = id
 }
 
 // SetNodeTypes provides the list of available node types for list_available_nodes.
@@ -311,9 +320,9 @@ func (ct *CanvasTools) createWorkflow(args string) (string, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err := ct.db.Exec(
-		`INSERT INTO workflows (id, name, description, is_active, version, created_at, updated_at)
-		 VALUES (?, ?, ?, 0, 1, ?, ?)`,
-		id, a.Name, a.Description, now, now); err != nil {
+		`INSERT INTO workflows (id, name, description, is_active, version, profile_id, created_at, updated_at)
+		 VALUES (?, ?, ?, 0, 1, ?, ?, ?)`,
+		id, a.Name, a.Description, ct.profileID, now, now); err != nil {
 		return "", fmt.Errorf("insert workflow: %w", err)
 	}
 

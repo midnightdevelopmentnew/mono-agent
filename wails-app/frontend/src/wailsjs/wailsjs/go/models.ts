@@ -9,6 +9,7 @@ export namespace connections {
 	    data: Record<string, any>;
 	    status: string;
 	    last_tested?: string;
+	    profile_id?: string;
 	    created_at: string;
 	    updated_at: string;
 	
@@ -26,6 +27,7 @@ export namespace connections {
 	        this.data = source["data"];
 	        this.status = source["status"];
 	        this.last_tested = source["last_tested"];
+	        this.profile_id = source["profile_id"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];
 	    }
@@ -192,6 +194,38 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class HILItem {
+	    id: string;
+	    execution_id: string;
+	    workflow_id: string;
+	    workflow_name: string;
+	    node_id: string;
+	    node_name: string;
+	    status: string;
+	    readonly_data: Record<string, any>;
+	    editable_data: Record<string, any>;
+	    node_config: Record<string, any>;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HILItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.execution_id = source["execution_id"];
+	        this.workflow_id = source["workflow_id"];
+	        this.workflow_name = source["workflow_name"];
+	        this.node_id = source["node_id"];
+	        this.node_name = source["node_name"];
+	        this.status = source["status"];
+	        this.readonly_data = source["readonly_data"];
+	        this.editable_data = source["editable_data"];
+	        this.node_config = source["node_config"];
+	        this.created_at = source["created_at"];
+	    }
 	}
 	export class LogEntry {
 	    time: string;
@@ -463,6 +497,24 @@ export namespace main {
 	        this.scraped_at = source["scraped_at"];
 	        this.we_liked = source["we_liked"];
 	        this.we_commented = source["we_commented"];
+	    }
+	}
+	export class ProfileInfo {
+	    id: string;
+	    name: string;
+	    is_active: boolean;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProfileInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.is_active = source["is_active"];
+	        this.created_at = source["created_at"];
 	    }
 	}
 	export class ResourceItem {

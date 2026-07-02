@@ -6,6 +6,22 @@ export function AddActionTarget(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddActionTarget'](arg1, arg2, arg3);
 }
 
+export function CreateProfile(arg1) {
+  return window['go']['main']['App']['CreateProfile'](arg1);
+}
+
+export function GetActiveProfile() {
+  return window['go']['main']['App']['GetActiveProfile']();
+}
+
+export function GetProfiles() {
+  return window['go']['main']['App']['GetProfiles']();
+}
+
+export function SwitchProfile(arg1) {
+  return window['go']['main']['App']['SwitchProfile'](arg1);
+}
+
 export function AddPersonTag(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddPersonTag'](arg1, arg2, arg3);
 }
@@ -330,6 +346,22 @@ export function OpenVaultFilePicker() {
   return window['go']['main']['App']['OpenVaultFilePicker']();
 }
 
+export function SaveVaultImageToFile(arg1, arg2) {
+  return window['go']['main']['App']['SaveVaultImageToFile'](arg1, arg2);
+}
+
 export function UpdateVaultImageLabel(arg1, arg2) {
   return window['go']['main']['App']['UpdateVaultImageLabel'](arg1, arg2);
+}
+
+export function GetHILItems() {
+  return window['go']['main']['App']['GetHILItems']();
+}
+
+export function ApproveHIL(arg1, arg2) {
+  return window['go']['main']['App']['ApproveHIL'](arg1, arg2);
+}
+
+export function RejectHIL(arg1) {
+  return window['go']['main']['App']['RejectHIL'](arg1);
 }

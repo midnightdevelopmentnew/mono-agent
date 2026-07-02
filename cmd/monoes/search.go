@@ -50,7 +50,7 @@ func newSearchCmd(cfg *globalConfig) *cobra.Command {
 				Keywords:       keyword,
 			}
 
-			if err := upsertAction(db, act); err != nil {
+			if err := upsertAction(db, act, cfg.ProfileID); err != nil {
 				return fmt.Errorf("creating search action: %w", err)
 			}
 

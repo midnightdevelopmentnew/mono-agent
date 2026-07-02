@@ -153,7 +153,7 @@ export default function StatusBar({ stats, dbConnected }) {
           onMouseEnter={e => e.currentTarget.style.color = '#00b4d8'}
           onMouseLeave={e => e.currentTarget.style.color = 'var(--text-dim)'}
         >
-          Mono Agent · {versionText}
+          MonoAgent · {versionText}
         </span>
       </div>
     </div>

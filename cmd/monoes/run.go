@@ -70,7 +70,7 @@ actions and executes them at the specified interval.`,
 			case len(args) == 1:
 				// Run single action by ID.
 				actionID := args[0]
-				act, err := loadActionByID(db, actionID)
+				act, err := loadActionByID(db, actionID, cfg.ProfileID)
 				if err != nil {
 					return err
 				}
@@ -97,7 +97,7 @@ actions and executes them at the specified interval.`,
 				}
 
 				// Upsert into database.
-				if err := upsertAction(db, act); err != nil {
+				if err := upsertAction(db, act, cfg.ProfileID); err != nil {
 					return fmt.Errorf("saving action to database: %w", err)
 				}
 
@@ -116,7 +116,7 @@ actions and executes them at the specified interval.`,
 						fmt.Fprintln(os.Stderr, "Watch mode interrupted.")
 						return nil
 					case <-ticker.C:
-						actions, err := loadPendingActions(db)
+						actions, err := loadPendingActions(db, cfg.ProfileID)
 						if err != nil {
 							fmt.Fprintf(os.Stderr, "Error loading pending actions: %v\n", err)
 							continue
@@ -136,7 +136,7 @@ actions and executes them at the specified interval.`,
 
 			case queue:
 				// Run all pending actions once.
-				actions, err := loadPendingActions(db)
+				actions, err := loadPendingActions(db, cfg.ProfileID)
 				if err != nil {
 					return err
 				}
@@ -177,15 +177,18 @@ actions and executes them at the specified interval.`,
 	return cmd
 }
 
-// loadActionByID fetches a single action from the database.
-func loadActionByID(db *storage.Database, id string) (*storage.Action, error) {
+// loadActionByID fetches a single action from the database, scoped to the given profile.
+func loadActionByID(db *storage.Database, id, profileID string) (*storage.Action, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	row := db.DB.QueryRow(
 		`SELECT id, created_at, title, type, state, disabled, target_platform,
 		        position, content_subject, content_message, content_blob_urls,
 		        scheduled_date, execution_interval, start_date, end_date,
 		        campaign_id, reached_index, keywords, action_execution_count,
 		        COALESCE(params,'{}')
-		 FROM actions WHERE id = ?`, id,
+		 FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID,
 	)
 
 	var a storage.Action
@@ -234,16 +237,20 @@ func loadActionByID(db *storage.Database, id string) (*storage.Action, error) {
 	return &a, nil
 }
 
-// loadPendingActions fetches all actions in PENDING state ordered by position.
-func loadPendingActions(db *storage.Database) ([]*storage.Action, error) {
+// loadPendingActions fetches all actions in PENDING state for the given profile, ordered by position.
+func loadPendingActions(db *storage.Database, profileID string) ([]*storage.Action, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	rows, err := db.DB.Query(
 		`SELECT id, created_at, title, type, state, disabled, target_platform,
 		        position, content_subject, content_message, content_blob_urls,
 		        scheduled_date, execution_interval, start_date, end_date,
 		        campaign_id, reached_index, keywords, action_execution_count,
 		        COALESCE(params,'{}')
-		 FROM actions WHERE state = 'PENDING' AND disabled = 0
+		 FROM actions WHERE state = 'PENDING' AND disabled = 0 AND COALESCE(profile_id,'default') = ?
 		 ORDER BY position ASC, created_at ASC`,
+		profileID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying pending actions: %w", err)
@@ -296,8 +303,11 @@ func loadPendingActions(db *storage.Database) ([]*storage.Action, error) {
 	return actions, rows.Err()
 }
 
-// upsertAction inserts or replaces an action in the database.
-func upsertAction(db *storage.Database, a *storage.Action) error {
+// upsertAction inserts or replaces an action in the database, scoped to the given profile.
+func upsertAction(db *storage.Database, a *storage.Action, profileID string) error {
+	if profileID == "" {
+		profileID = "default"
+	}
 	disabled := 0
 	if a.Disabled {
 		disabled = 1
@@ -313,12 +323,12 @@ func upsertAction(db *storage.Database, a *storage.Action) error {
 		 (id, created_at, title, type, state, disabled, target_platform, position,
 		  content_subject, content_message, content_blob_urls,
 		  scheduled_date, execution_interval, start_date, end_date,
-		  campaign_id, reached_index, keywords, action_execution_count, params, updated_at_ts)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		  campaign_id, reached_index, keywords, action_execution_count, params, profile_id, updated_at_ts)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
 		a.ID, a.CreatedAt, a.Title, a.Type, a.State, disabled, a.TargetPlatform, a.Position,
 		a.ContentSubject, a.ContentMessage, a.ContentBlobURLs,
 		a.ScheduledDate, a.ExecutionInterval, a.StartDate, a.EndDate,
-		a.CampaignID, a.ReachedIndex, a.Keywords, a.ActionExecutionCount, paramsJSON,
+		a.CampaignID, a.ReachedIndex, a.Keywords, a.ActionExecutionCount, paramsJSON, profileID,
 	)
 	return err
 }
@@ -328,21 +338,22 @@ func upsertAction(db *storage.Database, a *storage.Action) error {
 // ---------------------------------------------------------------------------
 
 type storageAdapter struct {
-	db *storage.Database
+	db        *storage.Database
+	profileID string
 }
 
 func (s *storageAdapter) UpdateActionState(id, state string) error {
 	_, err := s.db.DB.Exec(
-		"UPDATE actions SET state = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ?",
-		state, id,
+		"UPDATE actions SET state = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+		state, id, s.profileID,
 	)
 	return err
 }
 
 func (s *storageAdapter) UpdateActionReachedIndex(id string, index int) error {
 	_, err := s.db.DB.Exec(
-		"UPDATE actions SET reached_index = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ?",
-		index, id,
+		"UPDATE actions SET reached_index = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+		index, id, s.profileID,
 	)
 	return err
 }
@@ -357,12 +368,16 @@ func (s *storageAdapter) SaveExtractedData(actionID string, items []map[string]i
 		return err
 	}
 
+	profileID := s.profileID
+	if profileID == "" {
+		profileID = "default"
+	}
 	stmt, err := tx.Prepare(
 		`INSERT INTO people (id, platform_username, platform, full_name, image_url,
 		        contact_details, website, content_count, follower_count,
 		        following_count, introduction, is_verified, category, job_title,
-		        profile_url, created_at, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		        profile_url, profile_id, created_at, updated_at)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(platform_username, platform)
 		 DO UPDATE SET
 		   full_name       = COALESCE(excluded.full_name, people.full_name),
@@ -453,6 +468,7 @@ func (s *storageAdapter) SaveExtractedData(actionID string, items []map[string]i
 			sql.NullString{}, // category
 			sql.NullString{}, // job_title
 			nullableStr(profileURL),
+			profileID,
 			now, now,
 		)
 		if err != nil {
@@ -509,8 +525,8 @@ func launchBrowserPage(cfg *globalConfig, db *storage.Database, platform string)
 	platformLower := strings.ToLower(platform)
 	var cookiesJSON string
 	err = db.DB.QueryRow(
-		"SELECT cookies_json FROM crawler_sessions WHERE platform = ? ORDER BY expiry DESC LIMIT 1",
-		platformLower,
+		"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND COALESCE(profile_id,'default') = ? ORDER BY expiry DESC LIMIT 1",
+		platformLower, cfg.ProfileID,
 	).Scan(&cookiesJSON)
 	if err == nil && cookiesJSON != "" {
 		var cookies []*proto.NetworkCookieParam
@@ -635,7 +651,7 @@ func executeAction(
 	}()
 
 	// Create the storage adapter.
-	sa := &storageAdapter{db: db}
+	sa := &storageAdapter{db: db, profileID: cfg.ProfileID}
 
 	// Try to get a bot adapter that supports call_bot_method steps.
 	var botAdapter action.BotAdapter
@@ -741,8 +757,8 @@ func executeAction(
 
 	// Update final state.
 	if _, err := db.DB.Exec(
-		"UPDATE actions SET state = ?, reached_index = ?, action_execution_count = action_execution_count + 1, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ?",
-		finalState, extracted+failed, act.ID,
+		"UPDATE actions SET state = ?, reached_index = ?, action_execution_count = action_execution_count + 1, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+		finalState, extracted+failed, act.ID, cfg.ProfileID,
 	); err != nil {
 		return fmt.Errorf("updating action final state: %w", err)
 	}

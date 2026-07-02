@@ -11,6 +11,7 @@ import Logs from './pages/Logs.jsx'
 import NodeRunner from './pages/NodeRunner.jsx'
 import SettingsPage from './pages/Settings.jsx'
 import ImageVault from './pages/ImageVault.jsx'
+import HumanInLoop from './pages/HumanInLoop.jsx'
 import { api, onLogEntry, onActionComplete } from './services/api.js'
 
 export default function App() {
@@ -98,6 +99,7 @@ export default function App() {
   const pages = {
     dashboard: <Dashboard stats={stats} onRefresh={refreshStats} onNavigate={navigate} />,
     noderunner: <NodeRunner onNavigate={navigate} navData={navData} />,
+    hil: <HumanInLoop />,
     people:    <People key={peopleRefreshKey} onProfile={openProfile} />,
     profile:   <Profile id={profileId} onBack={closeProfile} onOpenURL={api.openURL} onOpenPost={openPost} />,
     postDetail: <PostDetail id={postId} onBack={closePost} onOpenURL={api.openURL} />,

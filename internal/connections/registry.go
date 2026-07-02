@@ -506,6 +506,40 @@ var Registry = map[string]PlatformDef{
 		},
 		IconEmoji: "✉️",
 	},
+	"outlook": {
+		ID:         "outlook",
+		Name:       "Outlook / Hotmail",
+		Category:   "communication",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodOAuth, MethodAppPass},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAppPass: {
+				{
+					Key:      "email",
+					Label:    "Email Address",
+					Secret:   false,
+					Required: true,
+					HelpText: "Your Outlook or Hotmail address (e.g. user@outlook.com)",
+				},
+				{
+					Key:      "app_password",
+					Label:    "App Password",
+					Secret:   true,
+					Required: true,
+					HelpURL:  "https://account.microsoft.com/security",
+					HelpText: "Generate an app password in your Microsoft account security settings",
+				},
+			},
+		},
+		OAuth: &OAuthConfig{
+			AuthURL:      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+			TokenURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+			Scopes:       []string{"openid", "offline_access", "User.Read", "https://outlook.office.com/SMTP.Send", "https://outlook.office.com/IMAP.AccessAsUser.All"},
+			CallbackPort: 9876,
+			ExtraParams:  map[string]string{"response_mode": "query"},
+		},
+		IconEmoji: "📨",
+	},
 
 	// ─── Databases ─────────────────────────────────────────────────────────────
 

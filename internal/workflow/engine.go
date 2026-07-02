@@ -30,6 +30,7 @@ type WorkflowEngine struct {
 	cancel         context.CancelFunc
 	pruneInterval  time.Duration
 	maxExecHistory int
+	profileID      string
 }
 
 // EngineConfig holds WorkflowEngine configuration.
@@ -39,6 +40,7 @@ type EngineConfig struct {
 	QueueCapacity  int           // default 1000
 	PruneInterval  time.Duration // default 1h
 	MaxExecHistory int           // default 500
+	ProfileID      string        // active profile for vault image registration
 }
 
 // NewWorkflowEngine creates a fully wired engine. Call Start() to begin processing.
@@ -49,6 +51,10 @@ func NewWorkflowEngineWithStore(store WorkflowStore, db *sql.DB, scheduler Sched
 	applyEngineDefaults(&cfg)
 	connStore := connections.NewStore(db)
 	webhookServer := NewWebhookServer(cfg.WebhookAddr, logger)
+	profileID := cfg.ProfileID
+	if profileID == "" {
+		profileID = "default"
+	}
 	e := &WorkflowEngine{
 		store:          store,
 		connStore:      connStore,
@@ -59,6 +65,7 @@ func NewWorkflowEngineWithStore(store WorkflowStore, db *sql.DB, scheduler Sched
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		pruneInterval:  cfg.PruneInterval,
 		maxExecHistory: cfg.MaxExecHistory,
+		profileID:      profileID,
 	}
 	e.triggerMgr = NewTriggerManager(store, webhookServer, scheduler,
 		func(workflowID string, nodeID string, items []Item) { e.handleTrigger(workflowID, nodeID, items) },
@@ -210,7 +217,7 @@ func (e *WorkflowEngine) pruneLoop(ctx context.Context) {
 
 // runPrune iterates over all workflows and prunes execution history.
 func (e *WorkflowEngine) runPrune(ctx context.Context) {
-	workflows, err := e.store.ListWorkflows(ctx)
+	workflows, err := e.store.ListWorkflows(ctx, e.profileID)
 	if err != nil {
 		e.logger.Warn().Err(err).Msg("engine: prune: failed to list workflows")
 		return
@@ -226,7 +233,7 @@ func (e *WorkflowEngine) runPrune(ctx context.Context) {
 
 // reregisterTriggers loads all active workflows and activates their triggers.
 func (e *WorkflowEngine) reregisterTriggers(ctx context.Context) error {
-	workflows, err := e.store.ListWorkflows(ctx)
+	workflows, err := e.store.ListWorkflows(ctx, e.profileID)
 	if err != nil {
 		return fmt.Errorf("list workflows: %w", err)
 	}
@@ -399,6 +406,9 @@ func (e *WorkflowEngine) handleExecution(ctx context.Context, req ExecutionReque
 // CreateWorkflow saves a new workflow (inactive by default).
 func (e *WorkflowEngine) CreateWorkflow(ctx context.Context, w *Workflow) error {
 	w.IsActive = false
+	if w.ProfileID == "" {
+		w.ProfileID = e.profileID
+	}
 	if err := e.store.CreateWorkflow(ctx, w); err != nil {
 		return fmt.Errorf("engine: create workflow: %w", err)
 	}
@@ -472,6 +482,10 @@ func (e *WorkflowEngine) DeleteWorkflow(ctx context.Context, id string) error {
 	}
 	if existing == nil {
 		return fmt.Errorf("engine: delete workflow: %w", ErrWorkflowNotFound)
+	}
+
+	if existing.ProfileID != "" && existing.ProfileID != e.profileID {
+		return fmt.Errorf("engine: delete workflow: workflow belongs to a different profile")
 	}
 
 	if existing.IsActive {
@@ -656,7 +670,7 @@ func (e *WorkflowEngine) GetWorkflow(ctx context.Context, id string) (*Workflow,
 
 // ListWorkflows returns all workflows.
 func (e *WorkflowEngine) ListWorkflows(ctx context.Context) ([]Workflow, error) {
-	workflows, err := e.store.ListWorkflows(ctx)
+	workflows, err := e.store.ListWorkflows(ctx, e.profileID)
 	if err != nil {
 		return nil, fmt.Errorf("engine: list workflows: %w", err)
 	}
@@ -687,5 +701,6 @@ func (e *WorkflowEngine) ListExecutions(ctx context.Context, workflowID string, 
 // runExecution delegates to RunExecution defined in execution.go.
 func (e *WorkflowEngine) runExecution(ctx context.Context, exec *WorkflowExecution, wf *Workflow, dag *DAG) error {
 	ctx = vault.ContextWithDB(ctx, e.store.RawDB())
+	ctx = vault.ContextWithProfileID(ctx, e.profileID)
 	return RunExecution(ctx, exec, wf, dag, e.registry, e.store, e.connStore, e.expr, e.logger)
 }

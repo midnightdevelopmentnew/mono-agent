@@ -89,9 +89,14 @@ func (a *App) getResourceCredentialData(ctx context.Context, credentialID string
 		return nil, fmt.Errorf("connections manager not available")
 	}
 	conn, err := a.connMgr.Get(ctx, credentialID)
+	// Verify the fetched connection belongs to the active profile.
+	if err == nil && conn != nil && conn.ProfileID != "" && conn.ProfileID != a.activeProfileID {
+		conn = nil
+		err = fmt.Errorf("not in active profile")
+	}
 	if (err != nil || conn == nil) && credentialID != "" {
 		// Fallback: try to find an active connection for the platform by name.
-		if conns, lErr := a.connMgr.List(ctx, credentialID); lErr == nil && len(conns) > 0 {
+		if conns, lErr := a.connMgr.List(ctx, credentialID, a.activeProfileID); lErr == nil && len(conns) > 0 {
 			for i := range conns {
 				if conns[i].Status == "active" {
 					conn = &conns[i]

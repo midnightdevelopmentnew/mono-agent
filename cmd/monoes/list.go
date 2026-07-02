@@ -46,7 +46,9 @@ func newListLsCmd(cfg *globalConfig) *cobra.Command {
 
 			rows, err := db.DB.Query(
 				`SELECT id, COALESCE(list_type,''), name, item_count, created_at, updated_at
-				 FROM social_lists ORDER BY created_at DESC`,
+				 FROM social_lists WHERE COALESCE(profile_id,'default') = ?
+				 ORDER BY created_at DESC`,
+				cfg.ProfileID,
 			)
 			if err != nil {
 				return fmt.Errorf("querying social lists: %w", err)
@@ -123,9 +125,9 @@ func newListCreateCmd(cfg *globalConfig) *cobra.Command {
 			now := time.Now().UTC()
 
 			_, err = db.DB.Exec(
-				`INSERT INTO social_lists (id, name, item_count, created_at, updated_at)
-				 VALUES (?, ?, 0, ?, ?)`,
-				listID, name, now, now,
+				`INSERT INTO social_lists (id, name, item_count, profile_id, created_at, updated_at)
+				 VALUES (?, ?, 0, ?, ?, ?)`,
+				listID, name, cfg.ProfileID, now, now,
 			)
 			if err != nil {
 				return fmt.Errorf("creating list: %w", err)
@@ -165,11 +167,11 @@ func newListShowCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Verify list exists.
+			// Verify list exists and belongs to the active profile.
 			var listName string
 			var itemCount int
 			err = db.DB.QueryRow(
-				"SELECT name, item_count FROM social_lists WHERE id = ?", listID,
+				"SELECT name, item_count FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID,
 			).Scan(&listName, &itemCount)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("list %q not found", listID)
@@ -266,7 +268,7 @@ func newListDeleteCmd(cfg *globalConfig) *cobra.Command {
 			itemResult, _ := db.DB.Exec("DELETE FROM social_list_items WHERE list_id = ?", listID)
 			itemCount, _ := itemResult.RowsAffected()
 
-			result, err := db.DB.Exec("DELETE FROM social_lists WHERE id = ?", listID)
+			result, err := db.DB.Exec("DELETE FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("deleting list: %w", err)
 			}
@@ -309,9 +311,9 @@ func newListAddItemCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Verify list exists.
+			// Verify list exists and belongs to the active profile.
 			var listName string
-			err = db.DB.QueryRow("SELECT name FROM social_lists WHERE id = ?", listID).Scan(&listName)
+			err = db.DB.QueryRow("SELECT name FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID).Scan(&listName)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("list %q not found", listID)
 			}

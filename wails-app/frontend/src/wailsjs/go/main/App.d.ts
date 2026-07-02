@@ -160,3 +160,7 @@ export function SearchVaultImages(arg1: string): Promise<Array<Record<string, an
 export function GetVaultStats(): Promise<Record<string, any>>;
 export function OpenVaultFilePicker(): Promise<string>;
 export function UpdateVaultImageLabel(arg1: string, arg2: string): Promise<void>;
+
+export function GetHILItems(): Promise<Array<Record<string, any>>>;
+export function ApproveHIL(arg1: string, arg2: string): Promise<void>;
+export function RejectHIL(arg1: string): Promise<void>;

@@ -65,6 +65,11 @@ func (s *ChatService) SetCanvasNodeTypes(types []NodeTypeInfo) {
 	s.canvasTools.SetNodeTypes(types)
 }
 
+// SetProfileID sets the active profile for new workflow creation via AI chat.
+func (s *ChatService) SetProfileID(profileID string) {
+	s.canvasTools.SetProfileID(profileID)
+}
+
 // StreamChat sends a user message to the AI provider and streams the response.
 //
 // onChunk is called for each streamed token. onToolCall is called whenever the

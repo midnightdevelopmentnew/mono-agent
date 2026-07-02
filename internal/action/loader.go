@@ -3,11 +3,23 @@ package action
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/monoes/mono-agent/data"
 )
+
+// userActionsDir returns the path to ~/.monoes/actions where user-installed
+// action templates are stored at runtime.
+func userActionsDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".monoes", "actions")
+}
 
 // ActionDef represents a complete action definition loaded from an embedded
 // JSON file under data/actions/<platform>/<TYPE>.json.
@@ -72,7 +84,15 @@ func (l *ActionLoader) Load(platform, actionType string) (*ActionDef, error) {
 	path := fmt.Sprintf("actions/%s/%s.json", normalPlatform, normalType)
 	fileData, err := data.ActionsFS.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("action definition not found: %s/%s: %w", normalPlatform, normalType, err)
+		// Fall back to user-installed templates in ~/.monoes/actions/
+		userDir := userActionsDir()
+		if userDir != "" {
+			userPath := filepath.Join(userDir, normalPlatform, normalType+".json")
+			fileData, err = os.ReadFile(userPath)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("action definition not found: %s/%s", normalPlatform, normalType)
+		}
 	}
 
 	var def ActionDef
@@ -111,6 +131,36 @@ func (l *ActionLoader) ListAvailable() ([]string, error) {
 			}
 		}
 	}
+	// Merge user-installed templates from ~/.monoes/actions/
+	userDir := userActionsDir()
+	if userDir != "" {
+		userPlatformDirs, _ := os.ReadDir(userDir)
+		for _, pd := range userPlatformDirs {
+			if !pd.IsDir() {
+				continue
+			}
+			p := pd.Name()
+			entries, _ := os.ReadDir(filepath.Join(userDir, p))
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+					name := strings.TrimSuffix(e.Name(), ".json")
+					candidate := fmt.Sprintf("%s/%s", p, name)
+					// Deduplicate: skip if embedded FS already provided this one.
+					duplicate := false
+					for _, existing := range result {
+						if existing == candidate {
+							duplicate = true
+							break
+						}
+					}
+					if !duplicate {
+						result = append(result, candidate)
+					}
+				}
+			}
+		}
+	}
+
 	return result, nil
 }
 

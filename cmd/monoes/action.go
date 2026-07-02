@@ -29,6 +29,7 @@ func newActionCmd(cfg *globalConfig) *cobra.Command {
 		newActionResumeCmd(cfg),
 		newActionDeleteCmd(cfg),
 		newActionTargetsCmd(cfg),
+		newActionTemplateCmd(cfg),
 	)
 
 	return cmd
@@ -49,7 +50,9 @@ func newActionListCmd(cfg *globalConfig) *cobra.Command {
 
 			rows, err := db.DB.Query(
 				`SELECT id, created_at, title, type, state, target_platform, created_at_ts
-				 FROM actions ORDER BY position ASC, created_at DESC`,
+				 FROM actions WHERE COALESCE(profile_id,'default') = ?
+				 ORDER BY position ASC, created_at DESC`,
+				cfg.ProfileID,
 			)
 			if err != nil {
 				return fmt.Errorf("querying actions: %w", err)
@@ -131,7 +134,7 @@ func newActionGetCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			act, err := loadActionByID(db, actionID)
+			act, err := loadActionByID(db, actionID, cfg.ProfileID)
 			if err != nil {
 				return err
 			}
@@ -224,7 +227,7 @@ func newActionCreateCmd(cfg *globalConfig) *cobra.Command {
 				ContentMessage: message,
 			}
 
-			if err := upsertAction(db, act); err != nil {
+			if err := upsertAction(db, act, cfg.ProfileID); err != nil {
 				return fmt.Errorf("creating action: %w", err)
 			}
 
@@ -277,7 +280,7 @@ func newActionImportCmd(cfg *globalConfig) *cobra.Command {
 				return fmt.Errorf("parsing action: %w", err)
 			}
 
-			if err := upsertAction(db, act); err != nil {
+			if err := upsertAction(db, act, cfg.ProfileID); err != nil {
 				return fmt.Errorf("saving action: %w", err)
 			}
 
@@ -346,9 +349,9 @@ func newActionPauseCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Verify action exists.
+			// Verify action exists and belongs to the active profile.
 			var currentState string
-			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ?", actionID).Scan(&currentState)
+			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&currentState)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -357,8 +360,8 @@ func newActionPauseCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			_, err = db.DB.Exec(
-				"UPDATE actions SET state = 'PAUSED', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ?",
-				actionID,
+				"UPDATE actions SET state = 'PAUSED', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+				actionID, cfg.ProfileID,
 			)
 			if err != nil {
 				return fmt.Errorf("pausing action: %w", err)
@@ -384,9 +387,9 @@ func newActionResumeCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Verify action exists.
+			// Verify action exists and belongs to the active profile.
 			var currentState string
-			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ?", actionID).Scan(&currentState)
+			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&currentState)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -395,8 +398,8 @@ func newActionResumeCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			_, err = db.DB.Exec(
-				"UPDATE actions SET state = 'PENDING', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ?",
-				actionID,
+				"UPDATE actions SET state = 'PENDING', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+				actionID, cfg.ProfileID,
 			)
 			if err != nil {
 				return fmt.Errorf("resuming action: %w", err)
@@ -422,9 +425,9 @@ func newActionDeleteCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Verify action exists.
+			// Verify action exists and belongs to the active profile.
 			var existingID string
-			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ?", actionID).Scan(&existingID)
+			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&existingID)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -432,11 +435,11 @@ func newActionDeleteCmd(cfg *globalConfig) *cobra.Command {
 				return fmt.Errorf("checking action: %w", err)
 			}
 
-			// Delete targets first.
+			// Delete targets first (action_targets has no profile_id; ownership is via the action).
 			targetResult, _ := db.DB.Exec("DELETE FROM action_targets WHERE action_id = ?", actionID)
 			targetCount, _ := targetResult.RowsAffected()
 
-			result, err := db.DB.Exec("DELETE FROM actions WHERE id = ?", actionID)
+			result, err := db.DB.Exec("DELETE FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("deleting action: %w", err)
 			}

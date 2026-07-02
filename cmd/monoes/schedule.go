@@ -46,7 +46,9 @@ func newScheduleListCmd(cfg *globalConfig) *cobra.Command {
 				        COALESCE(start_date,''), COALESCE(end_date,'')
 				 FROM actions
 				 WHERE scheduled_date IS NOT NULL AND scheduled_date != ''
+				   AND COALESCE(profile_id,'default') = ?
 				 ORDER BY scheduled_date ASC`,
+				cfg.ProfileID,
 			)
 			if err != nil {
 				return fmt.Errorf("querying scheduled actions: %w", err)
@@ -146,9 +148,9 @@ func newScheduleAddCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Verify action exists.
+			// Verify action exists and belongs to the active profile.
 			var existingID string
-			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ?", actionID).Scan(&existingID)
+			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&existingID)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -176,10 +178,10 @@ func newScheduleAddCmd(cfg *globalConfig) *cobra.Command {
 				params = append(params, endDate)
 			}
 
-			params = append(params, actionID)
+			params = append(params, actionID, cfg.ProfileID)
 
 			_, err = db.DB.Exec(
-				fmt.Sprintf("UPDATE actions SET %s WHERE id = ?", setClauses),
+				fmt.Sprintf("UPDATE actions SET %s WHERE id = ? AND COALESCE(profile_id,'default') = ?", setClauses),
 				params...,
 			)
 			if err != nil {
@@ -230,9 +232,9 @@ func newScheduleRemoveCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Verify action exists.
+			// Verify action exists and belongs to the active profile.
 			var existingID string
-			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ?", actionID).Scan(&existingID)
+			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&existingID)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -243,8 +245,8 @@ func newScheduleRemoveCmd(cfg *globalConfig) *cobra.Command {
 			_, err = db.DB.Exec(
 				`UPDATE actions SET scheduled_date = NULL, start_date = NULL, end_date = NULL,
 				 execution_interval = NULL, updated_at_ts = CURRENT_TIMESTAMP
-				 WHERE id = ?`,
-				actionID,
+				 WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+				actionID, cfg.ProfileID,
 			)
 			if err != nil {
 				return fmt.Errorf("removing schedule: %w", err)

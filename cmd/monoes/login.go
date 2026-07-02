@@ -148,9 +148,9 @@ func newLoginCmd(cfg *globalConfig) *cobra.Command {
 
 						expiry := time.Now().Add(30 * 24 * time.Hour) // 30 days
 						_, dbErr := db.DB.Exec(
-							`INSERT OR REPLACE INTO crawler_sessions (username, platform, cookies_json, expiry)
-							 VALUES (?, ?, ?, ?)`,
-							username, strings.ToLower(platform), string(cookiesJSON), expiry,
+							`INSERT OR REPLACE INTO crawler_sessions (username, platform, cookies_json, expiry, profile_id)
+							 VALUES (?, ?, ?, ?, ?)`,
+							username, strings.ToLower(platform), string(cookiesJSON), expiry, cfg.ProfileID,
 						)
 						if dbErr != nil {
 							return fmt.Errorf("saving session: %w", dbErr)
@@ -184,7 +184,8 @@ func newLoginStatusCmd(cfg *globalConfig) *cobra.Command {
 			defer db.Close()
 
 			rows, err := db.DB.Query(
-				`SELECT id, username, platform, expiry, when_added FROM crawler_sessions ORDER BY platform`,
+				`SELECT id, username, platform, expiry, when_added FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform`,
+				cfg.ProfileID,
 			)
 			if err != nil {
 				return fmt.Errorf("querying sessions: %w", err)
@@ -266,7 +267,7 @@ func newLogoutCmd(cfg *globalConfig) *cobra.Command {
 			defer db.Close()
 
 			if all {
-				result, err := db.DB.Exec("DELETE FROM crawler_sessions")
+				result, err := db.DB.Exec("DELETE FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ?", cfg.ProfileID)
 				if err != nil {
 					return fmt.Errorf("deleting all sessions: %w", err)
 				}
@@ -280,7 +281,7 @@ func newLogoutCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			platform := strings.ToLower(args[0])
-			result, err := db.DB.Exec("DELETE FROM crawler_sessions WHERE platform = ?", platform)
+			result, err := db.DB.Exec("DELETE FROM crawler_sessions WHERE platform = ? AND COALESCE(profile_id,'default') = ?", platform, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("deleting session for %s: %w", platform, err)
 			}

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Copy, Trash2, Edit3, Check, AlertTriangle } from 'lucide-react'
+import { X, Copy, Trash2, Edit3, Check, AlertTriangle, Wand2, Download } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
+import ImageEditorFullscreen from './ImageEditorFullscreen'
 
-export default function ImageDetailModal({ image, onClose, onDelete, onRename }) {
+export default function ImageDetailModal({ image, onClose, onDelete, onRename, onSaved }) {
   const overlayRef = useRef(null)
   const [dataUrl, setDataUrl] = useState(null)
   const [imgError, setImgError] = useState(false)
@@ -10,6 +11,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename })
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose() }
@@ -56,6 +58,13 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename })
       setRenaming(false)
       onClose()
     } catch (_) { setRenaming(false) }
+  }
+
+  const handleSave = async () => {
+    const ext = image.filename?.split('.').pop() || 'png'
+    const name = (image.label || image.filename || image.id).replace(/[^a-z0-9_\-. ]/gi, '_')
+    const suggestedName = name.endsWith('.' + ext) ? name : name + '.' + ext
+    await WailsApp.SaveVaultImageToFile(image.id, suggestedName)
   }
 
   const copyRef = () => {
@@ -184,7 +193,36 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename })
 
         {/* Actions */}
         {!renaming && (
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Adjust full-screen button */}
+            <button
+              onClick={() => setEditing(true)}
+              style={{
+                width: '100%', background: 'rgba(0,180,216,0.1)',
+                border: '1px solid rgba(0,180,216,0.35)', borderRadius: 6,
+                padding: '8px 12px', color: '#00b4d8',
+                fontFamily: 'var(--font-mono)', fontSize: 12, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              }}
+            >
+              <Wand2 size={13} /> Adjust Image
+            </button>
+
+            {/* Save to disk */}
+            <button
+              onClick={handleSave}
+              style={{
+                width: '100%', background: 'rgba(16,185,129,0.08)',
+                border: '1px solid rgba(16,185,129,0.3)', borderRadius: 6,
+                padding: '8px 12px', color: '#34d399',
+                fontFamily: 'var(--font-mono)', fontSize: 12, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              }}
+            >
+              <Download size={13} /> Save Image
+            </button>
+
+            <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={copyRef}
               style={{
@@ -226,6 +264,16 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename })
               {confirmDelete ? <><AlertTriangle size={12} /> Confirm</> : <><Trash2 size={12} /> Delete</>}
             </button>
           </div>
+          </div>
+        )}
+
+        {/* Full-screen editor */}
+        {editing && (
+          <ImageEditorFullscreen
+            image={image}
+            onClose={() => setEditing(false)}
+            onSaved={() => { onSaved?.(); setEditing(false) }}
+          />
         )}
       </div>
     </div>

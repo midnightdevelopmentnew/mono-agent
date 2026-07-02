@@ -118,11 +118,14 @@ func (m *Manager) Get(ctx context.Context, id string) (*Connection, error) {
 	return m.store.Get(ctx, id)
 }
 
-func (m *Manager) List(ctx context.Context, platform string) ([]Connection, error) {
-	if platform == "" {
-		return m.store.ListAll(ctx)
+func (m *Manager) List(ctx context.Context, platform, profileID string) ([]Connection, error) {
+	if profileID == "" {
+		profileID = "default"
 	}
-	result, err := m.store.ListByPlatform(ctx, platform)
+	if platform == "" {
+		return m.store.ListAll(ctx, profileID)
+	}
+	result, err := m.store.ListByPlatform(ctx, platform, profileID)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +170,9 @@ func (m *Manager) Test(ctx context.Context, id string) error {
 	return nil
 }
 
-// Remove deletes a connection by ID.
-func (m *Manager) Remove(ctx context.Context, id string) error {
-	return m.store.Delete(ctx, id)
+// Remove deletes a connection by ID, scoped to profileID.
+func (m *Manager) Remove(ctx context.Context, id, profileID string) error {
+	return m.store.Delete(ctx, id, profileID)
 }
 
 // Save persists a connection (insert or update).
@@ -259,7 +262,8 @@ func (m *Manager) pickMethod(p PlatformDef, r *bufio.Reader) AuthMethod {
 // ConnectOAuthWithProgress runs the full OAuth connect flow, calling progress(msg, kind) at each step.
 // kind is "info", "success", or "error". Returns the saved Connection on success.
 // If clientID/clientSecret are non-empty they override env-var lookup.
-func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID string, progress func(msg, kind string), clientID, clientSecret string) (*Connection, error) {
+// profileID scopes the connection; empty string defaults to "default".
+func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID string, progress func(msg, kind string), clientID, clientSecret, profileID string) (*Connection, error) {
 	p, ok := Get(platformID)
 	if !ok {
 		return nil, fmt.Errorf("unknown platform %q", platformID)
@@ -268,13 +272,17 @@ func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID strin
 		return nil, fmt.Errorf("platform %q does not support OAuth", platformID)
 	}
 
-	// Reuse existing connection for this platform if one exists (reconnect flow).
-	conn := &Connection{
-		Platform: platformID,
-		Method:   MethodOAuth,
-		Data:     map[string]interface{}{},
+	if profileID == "" {
+		profileID = "default"
 	}
-	if existing, _ := m.store.ListByPlatform(ctx, platformID); len(existing) > 0 {
+	// Reuse existing connection for this platform+profile if one exists (reconnect flow).
+	conn := &Connection{
+		Platform:  platformID,
+		Method:    MethodOAuth,
+		Data:      map[string]interface{}{},
+		ProfileID: profileID,
+	}
+	if existing, _ := m.store.ListByPlatform(ctx, platformID, profileID); len(existing) > 0 {
 		for i := range existing {
 			if existing[i].Method == MethodOAuth {
 				conn = &existing[i]

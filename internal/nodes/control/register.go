@@ -18,4 +18,5 @@ func RegisterAll(r *workflow.NodeTypeRegistry) {
 	r.Register("core.remove_duplicates", func() workflow.NodeExecutor { return &RemoveDuplicatesNode{} })
 	r.Register("core.compare_datasets", func() workflow.NodeExecutor { return &CompareDatasetsNode{} })
 	r.Register("core.aggregate", func() workflow.NodeExecutor { return &AggregateNode{} })
+	r.Register("core.human_in_loop", func() workflow.NodeExecutor { return &HumanInLoopNode{} })
 }

@@ -74,7 +74,7 @@ type WorkflowStore interface {
 	// Workflows
 	CreateWorkflow(ctx context.Context, w *Workflow) error
 	GetWorkflow(ctx context.Context, id string) (*Workflow, error)
-	ListWorkflows(ctx context.Context) ([]Workflow, error)
+	ListWorkflows(ctx context.Context, profileID string) ([]Workflow, error)
 	UpdateWorkflow(ctx context.Context, w *Workflow) error
 	DeleteWorkflow(ctx context.Context, id string) error
 	SetWorkflowActive(ctx context.Context, id string, active bool) error
@@ -148,11 +148,14 @@ func (s *SQLiteWorkflowStore) CreateWorkflow(ctx context.Context, w *Workflow) e
 	if w.Version == 0 {
 		w.Version = 1
 	}
+	if w.ProfileID == "" {
+		w.ProfileID = "default"
+	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO workflows (id, name, description, is_active, version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		w.ID, w.Name, w.Description, boolToInt(w.IsActive), w.Version,
+		INSERT INTO workflows (id, name, description, is_active, version, profile_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		w.ID, w.Name, w.Description, boolToInt(w.IsActive), w.Version, w.ProfileID,
 		w.CreatedAt, w.UpdatedAt,
 	)
 	if err != nil {
@@ -196,12 +199,23 @@ func (s *SQLiteWorkflowStore) GetWorkflow(ctx context.Context, id string) (*Work
 	return w, nil
 }
 
-// ListWorkflows returns all workflows ordered by created_at DESC.
+// ListWorkflows returns workflows ordered by created_at DESC.
+// If profileID is non-empty, only that profile's workflows are returned.
 // Nodes and Connections are not populated; call GetWorkflow for full detail.
-func (s *SQLiteWorkflowStore) ListWorkflows(ctx context.Context) ([]Workflow, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, description, is_active, version, created_at, updated_at
-		FROM workflows ORDER BY created_at DESC`)
+func (s *SQLiteWorkflowStore) ListWorkflows(ctx context.Context, profileID string) ([]Workflow, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if profileID != "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, name, description, is_active, version, COALESCE(profile_id,'default'), created_at, updated_at
+			FROM workflows WHERE COALESCE(profile_id,'default') = ? ORDER BY created_at DESC`, profileID)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, name, description, is_active, version, COALESCE(profile_id,'default'), created_at, updated_at
+			FROM workflows ORDER BY created_at DESC`)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("listing workflows: %w", err)
 	}
@@ -213,7 +227,7 @@ func (s *SQLiteWorkflowStore) ListWorkflows(ctx context.Context) ([]Workflow, er
 		var isActive int
 		var createdAt, updatedAt sqliteTime
 		if err := rows.Scan(&w.ID, &w.Name, &w.Description, &isActive, &w.Version,
-			&createdAt, &updatedAt); err != nil {
+			&w.ProfileID, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scanning workflow row: %w", err)
 		}
 		w.CreatedAt = createdAt.Time

@@ -51,7 +51,7 @@ func newMessageCmd(cfg *globalConfig) *cobra.Command {
 				ContentMessage: text,
 			}
 
-			if err := upsertAction(db, act); err != nil {
+			if err := upsertAction(db, act, cfg.ProfileID); err != nil {
 				return fmt.Errorf("creating message action: %w", err)
 			}
 

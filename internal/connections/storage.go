@@ -24,6 +24,7 @@ type Connection struct {
 	Data       map[string]interface{} `json:"data"`
 	Status     string                 `json:"status"`      // "active" | "expired" | "error"
 	LastTested string                 `json:"last_tested,omitempty"`
+	ProfileID  string                 `json:"profile_id,omitempty"`
 	CreatedAt  string                 `json:"created_at"`
 	UpdatedAt  string                 `json:"updated_at"`
 }
@@ -38,11 +39,13 @@ CREATE TABLE IF NOT EXISTS connections (
     data        TEXT NOT NULL DEFAULT '{}',
     status      TEXT NOT NULL DEFAULT 'active',
     last_tested TEXT NOT NULL DEFAULT '',
+    profile_id  TEXT NOT NULL DEFAULT 'default',
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_connections_platform ON connections(platform);
 CREATE INDEX IF NOT EXISTS idx_connections_status   ON connections(status);
+CREATE INDEX IF NOT EXISTS idx_connections_profile  ON connections(profile_id);
 `
 
 // Store provides CRUD operations for connections.
@@ -85,9 +88,13 @@ func (s *Store) Save(ctx context.Context, c *Connection) error {
 		return fmt.Errorf("connections.Save: marshal data: %w", err)
 	}
 
+	if c.ProfileID == "" {
+		c.ProfileID = "default"
+	}
+
 	const q = `
-INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     label=excluded.label, account_id=excluded.account_id,
     data=excluded.data, status=excluded.status,
@@ -95,7 +102,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 	_, err = s.db.ExecContext(ctx, q,
 		c.ID, c.Platform, string(c.Method), c.Label, c.AccountID,
-		string(dataBytes), c.Status, c.LastTested, c.CreatedAt, c.UpdatedAt,
+		string(dataBytes), c.Status, c.LastTested, c.ProfileID, c.CreatedAt, c.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("connections.Save: %w", err)
@@ -106,7 +113,7 @@ ON CONFLICT(id) DO UPDATE SET
 // Get returns the connection with the given ID, or nil if not found.
 func (s *Store) Get(ctx context.Context, id string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, platform, method, label, account_id, data, status, last_tested, created_at, updated_at
+		`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
          FROM connections WHERE id = ?`, id)
 	return scanConnection(row)
 }
@@ -121,8 +128,8 @@ func (s *Store) GetOrResolve(ctx context.Context, idOrPlatform string) (*Connect
 		return s.ensureFreshToken(ctx, conn)
 	}
 
-	// Fallback: look up by platform name — auto-pick if only one exists.
-	conns, err := s.ListByPlatform(ctx, idOrPlatform)
+	// Fallback: look up by platform name across all profiles (no profile filter for workflow resolution).
+	conns, err := s.ListByPlatform(ctx, idOrPlatform, "")
 	if err != nil || len(conns) == 0 {
 		return nil, fmt.Errorf("no connection found for %q", idOrPlatform)
 	}
@@ -234,10 +241,10 @@ func envLookup(key string) string {
 }
 
 // ListAll returns all connections ordered by platform then created_at.
-func (s *Store) ListAll(ctx context.Context) ([]Connection, error) {
-	const q = `SELECT id, platform, method, label, account_id, data, status, last_tested, created_at, updated_at
-	           FROM connections ORDER BY platform, created_at`
-	rows, err := s.db.QueryContext(ctx, q)
+func (s *Store) ListAll(ctx context.Context, profileID string) ([]Connection, error) {
+	const q = `SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
+	           FROM connections WHERE COALESCE(profile_id,'default') = ? ORDER BY platform, created_at`
+	rows, err := s.db.QueryContext(ctx, q, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("connections.ListAll: %w", err)
 	}
@@ -252,11 +259,23 @@ func (s *Store) ListAll(ctx context.Context) ([]Connection, error) {
 	return out, nil
 }
 
-// ListByPlatform returns all connections for a given platform, ordered by created_at.
-func (s *Store) ListByPlatform(ctx context.Context, platform string) ([]Connection, error) {
-	const q = `SELECT id, platform, method, label, account_id, data, status, last_tested, created_at, updated_at
-	           FROM connections WHERE platform = ? ORDER BY created_at`
-	rows, err := s.db.QueryContext(ctx, q, platform)
+// ListByPlatform returns connections for a given platform. If profileID is non-empty,
+// only that profile's connections are returned; empty profileID returns all profiles.
+func (s *Store) ListByPlatform(ctx context.Context, platform, profileID string) ([]Connection, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if profileID == "" {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
+			 FROM connections WHERE platform = ? ORDER BY created_at`, platform)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
+			 FROM connections WHERE platform = ? AND COALESCE(profile_id,'default') = ? ORDER BY created_at`,
+			platform, profileID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("connections.ListByPlatform: %w", err)
 	}
@@ -264,10 +283,13 @@ func (s *Store) ListByPlatform(ctx context.Context, platform string) ([]Connecti
 	return scanConnections(rows)
 }
 
-// Delete removes a connection by ID. Returns an error if the row does not exist.
-func (s *Store) Delete(ctx context.Context, id string) error {
-	const q = `DELETE FROM connections WHERE id = ?`
-	res, err := s.db.ExecContext(ctx, q, id)
+// Delete removes a connection by ID, scoped to profileID. Returns an error if the row does not exist.
+func (s *Store) Delete(ctx context.Context, id, profileID string) error {
+	if profileID == "" {
+		profileID = "default"
+	}
+	const q = `DELETE FROM connections WHERE id = ? AND COALESCE(profile_id,'default') = ?`
+	res, err := s.db.ExecContext(ctx, q, id, profileID)
 	if err != nil {
 		return fmt.Errorf("connections.Delete: %w", err)
 	}
@@ -305,7 +327,7 @@ func scanConnection(row *sql.Row) (*Connection, error) {
 	var c Connection
 	var dataJSON, method string
 	err := row.Scan(&c.ID, &c.Platform, &method, &c.Label, &c.AccountID,
-		&dataJSON, &c.Status, &c.LastTested, &c.CreatedAt, &c.UpdatedAt)
+		&dataJSON, &c.Status, &c.LastTested, &c.ProfileID, &c.CreatedAt, &c.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -327,7 +349,7 @@ func scanConnections(rows *sql.Rows) ([]Connection, error) {
 		var method, dataJSON string
 		if err := rows.Scan(
 			&c.ID, &c.Platform, &method, &c.Label, &c.AccountID,
-			&dataJSON, &c.Status, &c.LastTested, &c.CreatedAt, &c.UpdatedAt,
+			&dataJSON, &c.Status, &c.LastTested, &c.ProfileID, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanConnections: %w", err)
 		}

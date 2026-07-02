@@ -9,6 +9,8 @@ export function AddPersonTag(arg1:string,arg2:string,arg3:string):Promise<main.T
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function ApproveHIL(arg1:string,arg2:string):Promise<void>;
+
 export function CancelWorkflow(arg1:string):Promise<void>;
 
 export function CheckForUpdate():Promise<main.UpdateInfo>;
@@ -20,6 +22,8 @@ export function ClearLogs():Promise<void>;
 export function ConnectPlatformOAuth(arg1:string):Promise<string>;
 
 export function CreateAction(arg1:main.CreateActionRequest):Promise<main.ActionInfo>;
+
+export function CreateProfile(arg1:string):Promise<main.ProfileInfo>;
 
 export function CreateResource(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.ResourceItemResult>;
 
@@ -49,6 +53,8 @@ export function GetActionTargets(arg1:string):Promise<Array<main.TargetInfo>>;
 
 export function GetActions(arg1:string,arg2:string,arg3:number):Promise<Array<main.ActionInfo>>;
 
+export function GetActiveProfile():Promise<main.ProfileInfo>;
+
 export function GetAllTags():Promise<Array<main.TagInfo>>;
 
 export function GetAvailableActionTypes():Promise<Record<string, Array<string>>>;
@@ -60,6 +66,8 @@ export function GetDBPath():Promise<string>;
 export function GetDashboardStats():Promise<main.DashboardStats>;
 
 export function GetExecutionDetail(arg1:string):Promise<Record<string, any>>;
+
+export function GetHILItems():Promise<Array<main.HILItem>>;
 
 export function GetLogs():Promise<Array<main.LogEntry>>;
 
@@ -82,6 +90,8 @@ export function GetPersonTags(arg1:string):Promise<Array<main.TagInfo>>;
 export function GetPostComments(arg1:string):Promise<Array<main.PostComment>>;
 
 export function GetPostDetail(arg1:string):Promise<main.PostDetail>;
+
+export function GetProfiles():Promise<Array<main.ProfileInfo>>;
 
 export function GetRecentExecutions(arg1:number):Promise<Array<main.WorkflowExecutionSummary>>;
 
@@ -131,6 +141,8 @@ export function OpenURL(arg1:string):Promise<void>;
 
 export function OpenVaultFilePicker():Promise<string>;
 
+export function RejectHIL(arg1:string):Promise<void>;
+
 export function RemoveConnection(arg1:string):Promise<string>;
 
 export function RemovePersonTag(arg1:string,arg2:string):Promise<void>;
@@ -145,6 +157,8 @@ export function SaveConnectionDirect(arg1:string,arg2:string,arg3:string):Promis
 
 export function SaveCredential(arg1:main.SaveCredentialRequest):Promise<main.CredentialSummary>;
 
+export function SaveVaultImageToFile(arg1:string,arg2:string):Promise<string>;
+
 export function SaveWorkflow(arg1:main.SaveWorkflowRequest):Promise<main.WorkflowSummary>;
 
 export function SearchVaultImages(arg1:string):Promise<Array<Record<string, any>>>;
@@ -156,6 +170,8 @@ export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise
 export function SetWorkflowActive(arg1:string,arg2:boolean):Promise<void>;
 
 export function StreamAIChat(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function SwitchProfile(arg1:string):Promise<void>;
 
 export function TestAIProvider(arg1:string):Promise<string>;
 

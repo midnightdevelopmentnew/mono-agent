@@ -102,7 +102,7 @@ func resolveCredentialData(ctx context.Context, store *connections.Store, creden
 	conn, err := store.Get(ctx, credentialOrPlatform)
 	if (err != nil || conn == nil) && credentialOrPlatform != "" {
 		// Fallback: look up by platform name.
-		conns, lErr := store.ListByPlatform(ctx, credentialOrPlatform)
+		conns, lErr := store.ListByPlatform(ctx, credentialOrPlatform, "")
 		if lErr == nil && len(conns) > 0 {
 			for i := range conns {
 				if conns[i].Status == "active" {
@@ -237,8 +237,9 @@ func refreshOAuthTokenCLI(ctx context.Context, store *connections.Store, conn *c
 
 // cliSessionProvider launches a headed browser and restores session cookies from the DB.
 type cliSessionProvider struct {
-	db      *sql.DB
-	browser *rod.Browser
+	db        *sql.DB
+	profileID string
+	browser   *rod.Browser
 }
 
 func (sp *cliSessionProvider) GetPage(ctx context.Context, platform string, username string) (browserpkg.PageInterface, error) {
@@ -284,8 +285,8 @@ func (sp *cliSessionProvider) GetPage(ctx context.Context, platform string, user
 	if sp.db != nil {
 		var cookiesJSON string
 		qErr := sp.db.QueryRow(
-			"SELECT cookies_json FROM crawler_sessions WHERE platform = ? ORDER BY expiry DESC LIMIT 1",
-			strings.ToLower(platform),
+			"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND COALESCE(profile_id,'default') = ? ORDER BY expiry DESC LIMIT 1",
+			strings.ToLower(platform), sp.profileID,
 		).Scan(&cookiesJSON)
 		if qErr == nil && cookiesJSON != "" {
 			var cookies []*proto.NetworkCookieParam
@@ -637,7 +638,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 
 			// Set up browser session provider, bot registry, and config manager for social/browser nodes.
 			if isBrowserNodeType(nodeType) {
-				sp := &cliSessionProvider{db: rawDB}
+				sp := &cliSessionProvider{db: rawDB, profileID: cfg.ProfileID}
 				defer sp.Close()
 
 				// Start extension server and try to use Chrome extension first.
@@ -717,7 +718,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					allItems = append(allItems, o.Items...)
 				}
 				if len(allItems) > 0 {
-					saved, skipped, failed := savePostsToDB(ctx, rawDB, allItems, nodeType, config)
+					saved, skipped, failed := savePostsToDB(ctx, rawDB, allItems, nodeType, config, cfg.ProfileID)
 					fmt.Fprintf(os.Stderr, "  Saved %d post(s) to posts table (%d skipped, %d failed)\n", saved, skipped, failed)
 				}
 			}
@@ -816,11 +817,14 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 
 // savePostsToDB upserts scraped post items into the posts table.
 // Returns (saved, skipped, failed) counts.
-func savePostsToDB(ctx context.Context, db *sql.DB, items []workflow.Item, nodeType string, config map[string]interface{}) (int, int, int) {
+func savePostsToDB(ctx context.Context, db *sql.DB, items []workflow.Item, nodeType string, config map[string]interface{}, profileID string) (int, int, int) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	// Derive platform from nodeType prefix e.g. "instagram.list_user_posts" → "INSTAGRAM"
 	platform := strings.ToUpper(strings.SplitN(nodeType, ".", 2)[0])
 
-	// Resolve person_id: find username from config targets, look up people table.
+	// Resolve person_id: find username from config targets, look up people table scoped to active profile.
 	personID := ""
 	if targets, ok := config["targets"].([]interface{}); ok && len(targets) > 0 {
 		if t, ok := targets[0].(map[string]interface{}); ok {
@@ -831,8 +835,8 @@ func savePostsToDB(ctx context.Context, db *sql.DB, items []workflow.Item, nodeT
 			}
 			if username != "" {
 				_ = db.QueryRowContext(ctx,
-					"SELECT id FROM people WHERE platform_username = ? AND UPPER(platform) = ?",
-					username, platform,
+					"SELECT id FROM people WHERE platform_username = ? AND UPPER(platform) = ? AND COALESCE(profile_id,'default') = ?",
+					username, platform, profileID,
 				).Scan(&personID)
 			}
 		}

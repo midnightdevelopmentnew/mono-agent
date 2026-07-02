@@ -53,8 +53,9 @@ func newPeopleListCmd(cfg *globalConfig) *cobra.Command {
 			query := `SELECT id, platform_username, platform, COALESCE(full_name,''),
 			                 COALESCE(follower_count,''), COALESCE(following_count,0), is_verified,
 			                 COALESCE(category,''), COALESCE(job_title,'')
-			          FROM people WHERE 1=1`
+			          FROM people WHERE COALESCE(profile_id,'default') = ?`
 			var params []interface{}
+			params = append(params, cfg.ProfileID)
 
 			if platform != "" {
 				query += " AND platform = ?"
@@ -175,7 +176,7 @@ func newPeopleGetCmd(cfg *globalConfig) *cobra.Command {
 				        following_count, introduction, is_verified,
 				        category, job_title,
 				        created_at, updated_at
-				 FROM people WHERE id = ?`, personID,
+				 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personID, cfg.ProfileID,
 			).Scan(
 				&p.ID, &p.PlatformUsername, &p.Platform, &fullName,
 				&imageURL, &contactDetails, &website, &p.ContentCount,
@@ -256,7 +257,7 @@ func newPeopleDeleteCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			result, err := db.DB.Exec("DELETE FROM people WHERE id = ?", personID)
+			result, err := db.DB.Exec("DELETE FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?", personID, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("deleting person: %w", err)
 			}
@@ -321,8 +322,8 @@ func newPeopleImportCmd(cfg *globalConfig) *cobra.Command {
 				`INSERT INTO people (id, platform_username, platform, full_name, image_url,
 				        contact_details, website, content_count, follower_count,
 				        following_count, introduction, is_verified, category, job_title,
-				        created_at, updated_at)
-				 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+				        profile_id, created_at, updated_at)
+				 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 				 ON CONFLICT(platform_username, platform)
 				 DO UPDATE SET
 				   full_name       = excluded.full_name,
@@ -390,7 +391,7 @@ func newPeopleImportCmd(cfg *globalConfig) *cobra.Command {
 					contentCount, nullableStr(followerCount), followingCount,
 					nullableStr(introduction), isVerified,
 					nullableStr(category), nullableStr(jobTitle),
-					now, now,
+					cfg.ProfileID, now, now,
 				)
 				if err != nil {
 					tx.Rollback()

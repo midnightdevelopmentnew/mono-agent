@@ -48,11 +48,11 @@ func (h *HybridWorkflowStore) GetWorkflow(ctx context.Context, id string) (*Work
 	return h.sql.GetWorkflow(ctx, id)
 }
 
-func (h *HybridWorkflowStore) ListWorkflows(ctx context.Context) ([]Workflow, error) {
+func (h *HybridWorkflowStore) ListWorkflows(ctx context.Context, profileID string) ([]Workflow, error) {
 	seen := make(map[string]bool)
 	var result []Workflow
 
-	// Collect file-store workflows first.
+	// Collect file-store workflows first (file store has no profile concept).
 	if h.files != nil {
 		filePtrs, err := h.files.ListWorkflows(ctx)
 		if err != nil {
@@ -65,7 +65,7 @@ func (h *HybridWorkflowStore) ListWorkflows(ctx context.Context) ([]Workflow, er
 	}
 
 	// Append SQLite workflows not already present in the file store.
-	sqlWFs, err := h.sql.ListWorkflows(ctx)
+	sqlWFs, err := h.sql.ListWorkflows(ctx, profileID)
 	if err != nil {
 		return nil, err
 	}

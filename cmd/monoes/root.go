@@ -18,6 +18,7 @@ type globalConfig struct {
 	Verbose    bool
 	JSONOutput bool
 	LogFile    string
+	ProfileID  string // active profile; defaults to value stored in settings table
 }
 
 func newRootCmd() *cobra.Command {
@@ -29,6 +30,10 @@ func newRootCmd() *cobra.Command {
 		Long:          "Mono Agent — automate keyword search, profile discovery, bulk messaging, content publishing, and more across Instagram, LinkedIn, X, TikTok, Telegram, and Email.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			// Best-effort: install Claude Code skill on first run if Claude is detected.
+			runClaudeFirstRunCheck()
+		},
 	}
 
 	// Global flags
@@ -40,6 +45,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Enable debug logging")
 	cmd.PersistentFlags().BoolVar(&cfg.JSONOutput, "json", false, "Output in JSON format")
 	cmd.PersistentFlags().StringVar(&cfg.LogFile, "log-file", "", "Path to log file")
+	cmd.PersistentFlags().StringVar(&cfg.ProfileID, "profile", "", "Profile to use (defaults to the active profile in settings)")
 
 	// Register subcommands
 	cmd.AddCommand(
@@ -50,6 +56,8 @@ func newRootCmd() *cobra.Command {
 		newMessageCmd(cfg),
 		newCommentCmd(cfg),
 		newActionCmd(cfg),
+		newCrawlCmd(cfg),
+		newInitCmd(),
 		newPeopleCmd(cfg),
 		newListCmd(cfg),
 		newTemplateCmd(cfg),
@@ -62,6 +70,7 @@ func newRootCmd() *cobra.Command {
 		newNodeCmd(cfg),
 		newConnectCmd(cfg),
 		newRefCmd(),
+		newProfileCmd(cfg),
 	)
 
 	return cmd
@@ -80,6 +89,7 @@ func expandPath(path string) string {
 }
 
 // initDB creates and returns a database connection, applying migrations.
+// It also resolves cfg.ProfileID: if not set via --profile, reads it from the settings table.
 func initDB(cfg *globalConfig) (*storage.Database, error) {
 	dbPath := expandPath(cfg.DBPath)
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
@@ -92,6 +102,15 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	if err := db.ApplyMigrations(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	// Resolve active profile if not overridden on the command line.
+	if cfg.ProfileID == "" {
+		var id string
+		_ = db.DB.QueryRow(`SELECT value FROM settings WHERE key = 'active_profile_id'`).Scan(&id)
+		if id == "" {
+			id = "default"
+		}
+		cfg.ProfileID = id
 	}
 	return db, nil
 }

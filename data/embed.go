@@ -12,3 +12,9 @@ var MigrationsFS embed.FS
 //
 //go:embed actions
 var ActionsFS embed.FS
+
+// SkillsFS contains Claude Code skill markdown files embedded at compile time.
+// These are installed to ~/.claude/skills/ by `monoagent init --claude`.
+//
+//go:embed skills
+var SkillsFS embed.FS

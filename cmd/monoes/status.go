@@ -27,14 +27,14 @@ func newStatusCmd(cfg *globalConfig) *cobra.Command {
 
 			// Session count.
 			var sessionCount int
-			err = db.DB.QueryRow("SELECT COUNT(*) FROM crawler_sessions").Scan(&sessionCount)
+			err = db.DB.QueryRow("SELECT COUNT(*) FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ?", cfg.ProfileID).Scan(&sessionCount)
 			if err != nil {
 				sessionCount = 0
 			}
 
 			// People count.
 			var peopleCount int
-			err = db.DB.QueryRow("SELECT COUNT(*) FROM people").Scan(&peopleCount)
+			err = db.DB.QueryRow("SELECT COUNT(*) FROM people WHERE COALESCE(profile_id,'default') = ?", cfg.ProfileID).Scan(&peopleCount)
 			if err != nil {
 				peopleCount = 0
 			}
@@ -55,7 +55,8 @@ func newStatusCmd(cfg *globalConfig) *cobra.Command {
 			var totalActions int
 
 			rows, err := db.DB.Query(
-				"SELECT state, COUNT(*) FROM actions GROUP BY state ORDER BY state",
+				"SELECT state, COUNT(*) FROM actions WHERE COALESCE(profile_id,'default') = ? GROUP BY state ORDER BY state",
+				cfg.ProfileID,
 			)
 			if err == nil {
 				defer rows.Close()
@@ -77,7 +78,7 @@ func newStatusCmd(cfg *globalConfig) *cobra.Command {
 
 			// List count.
 			var listCount int
-			err = db.DB.QueryRow("SELECT COUNT(*) FROM social_lists").Scan(&listCount)
+			err = db.DB.QueryRow("SELECT COUNT(*) FROM social_lists WHERE COALESCE(profile_id,'default') = ?", cfg.ProfileID).Scan(&listCount)
 			if err != nil {
 				listCount = 0
 			}
