@@ -123,55 +123,6 @@ jobs:
           name: macos-arm64-app
           path: dist/MonoAgent-darwin-arm64.zip
 
-  # ─── 2c. Build macOS app (Intel / amd64) ──────────────────────────────────
-  build-macos-amd64:
-    needs: version
-    runs-on: macos-13
-    env:
-      TAG: ${{ needs.version.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: wails-app/go.mod
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: wails-app/frontend/package-lock.json
-
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
-
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: wails-app/frontend
-
-      - name: Build CLI (bundled, amd64)
-        run: |
-          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli ./cmd/monoes
-
-      - name: Build Wails app (amd64)
-        working-directory: wails-app
-        run: |
-          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          wails build -ldflags "$LD" -skipbindings=false -platform darwin/amd64
-
-      - name: Bundle CLI into .app and zip
-        run: |
-          APP="wails-app/build/bin/MonoAgent.app"
-          cp wails-app/monoagentcli "${APP}/Contents/MacOS/monoagentcli"
-          mkdir -p dist
-          (cd wails-app/build/bin && zip -r "../../../dist/MonoAgent-darwin-amd64.zip" "MonoAgent.app")
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-amd64-app
-          path: dist/MonoAgent-darwin-amd64.zip
-
   # ─── 2d. Build Windows app ────────────────────────────────────────────────
   build-windows:
     needs: version
@@ -286,7 +237,7 @@ jobs:
 
   # ─── 3. Publish GitHub Release with all artifacts ─────────────────────────
   release:
-    needs: [version, build-cli, build-macos-arm64, build-macos-amd64, build-windows, build-linux]
+    needs: [version, build-cli, build-macos-arm64, build-windows, build-linux]
     runs-on: ubuntu-latest
     env:
       TAG:  ${{ needs.version.outputs.tag }}
@@ -355,7 +306,6 @@ jobs:
             echo "| Platform | Download |"
             echo "|----------|----------|"
             echo "| macOS (Apple Silicon) | [MonoAgent-darwin-arm64.zip](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-darwin-arm64.zip) |"
-            echo "| macOS (Intel) | [MonoAgent-darwin-amd64.zip](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-darwin-amd64.zip) |"
             echo "| Windows | [MonoAgent-windows-amd64.exe](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-windows-amd64.exe) |"
             echo "| Linux | [MonoAgent-linux-amd64.tar.gz](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-linux-amd64.tar.gz) |"
             echo ""
@@ -364,9 +314,6 @@ jobs:
             echo '```bash'
             echo "# macOS (Apple Silicon)"
             echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagentcli-darwin-arm64 -o monoagentcli && chmod +x monoagentcli && sudo mv monoagentcli /usr/local/bin/"
-            echo ""
-            echo "# macOS (Intel)"
-            echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagentcli-darwin-amd64 -o monoagentcli && chmod +x monoagentcli && sudo mv monoagentcli /usr/local/bin/"
             echo ""
             echo "# Linux"
             echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagentcli-linux-amd64 -o monoagentcli && chmod +x monoagentcli && sudo mv monoagentcli /usr/local/bin/"
