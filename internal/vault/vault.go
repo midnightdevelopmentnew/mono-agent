@@ -59,9 +59,9 @@ func ProfileIDFromContext(ctx context.Context) string {
 	return "default"
 }
 
-// VaultDir returns the absolute path of the vault directory (~/.monoes/vault/).
+// VaultDir returns the absolute path of the vault directory (~/.monoagent/vault/).
 func VaultDir() string {
-	return filepath.Join(os.Getenv("HOME"), ".monoes", "vault")
+	return filepath.Join(os.Getenv("HOME"), ".monoagent", "vault")
 }
 
 // EnsureVaultDir creates the vault directory if it does not exist.

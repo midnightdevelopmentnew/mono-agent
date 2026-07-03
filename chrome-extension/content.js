@@ -820,12 +820,12 @@ async function evalCode({ code, args }) {
   // the page's `window`. To execute arbitrary JS in the page's MAIN world, we
   // inject a <script> tag and communicate the result back via a CustomEvent
   // on the shared DOM.
-  const resultKey = '__monoes_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  const resultKey = '__monoagent_' + Date.now() + '_' + Math.random().toString(36).slice(2);
   const argsJSON = JSON.stringify(args || []);
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      document.removeEventListener('monoes-eval-done', handler);
+      document.removeEventListener('monoagent-eval-done', handler);
       reject(new Error('Eval timeout: 30s'));
     }, 30000);
 
@@ -834,7 +834,7 @@ async function evalCode({ code, args }) {
       try { data = JSON.parse(e.detail); } catch { return; }
       if (data.key !== resultKey) return;
 
-      document.removeEventListener('monoes-eval-done', handler);
+      document.removeEventListener('monoagent-eval-done', handler);
       clearTimeout(timeout);
 
       if (data.error) {
@@ -844,7 +844,7 @@ async function evalCode({ code, args }) {
       }
     }
 
-    document.addEventListener('monoes-eval-done', handler);
+    document.addEventListener('monoagent-eval-done', handler);
 
     const script = document.createElement('script');
     script.textContent = `
@@ -857,7 +857,7 @@ async function evalCode({ code, args }) {
         } catch(e) {
           __err = e.message;
         }
-        document.dispatchEvent(new CustomEvent('monoes-eval-done', {
+        document.dispatchEvent(new CustomEvent('monoagent-eval-done', {
           detail: JSON.stringify({
             key: '${resultKey}',
             value: __val === undefined ? null : __val,

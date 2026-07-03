@@ -1,5 +1,5 @@
 /**
- * Monoes Agent Bridge — Background Service Worker
+ * MonoAgent Bridge — Background Service Worker
  *
  * Connects to the Go backend via WebSocket and dispatches commands
  * to content scripts or the chrome.tabs / chrome.scripting APIs.
@@ -20,9 +20,9 @@ let connectionStatus = "disconnected"; // "connected" | "disconnected" | "connec
 let keepAliveInterval = null;
 
 const KEEP_ALIVE_INTERVAL = 20000; // 20s ping to prevent WS idle timeout
-const DEFAULT_WS_URL = "ws://127.0.0.1:9222/monoes";
+const DEFAULT_WS_URL = "ws://127.0.0.1:9222/monoagent";
 const COMMAND_TIMEOUT = 30000; // 30s default timeout for pending commands
-const KEEPALIVE_ALARM = "monoes-keepalive";
+const KEEPALIVE_ALARM = "monoagent-keepalive";
 const ALARM_PERIOD_MINUTES = 0.4; // ~24 seconds (minimum safe value for MV3)
 
 // Pending navigation completions: tabId -> {resolve, timeout}
@@ -37,14 +37,14 @@ function ensureAlarm() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("[monoes] Extension installed, starting connection loop");
+  console.log("[monoagent] Extension installed, starting connection loop");
   ensureAlarm();
   connect();
   fastRetryConnect();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  console.log("[monoes] Chrome started, starting connection loop");
+  console.log("[monoagent] Chrome started, starting connection loop");
   ensureAlarm();
   connect();
   fastRetryConnect();
@@ -53,7 +53,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === KEEPALIVE_ALARM) {
     if (connectionStatus !== "connected") {
-      console.log("[monoes] Alarm-triggered reconnect attempt");
+      console.log("[monoagent] Alarm-triggered reconnect attempt");
       connect();
     }
     // Re-create the alarm to guarantee the service worker stays alive.
@@ -100,7 +100,7 @@ async function connect() {
   try {
     ws = new WebSocket(url);
   } catch (err) {
-    console.error("[monoes] WebSocket constructor error:", err.message);
+    console.error("[monoagent] WebSocket constructor error:", err.message);
     connectionStatus = "disconnected";
     broadcastStatus();
     return;
@@ -109,7 +109,7 @@ async function connect() {
   ws.onopen = () => {
     connectionStatus = "connected";
     fastRetryCount = FAST_RETRY_MAX; // Stop fast retry — we're connected
-    console.log("[monoes] Connected to backend at", url);
+    console.log("[monoagent] Connected to backend at", url);
     broadcastStatus();
     startKeepAlive();
   };
@@ -119,7 +119,7 @@ async function connect() {
     try {
       cmd = JSON.parse(event.data);
     } catch (err) {
-      console.error("[monoes] Invalid JSON from backend:", err.message);
+      console.error("[monoagent] Invalid JSON from backend:", err.message);
       return;
     }
     // Ignore pong responses
@@ -128,7 +128,7 @@ async function connect() {
   };
 
   ws.onerror = (err) => {
-    console.error("[monoes] WebSocket error:", err);
+    console.error("[monoagent] WebSocket error:", err);
   };
 
   ws.onclose = () => {
@@ -344,7 +344,7 @@ async function evalInTab({ tabId, js, expression, args }) {
         }
         return fn;
       } catch(e) {
-        return { __monoes_error: e.message };
+        return { __monoagent_error: e.message };
       }
     }
   });
@@ -357,14 +357,14 @@ async function evalInTab({ tabId, js, expression, args }) {
   try {
     results = await Promise.race([execPromise, timeoutPromise]);
   } catch(e) {
-    console.error("[monoes] evalInTab failed:", e.message);
+    console.error("[monoagent] evalInTab failed:", e.message);
     return null;
   }
 
   if (!results || results.length === 0) return null;
   const result = results[0]?.result;
-  if (result && result.__monoes_error) {
-    throw new Error("Eval: " + result.__monoes_error);
+  if (result && result.__monoagent_error) {
+    throw new Error("Eval: " + result.__monoagent_error);
   }
   return result;
 }

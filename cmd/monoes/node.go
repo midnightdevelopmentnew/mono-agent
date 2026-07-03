@@ -116,7 +116,7 @@ func resolveCredentialData(ctx context.Context, store *connections.Store, creden
 		}
 	}
 	if conn == nil {
-		return nil, fmt.Errorf("no connection found for %q — run `monoes connect %s` first", credentialOrPlatform, credentialOrPlatform)
+		return nil, fmt.Errorf("no connection found for %q — run `monoagentcli connect %s` first", credentialOrPlatform, credentialOrPlatform)
 	}
 
 	// Check if OAuth token needs refresh (expires within 60 seconds).
@@ -414,7 +414,7 @@ func newNodeListCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all available node types",
-		Example: `  monoes node list
+		Example: `  monoagentcli node list
   monoes node list --filter comm
   monoes node list --filter http`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -566,7 +566,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				if len(matches) > 0 {
 					return fmt.Errorf("unknown node type %q. Did you mean one of: %s", nodeType, strings.Join(matches, ", "))
 				}
-				return fmt.Errorf("unknown node type %q. Run `monoes node list` to see all types", nodeType)
+				return fmt.Errorf("unknown node type %q. Run `monoagentcli node list` to see all types", nodeType)
 			}
 
 			// Parse config

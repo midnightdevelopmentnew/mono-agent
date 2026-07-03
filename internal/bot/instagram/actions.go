@@ -48,15 +48,15 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 	// We use JS to find it in the action section context.
 	res, err := page.Timeout(10 * time.Second).Eval(`() => {
 		// Clean up any previous marker.
-		const prev = document.querySelector('[data-monoes-comment-input]');
-		if (prev) prev.removeAttribute('data-monoes-comment-input');
+		const prev = document.querySelector('[data-monoagent-comment-input]');
+		if (prev) prev.removeAttribute('data-monoagent-comment-input');
 
 		// Strategy 1: textarea with aria-label containing "comment"
 		const textareas = document.querySelectorAll(
 			'textarea[aria-label*="comment" i], textarea[aria-label*="Comment" i]'
 		);
 		if (textareas.length > 0) {
-			textareas[textareas.length - 1].setAttribute('data-monoes-comment-input', 'true');
+			textareas[textareas.length - 1].setAttribute('data-monoagent-comment-input', 'true');
 			return 'marked_textarea';
 		}
 
@@ -66,14 +66,14 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 			'div[aria-label*="comment" i][contenteditable="true"]'
 		);
 		if (editables.length > 0) {
-			editables[editables.length - 1].setAttribute('data-monoes-comment-input', 'true');
+			editables[editables.length - 1].setAttribute('data-monoagent-comment-input', 'true');
 			return 'marked_editable';
 		}
 
 		// Strategy 3: any form textarea or contenteditable in the post context
 		const formTextareas = document.querySelectorAll('form textarea');
 		if (formTextareas.length > 0) {
-			formTextareas[formTextareas.length - 1].setAttribute('data-monoes-comment-input', 'true');
+			formTextareas[formTextareas.length - 1].setAttribute('data-monoagent-comment-input', 'true');
 			return 'marked_form_textarea';
 		}
 
@@ -89,7 +89,7 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 	}
 
 	// Find the marked element with rod and click to focus it.
-	commentInput, err := page.Timeout(5 * time.Second).Element("[data-monoes-comment-input='true']")
+	commentInput, err := page.Timeout(5 * time.Second).Element("[data-monoagent-comment-input='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked comment input not found on %s: %w", postURL, err)
 	}
@@ -113,8 +113,8 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 
 	// Step 2: Find and click the Post button.
 	postRes, err := page.Timeout(10 * time.Second).Eval(`() => {
-		const prev = document.querySelector('[data-monoes-post-btn]');
-		if (prev) prev.removeAttribute('data-monoes-post-btn');
+		const prev = document.querySelector('[data-monoagent-post-btn]');
+		if (prev) prev.removeAttribute('data-monoagent-post-btn');
 
 		// Strategy 1: div[role=button] or button with text "Post"
 		const allBtns = document.querySelectorAll(
@@ -123,7 +123,7 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 		for (const btn of allBtns) {
 			const text = (btn.textContent || '').trim();
 			if (text === 'Post') {
-				btn.setAttribute('data-monoes-post-btn', 'true');
+				btn.setAttribute('data-monoagent-post-btn', 'true');
 				return 'marked';
 			}
 		}
@@ -131,7 +131,7 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 		// Strategy 2: submit button inside a form
 		const submitBtn = document.querySelector('form button[type="submit"]');
 		if (submitBtn) {
-			submitBtn.setAttribute('data-monoes-post-btn', 'true');
+			submitBtn.setAttribute('data-monoagent-post-btn', 'true');
 			return 'marked';
 		}
 
@@ -145,7 +145,7 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 		return fmt.Errorf("instagram: could not find Post button on %s", postURL)
 	}
 
-	postBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-post-btn='true']")
+	postBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-post-btn='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked Post button not found: %w", err)
 	}
@@ -161,10 +161,10 @@ func (b *InstagramBot) CommentPost(ctx context.Context, page *rod.Page, postURL,
 
 	// Clean up markers.
 	page.Eval(`() => {
-		const el1 = document.querySelector('[data-monoes-comment-input]');
-		if (el1) el1.removeAttribute('data-monoes-comment-input');
-		const el2 = document.querySelector('[data-monoes-post-btn]');
-		if (el2) el2.removeAttribute('data-monoes-post-btn');
+		const el1 = document.querySelector('[data-monoagent-comment-input]');
+		if (el1) el1.removeAttribute('data-monoagent-comment-input');
+		const el2 = document.querySelector('[data-monoagent-post-btn]');
+		if (el2) el2.removeAttribute('data-monoagent-post-btn');
 	}`)
 
 	return nil
@@ -549,15 +549,15 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 
 	// Step 1: Find and click the "New post" button.
 	createRes, err := page.Timeout(10 * time.Second).Eval(`() => {
-		const prev = document.querySelector('[data-monoes-create-btn]');
-		if (prev) prev.removeAttribute('data-monoes-create-btn');
+		const prev = document.querySelector('[data-monoagent-create-btn]');
+		if (prev) prev.removeAttribute('data-monoagent-create-btn');
 
 		// Strategy 1: SVG with aria-label "New post"
 		const svg = document.querySelector('svg[aria-label="New post"]');
 		if (svg) {
 			const btn = svg.closest('a') || svg.closest('div[role="button"]') || svg.closest('button') || svg.parentElement;
 			if (btn) {
-				btn.setAttribute('data-monoes-create-btn', 'true');
+				btn.setAttribute('data-monoagent-create-btn', 'true');
 				return 'marked';
 			}
 		}
@@ -565,7 +565,7 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 		// Strategy 2: link to /create/
 		const createLink = document.querySelector('a[href*="/create"]');
 		if (createLink) {
-			createLink.setAttribute('data-monoes-create-btn', 'true');
+			createLink.setAttribute('data-monoagent-create-btn', 'true');
 			return 'marked';
 		}
 
@@ -579,7 +579,7 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 		return fmt.Errorf("instagram: could not find 'New post' button")
 	}
 
-	createBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-create-btn='true']")
+	createBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-create-btn='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked create button not found: %w", err)
 	}
@@ -727,8 +727,8 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 
 	// Clean up markers.
 	page.Eval(`() => {
-		const el = document.querySelector('[data-monoes-create-btn]');
-		if (el) el.removeAttribute('data-monoes-create-btn');
+		const el = document.querySelector('[data-monoagent-create-btn]');
+		if (el) el.removeAttribute('data-monoagent-create-btn');
 	}`)
 
 	return nil
@@ -758,8 +758,8 @@ func (b *InstagramBot) FollowUser(ctx context.Context, page *rod.Page, profileUR
 	// Use JS to identify the Follow button state and mark it.
 	res, err := page.Timeout(10 * time.Second).Eval(`() => {
 		// Clean up previous markers.
-		const prev = document.querySelector('[data-monoes-follow-btn]');
-		if (prev) prev.removeAttribute('data-monoes-follow-btn');
+		const prev = document.querySelector('[data-monoagent-follow-btn]');
+		if (prev) prev.removeAttribute('data-monoagent-follow-btn');
 
 		// Scan all buttons for follow-related text.
 		const buttons = document.querySelectorAll('button, div[role="button"]');
@@ -774,7 +774,7 @@ func (b *InstagramBot) FollowUser(ctx context.Context, page *rod.Page, profileUR
 		for (const btn of buttons) {
 			const text = (btn.textContent || '').trim();
 			if (text === 'Follow' || text === 'Follow Back') {
-				btn.setAttribute('data-monoes-follow-btn', 'true');
+				btn.setAttribute('data-monoagent-follow-btn', 'true');
 				return 'marked';
 			}
 		}
@@ -792,7 +792,7 @@ func (b *InstagramBot) FollowUser(ctx context.Context, page *rod.Page, profileUR
 	}
 
 	// Click the marked Follow button.
-	followBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-follow-btn='true']")
+	followBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-follow-btn='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked Follow button not found on %s: %w", profileURL, err)
 	}
@@ -822,8 +822,8 @@ func (b *InstagramBot) FollowUser(ctx context.Context, page *rod.Page, profileUR
 
 	// Clean up marker.
 	page.Eval(`() => {
-		const el = document.querySelector('[data-monoes-follow-btn]');
-		if (el) el.removeAttribute('data-monoes-follow-btn');
+		const el = document.querySelector('[data-monoagent-follow-btn]');
+		if (el) el.removeAttribute('data-monoagent-follow-btn');
 	}`)
 
 	return nil
@@ -852,8 +852,8 @@ func (b *InstagramBot) UnfollowUser(ctx context.Context, page *rod.Page, profile
 
 	// Find and mark the "Following" button.
 	res, err := page.Timeout(10 * time.Second).Eval(`() => {
-		const prev = document.querySelector('[data-monoes-following-btn]');
-		if (prev) prev.removeAttribute('data-monoes-following-btn');
+		const prev = document.querySelector('[data-monoagent-following-btn]');
+		if (prev) prev.removeAttribute('data-monoagent-following-btn');
 
 		const buttons = document.querySelectorAll('button, div[role="button"]');
 		for (const btn of buttons) {
@@ -865,7 +865,7 @@ func (b *InstagramBot) UnfollowUser(ctx context.Context, page *rod.Page, profile
 		for (const btn of buttons) {
 			const text = (btn.textContent || '').trim();
 			if (text === 'Following' || text === 'Requested') {
-				btn.setAttribute('data-monoes-following-btn', 'true');
+				btn.setAttribute('data-monoagent-following-btn', 'true');
 				return 'marked';
 			}
 		}
@@ -883,7 +883,7 @@ func (b *InstagramBot) UnfollowUser(ctx context.Context, page *rod.Page, profile
 	}
 
 	// Click the "Following" button to open unfollow confirmation dialog.
-	followingBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-following-btn='true']")
+	followingBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-following-btn='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked Following button not found on %s: %w", profileURL, err)
 	}
@@ -898,8 +898,8 @@ func (b *InstagramBot) UnfollowUser(ctx context.Context, page *rod.Page, profile
 
 	// Find and click the "Unfollow" confirmation button in the dialog.
 	confirmRes, err := page.Timeout(10 * time.Second).Eval(`() => {
-		const prev = document.querySelector('[data-monoes-unfollow-confirm]');
-		if (prev) prev.removeAttribute('data-monoes-unfollow-confirm');
+		const prev = document.querySelector('[data-monoagent-unfollow-confirm]');
+		if (prev) prev.removeAttribute('data-monoagent-unfollow-confirm');
 
 		// Look for "Unfollow" button inside a dialog.
 		const dialog = document.querySelector('div[role="dialog"]');
@@ -909,7 +909,7 @@ func (b *InstagramBot) UnfollowUser(ctx context.Context, page *rod.Page, profile
 		for (const btn of buttons) {
 			const text = (btn.textContent || '').trim();
 			if (text === 'Unfollow') {
-				btn.setAttribute('data-monoes-unfollow-confirm', 'true');
+				btn.setAttribute('data-monoagent-unfollow-confirm', 'true');
 				return 'marked';
 			}
 		}
@@ -924,7 +924,7 @@ func (b *InstagramBot) UnfollowUser(ctx context.Context, page *rod.Page, profile
 		return fmt.Errorf("instagram: could not find Unfollow confirmation button (state: %s)", confirmState)
 	}
 
-	confirmBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-unfollow-confirm='true']")
+	confirmBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-unfollow-confirm='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked Unfollow confirm button not found: %w", err)
 	}
@@ -936,10 +936,10 @@ func (b *InstagramBot) UnfollowUser(ctx context.Context, page *rod.Page, profile
 
 	// Verify: button should now show "Follow".
 	page.Eval(`() => {
-		const el = document.querySelector('[data-monoes-following-btn]');
-		if (el) el.removeAttribute('data-monoes-following-btn');
-		const el2 = document.querySelector('[data-monoes-unfollow-confirm]');
-		if (el2) el2.removeAttribute('data-monoes-unfollow-confirm');
+		const el = document.querySelector('[data-monoagent-following-btn]');
+		if (el) el.removeAttribute('data-monoagent-following-btn');
+		const el2 = document.querySelector('[data-monoagent-unfollow-confirm]');
+		if (el2) el2.removeAttribute('data-monoagent-unfollow-confirm');
 	}`)
 
 	return nil
@@ -967,8 +967,8 @@ func (b *InstagramBot) ViewStories(ctx context.Context, page *rod.Page, profileU
 
 	// Find the story ring (gradient-bordered profile picture in header).
 	storyRes, err := page.Timeout(10 * time.Second).Eval(`() => {
-		const prev = document.querySelector('[data-monoes-story-ring]');
-		if (prev) prev.removeAttribute('data-monoes-story-ring');
+		const prev = document.querySelector('[data-monoagent-story-ring]');
+		if (prev) prev.removeAttribute('data-monoagent-story-ring');
 
 		// Strategy 1: Find a canvas element near the profile picture (story ring indicator).
 		const canvases = document.querySelectorAll('header canvas');
@@ -978,7 +978,7 @@ func (b *InstagramBot) ViewStories(ctx context.Context, page *rod.Page, profileU
 				canvases[0].closest('a') ||
 				canvases[0].parentElement;
 			if (clickable) {
-				clickable.setAttribute('data-monoes-story-ring', 'true');
+				clickable.setAttribute('data-monoagent-story-ring', 'true');
 				return 'marked_canvas';
 			}
 		}
@@ -989,7 +989,7 @@ func (b *InstagramBot) ViewStories(ctx context.Context, page *rod.Page, profileU
 			// The story ring wraps the profile image in a role="button" ancestor.
 			const btn = img.closest('div[role="button"]') || img.closest('a[role="link"]');
 			if (btn) {
-				btn.setAttribute('data-monoes-story-ring', 'true');
+				btn.setAttribute('data-monoagent-story-ring', 'true');
 				return 'marked_img';
 			}
 		}
@@ -1003,7 +1003,7 @@ func (b *InstagramBot) ViewStories(ctx context.Context, page *rod.Page, profileU
 				const rect = img.getBoundingClientRect();
 				// Profile pics are typically 77-150px.
 				if (rect.width >= 50 && rect.width <= 200) {
-					el.setAttribute('data-monoes-story-ring', 'true');
+					el.setAttribute('data-monoagent-story-ring', 'true');
 					return 'marked_header_link';
 				}
 			}
@@ -1022,7 +1022,7 @@ func (b *InstagramBot) ViewStories(ctx context.Context, page *rod.Page, profileU
 	}
 
 	// Click the story ring to open stories.
-	storyRing, err := page.Timeout(5 * time.Second).Element("[data-monoes-story-ring='true']")
+	storyRing, err := page.Timeout(5 * time.Second).Element("[data-monoagent-story-ring='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked story ring not found on %s: %w", profileURL, err)
 	}
@@ -1057,19 +1057,19 @@ func (b *InstagramBot) ViewStories(ctx context.Context, page *rod.Page, profileU
 
 		// Try to advance to next story by clicking the right side of the viewport.
 		page.Timeout(3 * time.Second).Eval(`() => {
-			const prev = document.querySelector('[data-monoes-story-next]');
-			if (prev) prev.removeAttribute('data-monoes-story-next');
+			const prev = document.querySelector('[data-monoagent-story-next]');
+			if (prev) prev.removeAttribute('data-monoagent-story-next');
 
 			const nextBtn = document.querySelector('button[aria-label="Next"]') ||
 				document.querySelector('div[role="button"][aria-label="Next"]');
 			if (nextBtn) {
-				nextBtn.setAttribute('data-monoes-story-next', 'true');
+				nextBtn.setAttribute('data-monoagent-story-next', 'true');
 				return 'marked_next';
 			}
 			return 'not_found';
 		}`)
 
-		nextBtn, findErr := page.Timeout(2 * time.Second).Element("[data-monoes-story-next='true']")
+		nextBtn, findErr := page.Timeout(2 * time.Second).Element("[data-monoagent-story-next='true']")
 		if findErr == nil && nextBtn != nil {
 			_ = nextBtn.Click(proto.InputMouseButtonLeft, 1)
 		} else {
@@ -1081,10 +1081,10 @@ func (b *InstagramBot) ViewStories(ctx context.Context, page *rod.Page, profileU
 
 	// Clean up markers.
 	page.Eval(`() => {
-		const el1 = document.querySelector('[data-monoes-story-ring]');
-		if (el1) el1.removeAttribute('data-monoes-story-ring');
-		const el2 = document.querySelector('[data-monoes-story-next]');
-		if (el2) el2.removeAttribute('data-monoes-story-next');
+		const el1 = document.querySelector('[data-monoagent-story-ring]');
+		if (el1) el1.removeAttribute('data-monoagent-story-ring');
+		const el2 = document.querySelector('[data-monoagent-story-next]');
+		if (el2) el2.removeAttribute('data-monoagent-story-next');
 	}`)
 
 	return nil
@@ -1266,8 +1266,8 @@ func (b *InstagramBot) LikeComment(ctx context.Context, page *rod.Page, postURL,
 	//   same parent chain — this distinguishes them from the post action bar Like.
 	// Post action bar Like: same structure but no nearby "Reply" sibling.
 	res, err := page.Timeout(10 * time.Second).Eval(fmt.Sprintf(`() => {
-		const prev = document.querySelector('[data-monoes-comment-like]');
-		if (prev) prev.removeAttribute('data-monoes-comment-like');
+		const prev = document.querySelector('[data-monoagent-comment-like]');
+		if (prev) prev.removeAttribute('data-monoagent-comment-like');
 
 		const targetAuthor = '%s'.toLowerCase();
 
@@ -1330,7 +1330,7 @@ func (b *InstagramBot) LikeComment(ctx context.Context, page *rod.Page, postURL,
 		const toMark = targetBtn || fallbackBtn;
 		if (!toMark) return 'not_found';
 
-		toMark.setAttribute('data-monoes-comment-like', 'true');
+		toMark.setAttribute('data-monoagent-comment-like', 'true');
 		return 'marked';
 	}`, strings.ReplaceAll(commentAuthor, "'", "\\'")))
 	if err != nil {
@@ -1343,7 +1343,7 @@ func (b *InstagramBot) LikeComment(ctx context.Context, page *rod.Page, postURL,
 	}
 
 	// Click the marked comment like button.
-	likeBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-comment-like='true']")
+	likeBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-comment-like='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked comment like button not found: %w", err)
 	}
@@ -1358,8 +1358,8 @@ func (b *InstagramBot) LikeComment(ctx context.Context, page *rod.Page, postURL,
 
 	// Clean up marker.
 	page.Eval(`() => {
-		const el = document.querySelector('[data-monoes-comment-like]');
-		if (el) el.removeAttribute('data-monoes-comment-like');
+		const el = document.querySelector('[data-monoagent-comment-like]');
+		if (el) el.removeAttribute('data-monoagent-comment-like');
 	}`)
 
 	return nil
@@ -1387,8 +1387,8 @@ func (b *InstagramBot) ReplyToComment(ctx context.Context, page *rod.Page, postU
 
 	// Find and mark the Reply button for the target comment.
 	res, err := page.Timeout(10 * time.Second).Eval(fmt.Sprintf(`() => {
-		const prev = document.querySelector('[data-monoes-reply-btn]');
-		if (prev) prev.removeAttribute('data-monoes-reply-btn');
+		const prev = document.querySelector('[data-monoagent-reply-btn]');
+		if (prev) prev.removeAttribute('data-monoagent-reply-btn');
 
 		const targetAuthor = '%s'.toLowerCase();
 
@@ -1432,7 +1432,7 @@ func (b *InstagramBot) ReplyToComment(ctx context.Context, page *rod.Page, postU
 		const toMark = targetBtn || fallbackBtn;
 		if (!toMark) return 'not_found';
 
-		toMark.setAttribute('data-monoes-reply-btn', 'true');
+		toMark.setAttribute('data-monoagent-reply-btn', 'true');
 		return 'marked';
 	}`, strings.ReplaceAll(commentAuthor, "'", "\\'")))
 	if err != nil {
@@ -1444,7 +1444,7 @@ func (b *InstagramBot) ReplyToComment(ctx context.Context, page *rod.Page, postU
 	}
 
 	// Click the Reply button to open the comment input.
-	replyBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-reply-btn='true']")
+	replyBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-reply-btn='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked reply button not found: %w", err)
 	}
@@ -1456,7 +1456,7 @@ func (b *InstagramBot) ReplyToComment(ctx context.Context, page *rod.Page, postU
 	time.Sleep(1500 * time.Millisecond)
 
 	// Clean up marker.
-	page.Eval(`() => { const el = document.querySelector('[data-monoes-reply-btn]'); if (el) el.removeAttribute('data-monoes-reply-btn'); }`)
+	page.Eval(`() => { const el = document.querySelector('[data-monoagent-reply-btn]'); if (el) el.removeAttribute('data-monoagent-reply-btn'); }`)
 
 	// Find the focused textarea (pre-filled with @username).
 	textarea, err := page.Timeout(5 * time.Second).Element(`textarea[placeholder*="comment"]`)

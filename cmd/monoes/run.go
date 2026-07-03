@@ -42,7 +42,7 @@ func newRunCmd(cfg *globalConfig) *cobra.Command {
 
 When --watch is enabled, the runner continuously polls for new pending
 actions and executes them at the specified interval.`,
-		Example: `  monoes run abc-123
+		Example: `  monoagentcli run abc-123
   monoes run --file actions.json
   monoes run --queue
   monoes run --watch --interval 30s`,

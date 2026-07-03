@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link2, Brain, ExternalLink } from 'lucide-react'
 import { api } from '../services/api.js'
-import { GetVersion, CheckForUpdate, SelfUpdate } from '../wailsjs/go/main/App'
+import { GetVersion, CheckForUpdate, AppSelfUpdate } from '../wailsjs/go/main/App'
 
 // ── VersionRow ──────────────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ function VersionRow() {
 
   function doUpdate() {
     setUpdate(u => ({ ...u, updating: true }))
-    SelfUpdate().then(r => {
+    AppSelfUpdate().then(r => {
       if (r.success) setUpdate({ done: true, latest: r.new_version })
       else setUpdate({ error: r.error })
     }).catch(e => setUpdate({ error: String(e) }))

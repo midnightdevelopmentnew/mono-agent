@@ -76,7 +76,7 @@ func (m *Manager) Connect(ctx context.Context, platformID string, opts ConnectOp
 			return nil, fmt.Errorf("connect: fields: %w", err)
 		}
 	case MethodBrowser:
-		return nil, fmt.Errorf("connect: platform %q requires browser-based login — run `monoes connect %s`", platformID, platformID)
+		return nil, fmt.Errorf("connect: platform %q requires browser-based login — run `monoagentcli connect %s`", platformID, platformID)
 	default:
 		return nil, fmt.Errorf("connect: unsupported method %q", method)
 	}

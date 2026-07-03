@@ -207,26 +207,103 @@ func (b *GeminiBot) methodTypePrompt(_ context.Context, args ...interface{}) (in
 		return nil, fmt.Errorf("type_prompt: could not find input to type into")
 	}
 
-	for _, sel := range selectors {
-		el, err := page.Element(sel, 5*time.Second)
-		if err == nil && el != nil {
-			_ = el.Click()
-			time.Sleep(300 * time.Millisecond)
+	// Dismiss cookie consent dialog if present (blocks all Gemini UI interactions).
+	consentResult, _ := page.Eval(`() => {
+		var btns = document.querySelectorAll('button');
+		for (var i = 0; i < btns.length; i++) {
+			var t = btns[i].textContent.trim();
+			if (t === 'Accept all' || t === 'Accept') {
+				btns[i].click();
+				return {dismissed: true};
+			}
+		}
+		return {dismissed: false};
+	}`)
+	if consentResult != nil && consentResult.Get("dismissed").Bool() {
+		time.Sleep(1 * time.Second)
+	}
 
-			// Use InsertText for contenteditable (works with Quill/Gemini).
-			// Falls back to per-character KeyboardType for regular inputs.
-			err := page.InsertText(prompt)
-			if err != nil {
-				// Fallback: type character by character
-				for _, ch := range prompt {
-					_ = page.KeyboardType(ch)
-					time.Sleep(30 * time.Millisecond)
+	// Rod path: inject text into Quill's model, trigger Angular CD, then poll
+	// for the send button and click it — all in one Promise-based eval.
+	// CDP keyboard events and Input.insertText bypass Quill's Delta model.
+	// Angular's zone.js might not be loaded (Angular 17 zoneless), so we rely
+	// on polling rather than zone-based change detection.
+	quillJS := fmt.Sprintf(`() => new Promise(function(resolve) {
+		var btnSels = [
+			"button[aria-label='Send prompt']",
+			"button[aria-label='Send message']",
+			"button[aria-label*='send' i]",
+			"button[data-testid='send-button']"
+		];
+		function tryClick() {
+			for (var i = 0; i < btnSels.length; i++) {
+				var btn = document.querySelector(btnSels[i]);
+				if (btn && !btn.disabled && btn.offsetParent !== null) {
+					btn.click();
+					return resolve({ok: true, method: 'quill-api', clicked: true, sel: btnSels[i]});
 				}
 			}
-			return map[string]interface{}{"success": true, "typed": len(prompt)}, nil
 		}
+		// Find Quill instance
+		var container = document.querySelector('.ql-container');
+		var quill = null;
+		if (container) {
+			quill = container.__quill;
+			if (!quill && window.Quill) quill = window.Quill.find(container);
+		}
+		if (!quill) {
+			var editor = document.querySelector('.ql-editor');
+			if (editor && editor.parentElement) {
+				quill = editor.parentElement.__quill;
+				if (!quill && window.Quill) quill = window.Quill.find(editor.parentElement);
+			}
+		}
+		if (!quill) {
+			return resolve({ok: false, reason: 'no quill instance found'});
+		}
+		// Use 'user' source: Gemini's Angular text-change handler likely checks
+		// source === 'user' before enabling the send button.
+		quill.setText(%q, 'user');
+		quill.setSelection(quill.getLength(), 0);
+		// Dispatch DOM events as belt-and-suspenders for Angular change detection.
+		if (quill.root) {
+			quill.root.dispatchEvent(new InputEvent('input', {
+				bubbles: true, cancelable: true, inputType: 'insertText', data: %q
+			}));
+			quill.root.dispatchEvent(new Event('change', {bubbles: true}));
+		}
+		// Poll for send button up to 3s (Angular CD may take a few frames)
+		var attempts = 0;
+		function poll() {
+			attempts++;
+			for (var i = 0; i < btnSels.length; i++) {
+				var btn = document.querySelector(btnSels[i]);
+				if (btn && !btn.disabled && btn.offsetParent !== null) {
+					btn.click();
+					return resolve({ok: true, method: 'quill-api', clicked: true, sel: btnSels[i], attempts: attempts});
+				}
+			}
+			if (attempts < 15) {
+				setTimeout(poll, 200);
+			} else {
+				resolve({ok: true, method: 'quill-api', clicked: false, reason: 'btn-not-found', attempts: attempts});
+			}
+		}
+		setTimeout(poll, 100);
+	})`, prompt, prompt)
+	qr, err := page.Eval(quillJS)
+	if err != nil {
+		return nil, fmt.Errorf("type_prompt: eval failed: %w", err)
 	}
-	return nil, fmt.Errorf("type_prompt: could not find input to type into")
+	if qr == nil || !qr.Get("ok").Bool() {
+		reason := "unknown"
+		if qr != nil {
+			reason = qr.Get("reason").Str()
+		}
+		return nil, fmt.Errorf("type_prompt: could not inject text: %s", reason)
+	}
+	time.Sleep(300 * time.Millisecond)
+	return map[string]interface{}{"success": true, "typed": len(prompt), "sent": qr.Get("clicked").Bool()}, nil
 }
 
 func (b *GeminiBot) methodClickSend(_ context.Context, args ...interface{}) (interface{}, error) {
@@ -234,22 +311,77 @@ func (b *GeminiBot) methodClickSend(_ context.Context, args ...interface{}) (int
 	if err != nil {
 		return nil, err
 	}
+
+	// Extension path: use JS to find and click the send button, then fall back to Enter.
+	if ep, ok := page.(*extension.ExtensionPage); ok {
+		raw, _ := ep.EvalCDP(`(function() {
+			// Try known button selectors in order of likelihood.
+			var sels = [
+				"button[aria-label='Send prompt']",
+				"button[aria-label='Send message']",
+				"button[aria-label*='send' i]",
+				"button[data-testid='send-button']",
+				"button.send-button",
+				".send-button-container button",
+				"form button[type='submit']",
+				"footer button:last-of-type",
+				"[class*='send'] button",
+				"[class*='submit'] button"
+			];
+			for (var i = 0; i < sels.length; i++) {
+				var el = document.querySelector(sels[i]);
+				if (el && !el.disabled && el.offsetParent !== null) {
+					el.click();
+					return {clicked: true, sel: sels[i]};
+				}
+			}
+			// Fallback: focus the contenteditable and dispatch Enter.
+			var input = document.querySelector('.ql-editor[contenteditable="true"]') ||
+				document.querySelector('[contenteditable="true"]') ||
+				document.querySelector('[role="textbox"]');
+			if (input) {
+				input.focus();
+				input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+				input.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+				return {clicked: false, method: 'enter_dispatch'};
+			}
+			return {clicked: false, method: 'none'};
+		})()`)
+		if m, ok := raw.(map[string]interface{}); ok {
+			if clicked, _ := m["clicked"].(bool); clicked {
+				return map[string]interface{}{"success": true, "method": m["sel"]}, nil
+			}
+		}
+		// Final fallback: press Enter via CDP keyboard.
+		_ = page.KeyboardPress('\r')
+		return map[string]interface{}{"success": true, "method": "enter_key"}, nil
+	}
+
+	// Rod path: try button selectors with short timeouts, then keyboard fallbacks.
 	selectors := []string{
-		"button.send-button",
+		"button[aria-label='Send prompt']",
 		"button[aria-label='Send message']",
 		"button[aria-label*='Send' i]",
 		"button[data-testid='send-button']",
+		"button.send-button",
 		".send-button-container button",
+		"form button[type='submit']",
 	}
 	for _, sel := range selectors {
-		el, err := page.Element(sel, 5*time.Second)
+		el, err := page.Element(sel, 3*time.Second)
 		if err == nil && el != nil {
 			_ = el.Click()
-			return map[string]interface{}{"success": true}, nil
+			return map[string]interface{}{"success": true, "selector": sel}, nil
 		}
 	}
-	// Fallback: press Enter ('\r' maps to input.Enter in Rod; '\n' is undefined).
-	_ = page.KeyboardPress('\r')
+
+	// Re-focus the input then try keyboard send variants.
+	if el, err2 := page.Element("div.ql-editor[contenteditable='true']", 2*time.Second); err2 == nil && el != nil {
+		_ = el.Click()
+		time.Sleep(200 * time.Millisecond)
+	}
+	_ = page.KeyboardPress(rune(0x0D)) // Enter
+	time.Sleep(300 * time.Millisecond)
 	return map[string]interface{}{"success": true, "method": "enter_key"}, nil
 }
 
@@ -272,78 +404,138 @@ func (b *GeminiBot) methodWaitForResponse(_ context.Context, args ...interface{}
 
 	deadline := time.Now().Add(time.Duration(maxWait) * time.Second)
 
-	prevText := ""
-	stableCount := 0
-	beforeCount := 0
+	// Snapshot pre-send state.
+	type preState struct {
+		url         string
+		textLen     int
+		beforeCount int
+	}
+	var pre preState
 
-	// Get initial message-content count before prompt was sent.
-	if ep, ok := page.(*extension.ExtensionPage); ok {
-		// Extension path: use EvalCDP (page main world, bypasses CSP).
-		raw, _ := ep.EvalCDP(`(function() {
-			for (var i = 0, sels = ['message-content', 'model-response']; i < sels.length; i++) {
-				var n = document.querySelectorAll(sels[i]).length;
-				if (n > 0) return n;
+	// pollJS checks for response content using three strategies.
+	// Relies on stability (3 consecutive stable polls = 6s) to avoid false positives.
+	pollJS := func(initURL string, initLen, beforeCnt int) string {
+		return fmt.Sprintf(`(function(initURL, initLen, beforeCount) {
+			// Strategy 1: named response elements (count increased + text present).
+			var nameSels = [
+				'message-content', 'model-response', 'ms-chat-turn',
+				'response-container', 'chat-turn', 'model-turn',
+				'[data-message-author-role="model"]'
+			];
+			for (var i = 0; i < nameSels.length; i++) {
+				try {
+					var els = document.querySelectorAll(nameSels[i]);
+					if (els.length > beforeCount) {
+						var t = (els[els.length-1].textContent || '').trim();
+						if (t && t.length > 2) return {ready: true, text: t, method: 'element'};
+					}
+				} catch(e) {}
 			}
-			return 0;
-		})()`)
-		if c, ok := raw.(float64); ok {
-			beforeCount = int(c)
+			// Conversation area text.
+			var convSels = ['chat-window-content', 'assistant-messages-primary', 'chat-message-list'];
+			var chatText = '';
+			for (var j = 0; j < convSels.length; j++) {
+				var el = document.querySelector(convSels[j]);
+				if (el) { chatText = (el.textContent || '').trim(); break; }
+			}
+			// Guard: page still in zero/start state → not ready regardless.
+			var nowZeroState = !!(document.querySelector('modular-zero-state') || document.querySelector('zero-state-banners'));
+			if (nowZeroState) { return {ready: false, text: '', method: 'zero_blocked', debug: 'isZero=true chatLen=' + chatText.length}; }
+			// Strategy 2: URL changed (first message in new session from zero-state).
+			if (location.href !== initURL && chatText.length > 5) {
+				return {ready: true, text: chatText.substring(0, 2000), method: 'url_change'};
+			}
+			// Strategy 3: conversation content changed by ANY amount vs baseline.
+			// Handles both zero-state→session (URL already changed at capture) and
+			// continued sessions (new turn added). Stability check prevents early exit.
+			if (chatText.length > 5 && Math.abs(chatText.length - initLen) >= 1) {
+				return {ready: true, text: chatText.substring(0, 2000), method: 'content_change'};
+			}
+			return {ready: false, text: ''};
+		})(%q, %d, %d)`, initURL, initLen, beforeCnt)
+	}
+
+	// Capture baseline state at the start of wait (right after click_send).
+	captureJS := `(function() {
+		var nameSels = ['message-content','model-response','ms-chat-turn','response-container','chat-turn'];
+		var cnt = 0;
+		for (var i = 0; i < nameSels.length; i++) {
+			var n = document.querySelectorAll(nameSels[i]).length;
+			if (n > cnt) cnt = n;
 		}
-	} else {
-		initResult, err := page.Eval(`() => document.querySelectorAll('message-content').length`)
-		if err == nil && !initResult.Nil() {
-			beforeCount = initResult.Int()
+		var convSels = ['chat-window-content','assistant-messages-primary'];
+		var textLen = 0;
+		for (var j = 0; j < convSels.length; j++) {
+			var el = document.querySelector(convSels[j]);
+			if (el) { textLen = (el.textContent||'').trim().length; break; }
+		}
+		return {url: location.href, textLen: textLen, cnt: cnt};
+	})()`
+
+	evalCapture := func() {
+		if ep, ok := page.(*extension.ExtensionPage); ok {
+			raw, _ := ep.EvalCDP(captureJS)
+			if m, ok := raw.(map[string]interface{}); ok {
+				pre.url, _ = m["url"].(string)
+				if l, ok := m["textLen"].(float64); ok {
+					pre.textLen = int(l)
+				}
+				if c, ok := m["cnt"].(float64); ok {
+					pre.beforeCount = int(c)
+				}
+			}
+		} else {
+			r, _ := page.Eval(`() => ` + captureJS)
+			if r != nil && !r.Nil() {
+				pre.url = r.Get("url").Str()
+				pre.textLen = r.Get("textLen").Int()
+				pre.beforeCount = r.Get("cnt").Int()
+			}
 		}
 	}
+	evalCapture()
+
+	// Build poll JS once — pre doesn't change after capture.
+	js := pollJS(pre.url, pre.textLen, pre.beforeCount)
+	_ = pre.url // used in pollJS
+
+	prevText := ""
+	stableCount := 0
+	pollN := 0
 
 	for time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
+		pollN++
 
 		var ready bool
 		var text string
 
 		if ep, ok := page.(*extension.ExtensionPage); ok {
-			// Extension path: use EvalCDP to query DOM in page main world.
-			raw, err := ep.EvalCDP(fmt.Sprintf(`(function() {
-				var sels = ['message-content', 'model-response'];
-				for (var i = 0; i < sels.length; i++) {
-					var els = document.querySelectorAll(sels[i]);
-					if (els.length <= %d) continue;
-					var text = (els[els.length - 1].textContent || '').trim();
-					if (text) return {ready: true, text: text};
-				}
-				return {ready: false, text: ''};
-			})()`, beforeCount))
-			if err == nil {
+			raw, evalErr := ep.EvalCDP(js)
+			if evalErr == nil {
 				if m, ok := raw.(map[string]interface{}); ok {
 					if r, _ := m["ready"].(bool); r {
 						ready = true
-						if t, _ := m["text"].(string); t != "" {
-							text = t
-						}
+						text, _ = m["text"].(string)
 					}
 				}
 			}
 		} else {
-			// Rod path: use Eval
-			result, err := page.Eval(`(beforeCount) => {
-				const els = document.querySelectorAll('message-content');
-				if (els.length <= beforeCount) return {ready: false, text: ''};
-				const last = els[els.length - 1];
-				return {ready: true, text: (last.textContent || '').trim()};
-			}`, beforeCount)
-			if err != nil {
+			result, evalErr := page.Eval(`() => ` + js)
+			if evalErr != nil {
 				continue
 			}
 			ready = result.Get("ready").Bool()
 			text = result.Get("text").Str()
 		}
+
 		if !ready || text == "" {
 			continue
 		}
 		if text == prevText {
 			stableCount++
-			if stableCount >= 2 {
+			// 3 consecutive stable polls = 6s of no text change → response complete.
+			if stableCount >= 3 {
 				return map[string]interface{}{"success": true, "ready": true}, nil
 			}
 		} else {
@@ -464,25 +656,56 @@ func (b *GeminiBot) methodExtractTextResponse(_ context.Context, args ...interfa
 		return nil, err
 	}
 
-	if ep, ok := page.(*extension.ExtensionPage); ok {
-		// Extension path: use EvalCDP (page main world, bypasses CSP/Trusted Types).
-		raw, err := ep.EvalCDP(`(function() {
-			var sels = [
-				'message-content div.markdown.markdown-main-panel',
-				'message-content',
-				'model-response',
-				'.response-container'
-			];
-			for (var i = 0; i < sels.length; i++) {
-				try {
-					var els = document.querySelectorAll(sels[i]);
-					if (!els.length) continue;
-					var text = (els[els.length - 1].textContent || '').trim();
-					if (text && text.length > 2) return text;
-				} catch(e) {}
+	const extractJS = `(function() {
+		// Strategy 1: named response elements (works when Gemini uses them).
+		var sels = [
+			'message-content div.markdown.markdown-main-panel',
+			'message-content',
+			'model-response',
+			'ms-chat-turn model-response',
+			'ms-chat-turn',
+			'response-container',
+			'chat-turn model-response',
+			'structured-content-container.model-response-text',
+			'[data-message-author-role="model"]',
+			'[class*="model-response"]',
+			'[class*="response-text"]'
+		];
+		for (var i = 0; i < sels.length; i++) {
+			try {
+				var els = document.querySelectorAll(sels[i]);
+				if (!els.length) continue;
+				var text = (els[els.length - 1].textContent || '').trim();
+				if (text && text.length > 2) return text;
+			} catch(e) {}
+		}
+		// Strategy 2: grab text from the conversation content container.
+		var convSels = ['chat-window-content', 'assistant-messages-primary', 'chat-message-list'];
+		for (var j = 0; j < convSels.length; j++) {
+			var conv = document.querySelector(convSels[j]);
+			if (!conv) continue;
+			var children = Array.from(conv.children || []);
+			// Walk children backwards: skip the LAST child if it looks like a user turn
+			// (user turns often contain input-area-v2, rich-textarea, or are very short).
+			// The model's response is the most recent NON-user child with substantial text.
+			var lastModelText = '';
+			for (var k = children.length - 1; k >= 0; k--) {
+				var child = children[k];
+				// Skip if this child contains input elements (= user-input area).
+				if (child.querySelector && child.querySelector('rich-textarea, input-area-v2, [contenteditable="true"]')) continue;
+				var t = (child.textContent || '').trim();
+				if (t && t.length > 5) { lastModelText = t; break; }
 			}
-			return '';
-		})()`)
+			if (lastModelText) return lastModelText.substring(0, 5000);
+			// Fallback: return all conversation text.
+			var allText = conv.textContent.trim();
+			if (allText.length > 5) return allText.substring(0, 5000);
+		}
+		return '';
+	})()`
+
+	if ep, ok := page.(*extension.ExtensionPage); ok {
+		raw, err := ep.EvalCDP(extractJS)
 		if err == nil {
 			if text, ok := raw.(string); ok && text != "" {
 				return map[string]interface{}{"success": true, "response_text": text}, nil
@@ -492,16 +715,7 @@ func (b *GeminiBot) methodExtractTextResponse(_ context.Context, args ...interfa
 	}
 
 	// Rod path: use Eval
-	result, err := page.Eval(`() => {
-		const sels = ['message-content div.markdown.markdown-main-panel', 'message-content', 'structured-content-container.model-response-text'];
-		for (const sel of sels) {
-			const els = document.querySelectorAll(sel);
-			if (els.length === 0) continue;
-			const text = (els[els.length - 1].textContent || '').trim();
-			if (text) return text;
-		}
-		return '';
-	}`)
+	result, err := page.Eval(`() => ` + extractJS)
 	if err != nil {
 		return nil, fmt.Errorf("extract_text_response: eval failed: %w", err)
 	}
@@ -574,7 +788,7 @@ func (b *GeminiBot) methodDownloadImages(ctx context.Context, args ...interface{
 		}
 	}
 
-	downloadDir := filepath.Join(os.Getenv("HOME"), ".monoes", "downloads")
+	downloadDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "downloads")
 	if len(args) >= 3 {
 		if dir, ok := args[2].(string); ok && dir != "" {
 			if strings.HasPrefix(dir, "~/") {
@@ -835,7 +1049,7 @@ func (b *GeminiBot) methodExtractAndDownloadImages(ctx context.Context, args ...
 		return nil, err
 	}
 
-	downloadDir := filepath.Join(os.Getenv("HOME"), ".monoes", "downloads")
+	downloadDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "downloads")
 	if len(args) >= 2 {
 		if dir, ok := args[1].(string); ok && dir != "" {
 			if strings.HasPrefix(dir, "~/") {

@@ -43,9 +43,9 @@ const enableDevTools = false
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// vaultImageHandler serves files from ~/.monoes/vault/ at /vault-image/<filename>.
+// vaultImageHandler serves files from ~/.monoagent/vault/ at /vault-image/<filename>.
 func vaultImageHandler() http.Handler {
-	vaultDir := filepath.Join(os.Getenv("HOME"), ".monoes", "vault")
+	vaultDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "vault")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/vault-image/") {
 			w.WriteHeader(http.StatusNotFound)

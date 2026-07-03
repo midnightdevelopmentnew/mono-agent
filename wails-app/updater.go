@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -103,6 +104,11 @@ func (a *App) SelfUpdate() UpdateResult {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return UpdateResult{Error: fmt.Sprintf("GitHub API %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))}
+	}
+
 	var release struct {
 		TagName string `json:"tag_name"`
 		Assets  []struct {
@@ -141,7 +147,7 @@ func (a *App) SelfUpdate() UpdateResult {
 	}
 	defer dlResp.Body.Close()
 
-	tmpFile, err := os.CreateTemp("", "monoes-update-*")
+	tmpFile, err := os.CreateTemp("", "monoagentcli-update-*")
 	if err != nil {
 		return UpdateResult{Error: fmt.Sprintf("temp file error: %v", err)}
 	}
@@ -187,42 +193,59 @@ func cliAssetName() string {
 	switch goruntime.GOOS {
 	case "darwin":
 		if goruntime.GOARCH == "arm64" {
-			return "monoes-darwin-arm64"
+			return "monoagentcli-darwin-arm64"
 		}
-		return "monoes-darwin-amd64"
+		return "monoagentcli-darwin-amd64"
 	case "linux":
-		return "monoes-linux-amd64"
+		return "monoagentcli-linux-amd64"
 	case "windows":
-		return "monoes-windows-amd64.exe"
+		return "monoagentcli-windows-amd64.exe"
 	default:
-		return "monoes-" + goruntime.GOOS + "-" + goruntime.GOARCH
+		return "monoagentcli-" + goruntime.GOOS + "-" + goruntime.GOARCH
 	}
 }
 
-// findCLIBinary locates the monoes CLI binary.
+// backgroundUpdateCheck runs once on startup (after a short delay) and then
+// every 24 hours, emitting "update:available" when a newer release exists.
+func (a *App) backgroundUpdateCheck() {
+	time.Sleep(10 * time.Second)
+	if info := a.CheckForUpdate(); info.UpdateAvailable {
+		runtime.EventsEmit(a.ctx, "update:available", info)
+	}
+
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if info := a.CheckForUpdate(); info.UpdateAvailable {
+				runtime.EventsEmit(a.ctx, "update:available", info)
+			}
+		case <-a.ctx.Done():
+			return
+		}
+	}
+}
+
+// findCLIBinary locates the monoagentcli binary.
 func findCLIBinary() (string, error) {
-	// Check common locations
 	candidates := []string{}
 
-	// 1. Look in PATH
-	if p, err := exec.LookPath("monoes"); err == nil {
+	if p, err := exec.LookPath("monoagentcli"); err == nil {
 		candidates = append(candidates, p)
 	}
 
-	// 2. Look relative to the running binary
 	if exe, err := os.Executable(); err == nil {
 		dir := filepath.Dir(exe)
-		candidates = append(candidates, filepath.Join(dir, "monoes"))
-		// Also check parent's bin/
-		candidates = append(candidates, filepath.Join(dir, "..", "bin", "monoes"))
+		candidates = append(candidates, filepath.Join(dir, "monoagentcli"))
+		candidates = append(candidates, filepath.Join(dir, "..", "bin", "monoagentcli"))
 	}
 
-	// 3. Common install paths
 	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(home, "go", "bin", "monoes"))
-		candidates = append(candidates, filepath.Join(home, ".local", "bin", "monoes"))
+		candidates = append(candidates, filepath.Join(home, "go", "bin", "monoagentcli"))
+		candidates = append(candidates, filepath.Join(home, ".local", "bin", "monoagentcli"))
 	}
-	candidates = append(candidates, "/usr/local/bin/monoes")
+	candidates = append(candidates, "/usr/local/bin/monoagentcli")
 
 	for _, c := range candidates {
 		if info, err := os.Stat(c); err == nil && !info.IsDir() {
@@ -230,5 +253,5 @@ func findCLIBinary() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("monoes binary not found in PATH or common locations")
+	return "", fmt.Errorf("monoagentcli binary not found in PATH or common locations")
 }

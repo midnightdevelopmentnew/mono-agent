@@ -14,7 +14,7 @@ func newStatusCmd(cfg *globalConfig) *cobra.Command {
 		Use:   "status",
 		Short: "Show system status overview",
 		Long:  "Displays database path, session count, action counts by state, people count, and config count.",
-		Example: `  monoes status
+		Example: `  monoagentcli status
   monoes status --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := initDB(cfg)

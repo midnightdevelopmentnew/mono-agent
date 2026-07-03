@@ -39,7 +39,7 @@ func newActionListCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all actions",
-		Example: `  monoes action list
+		Example: `  monoagentcli action list
   monoes action list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := initDB(cfg)
@@ -200,7 +200,7 @@ func newActionCreateCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new action from flags",
-		Example: `  monoes action create --type KEYWORD_SEARCH --platform instagram --keyword "golang"
+		Example: `  monoagentcli action create --type KEYWORD_SEARCH --platform instagram --keyword "golang"
   monoes action create --type send_dms --platform linkedin --message "Hello!"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if actionType == "" {
@@ -258,7 +258,7 @@ func newActionImportCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import an action from a JSON file",
-		Example: `  monoes action import --file action.json`,
+		Example: `  monoagentcli action import --file action.json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath == "" {
 				return fmt.Errorf("--file is required")

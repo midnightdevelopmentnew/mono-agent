@@ -21,7 +21,7 @@ func newMessageCmd(cfg *globalConfig) *cobra.Command {
 		Use:   "message <platform> <username>",
 		Short: "Send a quick direct message",
 		Long:  "Creates a send_dms action with a single target and executes it immediately.",
-		Example: `  monoes message instagram johndoe --text "hello"
+		Example: `  monoagentcli message instagram johndoe --text "hello"
   monoes message linkedin janedoe --text "Hi, let's connect!"
   monoes message x devuser --text "Great post!" --timeout 5m`,
 		Args: cobra.ExactArgs(2),

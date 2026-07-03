@@ -8,12 +8,12 @@ dev:
 	~/go/bin/wails dev
 
 build:
-	@echo "→ Building monoes CLI..."
-	cd .. && go build -o wails-app/build/bin/monoes ./cmd/monoes/
+	@echo "→ Building monoagentcli..."
+	cd .. && go build -o wails-app/build/bin/monoagentcli ./cmd/monoes/
 	@echo "→ Building Wails app..."
 	~/go/bin/wails build
-	@echo "→ Bundling monoes CLI into app..."
-	cp build/bin/monoes "$(APP_MACOS)/monoes"
+	@echo "→ Bundling monoagentcli into app..."
+	cp build/bin/monoagentcli "$(APP_MACOS)/monoagentcli"
 	@echo "✓ Done: $(APP_BUNDLE)"
 
 run: build

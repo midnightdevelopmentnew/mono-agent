@@ -93,7 +93,7 @@ func (n *HuggingFaceNode) generateImage(ctx context.Context, apiKey string, conf
 	}
 
 	// Response is raw binary image data — save to temp file.
-	f, err := os.CreateTemp("", "monoes_hf_*.png")
+	f, err := os.CreateTemp("", "monoagent_hf_*.png")
 	if err != nil {
 		return item, fmt.Errorf("huggingface: create temp file: %w", err)
 	}

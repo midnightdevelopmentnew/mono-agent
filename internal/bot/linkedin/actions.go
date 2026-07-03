@@ -275,8 +275,8 @@ func (b *LinkedInBot) LikePost(ctx context.Context, page browser.PageInterface, 
 	time.Sleep(3 * time.Second)
 
 	res, err := page.Eval(`() => {
-		const prev = document.querySelector('[data-monoes-reaction-btn]');
-		if (prev) prev.removeAttribute('data-monoes-reaction-btn');
+		const prev = document.querySelector('[data-monoagent-reaction-btn]');
+		if (prev) prev.removeAttribute('data-monoagent-reaction-btn');
 
 		const actionBars = document.querySelectorAll('div.feed-shared-social-action-bar, div.social-actions-button, div[class*="social-actions"]');
 		let reactionBtn = null;
@@ -298,7 +298,7 @@ func (b *LinkedInBot) LikePost(ctx context.Context, page browser.PageInterface, 
 		const label = (reactionBtn.getAttribute('aria-label') || '').toLowerCase();
 		if (label.includes('remove') || label.includes('unlike')) return 'already_reacted';
 
-		reactionBtn.setAttribute('data-monoes-reaction-btn', 'true');
+		reactionBtn.setAttribute('data-monoagent-reaction-btn', 'true');
 		return 'marked';
 	}`)
 	if err != nil {
@@ -313,7 +313,7 @@ func (b *LinkedInBot) LikePost(ctx context.Context, page browser.PageInterface, 
 		return fmt.Errorf("linkedin: could not find reaction button on %s (%s)", postURL, state)
 	}
 
-	reactionBtn, err := page.Element("[data-monoes-reaction-btn='true']", 5*time.Second)
+	reactionBtn, err := page.Element("[data-monoagent-reaction-btn='true']", 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("linkedin: marked reaction button not found: %w", err)
 	}
@@ -332,7 +332,7 @@ func (b *LinkedInBot) LikePost(ctx context.Context, page browser.PageInterface, 
 		}
 		// Simulate hover by dispatching mouseover event via JS.
 		_, _ = page.Eval(`() => {
-			const el = document.querySelector('[data-monoes-reaction-btn]');
+			const el = document.querySelector('[data-monoagent-reaction-btn]');
 			if (el) el.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}));
 		}`)
 		time.Sleep(1 * time.Second)
@@ -355,8 +355,8 @@ func (b *LinkedInBot) LikePost(ctx context.Context, page browser.PageInterface, 
 
 	time.Sleep(2 * time.Second)
 	page.Eval(`() => {
-		const el = document.querySelector('[data-monoes-reaction-btn]');
-		if (el) el.removeAttribute('data-monoes-reaction-btn');
+		const el = document.querySelector('[data-monoagent-reaction-btn]');
+		if (el) el.removeAttribute('data-monoagent-reaction-btn');
 	}`)
 
 	return nil
@@ -382,19 +382,19 @@ func (b *LinkedInBot) CommentOnPost(ctx context.Context, page browser.PageInterf
 
 	if parentCommentID != "" {
 		replyRes, err := page.Eval(`(id) => {
-			const prev = document.querySelector('[data-monoes-reply-btn]');
-			if (prev) prev.removeAttribute('data-monoes-reply-btn');
+			const prev = document.querySelector('[data-monoagent-reply-btn]');
+			if (prev) prev.removeAttribute('data-monoagent-reply-btn');
 			const commentEl = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
 			if (!commentEl) return 'not_found';
 			const replyBtn = Array.from(commentEl.querySelectorAll('button')).find(b => b.innerText.trim() === 'Reply');
 			if (!replyBtn) return 'no_reply_btn';
-			replyBtn.setAttribute('data-monoes-reply-btn', 'true');
+			replyBtn.setAttribute('data-monoagent-reply-btn', 'true');
 			return 'marked';
 		}`, parentCommentID)
 		if err != nil || replyRes.Str() != "marked" {
 			return fmt.Errorf("linkedin: could not find Reply button for comment %s", parentCommentID)
 		}
-		replyBtn, err := page.Element("[data-monoes-reply-btn='true']", 5*time.Second)
+		replyBtn, err := page.Element("[data-monoagent-reply-btn='true']", 5*time.Second)
 		if err != nil {
 			return fmt.Errorf("linkedin: marked Reply button not found: %w", err)
 		}
@@ -407,23 +407,23 @@ func (b *LinkedInBot) CommentOnPost(ctx context.Context, page browser.PageInterf
 		}
 		time.Sleep(1 * time.Second)
 		page.Eval(`() => {
-			const el = document.querySelector('[data-monoes-reply-btn]');
-			if (el) el.removeAttribute('data-monoes-reply-btn');
+			const el = document.querySelector('[data-monoagent-reply-btn]');
+			if (el) el.removeAttribute('data-monoagent-reply-btn');
 		}`)
 	}
 
 	inputRes, err := page.Eval(`() => {
-		const prev = document.querySelector('[data-monoes-comment-input]');
-		if (prev) prev.removeAttribute('data-monoes-comment-input');
+		const prev = document.querySelector('[data-monoagent-comment-input]');
+		if (prev) prev.removeAttribute('data-monoagent-comment-input');
 
 		const editors = document.querySelectorAll('div.ql-editor[contenteditable="true"], div[role="textbox"][contenteditable="true"]');
 		if (editors.length > 0) {
-			editors[editors.length - 1].setAttribute('data-monoes-comment-input', 'true');
+			editors[editors.length - 1].setAttribute('data-monoagent-comment-input', 'true');
 			return 'marked';
 		}
 		const textareas = document.querySelectorAll('textarea[aria-label*="comment" i]');
 		if (textareas.length > 0) {
-			textareas[textareas.length - 1].setAttribute('data-monoes-comment-input', 'true');
+			textareas[textareas.length - 1].setAttribute('data-monoagent-comment-input', 'true');
 			return 'marked';
 		}
 		return 'not_found';
@@ -432,7 +432,7 @@ func (b *LinkedInBot) CommentOnPost(ctx context.Context, page browser.PageInterf
 		return fmt.Errorf("linkedin: could not find comment input")
 	}
 
-	commentInput, err := page.Element("[data-monoes-comment-input='true']", 5*time.Second)
+	commentInput, err := page.Element("[data-monoagent-comment-input='true']", 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("linkedin: marked comment input not found: %w", err)
 	}
@@ -454,19 +454,19 @@ func (b *LinkedInBot) CommentOnPost(ctx context.Context, page browser.PageInterf
 	time.Sleep(800 * time.Millisecond)
 
 	submitRes, err := page.Eval(`() => {
-		const prev = document.querySelector('[data-monoes-submit-btn]');
-		if (prev) prev.removeAttribute('data-monoes-submit-btn');
+		const prev = document.querySelector('[data-monoagent-submit-btn]');
+		if (prev) prev.removeAttribute('data-monoagent-submit-btn');
 		// Try the known submit button class first (most reliable).
 		let submitBtn = document.querySelector('button.comments-comment-box__submit-button--cr');
 		if (!submitBtn) {
 			// Search within the comment box container.
-			const commentBox = document.querySelector('[data-monoes-comment-input]')?.closest('.comments-comment-box--cr, .comments-comment-texteditor, .comments-reply-box');
+			const commentBox = document.querySelector('[data-monoagent-comment-input]')?.closest('.comments-comment-box--cr, .comments-comment-texteditor, .comments-reply-box');
 			const searchIn = commentBox || document;
 			const submitLabels = new Set(['Post', 'Done', 'Reply', 'Comment', 'Submit']);
 			submitBtn = Array.from(searchIn.querySelectorAll('button')).find(b => submitLabels.has(b.innerText.trim()));
 		}
 		if (submitBtn) {
-			submitBtn.setAttribute('data-monoes-submit-btn', 'true');
+			submitBtn.setAttribute('data-monoagent-submit-btn', 'true');
 			return 'marked';
 		}
 		return 'not_found';
@@ -476,7 +476,7 @@ func (b *LinkedInBot) CommentOnPost(ctx context.Context, page browser.PageInterf
 			return fmt.Errorf("keyboard enter press: %w", err)
 		}
 	} else {
-		submitBtn, err := page.Element("[data-monoes-submit-btn='true']", 5*time.Second)
+		submitBtn, err := page.Element("[data-monoagent-submit-btn='true']", 5*time.Second)
 		if err != nil {
 			if err := page.KeyboardPress('\n'); err != nil {
 				return fmt.Errorf("keyboard enter press: %w", err)
@@ -494,7 +494,7 @@ func (b *LinkedInBot) CommentOnPost(ctx context.Context, page browser.PageInterf
 
 	time.Sleep(3 * time.Second)
 	page.Eval(`() => {
-		['data-monoes-comment-input', 'data-monoes-submit-btn'].forEach(attr => {
+		['data-monoagent-comment-input', 'data-monoagent-submit-btn'].forEach(attr => {
 			const el = document.querySelector('[' + attr + ']');
 			if (el) el.removeAttribute(attr);
 		});
@@ -522,8 +522,8 @@ func (b *LinkedInBot) LikeComment(ctx context.Context, page browser.PageInterfac
 	time.Sleep(3 * time.Second)
 
 	res, err := page.Eval(`(id) => {
-		const prev = document.querySelector('[data-monoes-comment-like]');
-		if (prev) prev.removeAttribute('data-monoes-comment-like');
+		const prev = document.querySelector('[data-monoagent-comment-like]');
+		if (prev) prev.removeAttribute('data-monoagent-comment-like');
 
 		const commentEl = document.querySelector('[data-id="' + CSS.escape(id) + '"]');
 		if (!commentEl) return 'not_found';
@@ -535,7 +535,7 @@ func (b *LinkedInBot) LikeComment(ctx context.Context, page browser.PageInterfac
 		const label = (likeBtn.getAttribute('aria-label') || '').toLowerCase();
 		if (label.includes('remove') || label.includes('unlike')) return 'already_liked';
 
-		likeBtn.setAttribute('data-monoes-comment-like', 'true');
+		likeBtn.setAttribute('data-monoagent-comment-like', 'true');
 		return 'marked';
 	}`, commentID)
 	if err != nil {
@@ -550,7 +550,7 @@ func (b *LinkedInBot) LikeComment(ctx context.Context, page browser.PageInterfac
 		return fmt.Errorf("linkedin: could not find Like button for comment %s (%s)", commentID, state)
 	}
 
-	likeBtn, err := page.Element("[data-monoes-comment-like='true']", 5*time.Second)
+	likeBtn, err := page.Element("[data-monoagent-comment-like='true']", 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("linkedin: marked comment like button not found: %w", err)
 	}
@@ -565,8 +565,8 @@ func (b *LinkedInBot) LikeComment(ctx context.Context, page browser.PageInterfac
 
 	time.Sleep(1 * time.Second)
 	page.Eval(`() => {
-		const el = document.querySelector('[data-monoes-comment-like]');
-		if (el) el.removeAttribute('data-monoes-comment-like');
+		const el = document.querySelector('[data-monoagent-comment-like]');
+		if (el) el.removeAttribute('data-monoagent-comment-like');
 	}`)
 
 	return nil

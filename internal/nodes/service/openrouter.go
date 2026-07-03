@@ -196,7 +196,7 @@ func downloadImageToTemp(ctx context.Context, imageURL string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("decode base64 image: %w", err)
 		}
-		f, err := os.CreateTemp("", "monoes_post_*.png")
+		f, err := os.CreateTemp("", "monoagent_post_*.png")
 		if err != nil {
 			return "", fmt.Errorf("create temp file: %w", err)
 		}
@@ -229,7 +229,7 @@ func downloadImageToTemp(ctx context.Context, imageURL string) (string, error) {
 		return "", fmt.Errorf("read image body: %w", err)
 	}
 
-	f, err := os.CreateTemp("", "monoes_post_*.png")
+	f, err := os.CreateTemp("", "monoagent_post_*.png")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}

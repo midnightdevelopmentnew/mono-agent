@@ -19,7 +19,7 @@ func newExportCmd(cfg *globalConfig) *cobra.Command {
 		Short: "Export all data to JSON files",
 		Long: `Exports all people and actions (with targets) to JSON files.
 Files are written to the output directory, defaulting to the global --output-dir.`,
-		Example: `  monoes export
+		Example: `  monoagentcli export
   monoes export --output-dir ./backup`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := initDB(cfg)

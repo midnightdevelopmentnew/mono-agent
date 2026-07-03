@@ -20,8 +20,8 @@ func newConnectCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "connect <platform>",
 		Short: "Connect a platform via API key, OAuth, or other methods",
-		Long:  "Authenticate to a platform and save the connection. Run `monoes connect list --all` to see all supported platforms.",
-		Example: `  monoes connect github
+		Long:  "Authenticate to a platform and save the connection. Run `monoagentcli connect list --all` to see all supported platforms.",
+		Example: `  monoagentcli connect github
   monoes connect notion
   monoes connect list
   monoes connect list --all
@@ -101,7 +101,7 @@ func newConnectListCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			if len(conns) == 0 {
-				fmt.Println("No connections saved. Run `monoes connect <platform>` to add one.")
+				fmt.Println("No connections saved. Run `monoagentcli connect <platform>` to add one.")
 				return nil
 			}
 

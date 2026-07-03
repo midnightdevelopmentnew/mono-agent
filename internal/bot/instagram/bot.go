@@ -869,8 +869,8 @@ func (b *InstagramBot) LikePost(ctx context.Context, page *rod.Page, postURL str
 	// Like/Unlike + Comment/Share — that is the post's own action bar.
 	res, err := page.Timeout(10 * time.Second).Eval(`() => {
 		// Clean up any previous marker.
-		const prev = document.querySelector('[data-monoes-post-like]');
-		if (prev) prev.removeAttribute('data-monoes-post-like');
+		const prev = document.querySelector('[data-monoagent-post-like]');
+		if (prev) prev.removeAttribute('data-monoagent-post-like');
 
 		const sections = document.querySelectorAll('section');
 		if (sections.length === 0) return 'not_found:no_sections';
@@ -912,7 +912,7 @@ func (b *InstagramBot) LikePost(ctx context.Context, page *rod.Page, postURL str
 		if (!btn) return 'not_found:no_button';
 
 		// Mark it so rod can find it with a CSS selector.
-		btn.setAttribute('data-monoes-post-like', 'true');
+		btn.setAttribute('data-monoagent-post-like', 'true');
 		return 'marked';
 	}`)
 	if err != nil {
@@ -929,7 +929,7 @@ func (b *InstagramBot) LikePost(ctx context.Context, page *rod.Page, postURL str
 	}
 
 	// Step 2: Find the marked element with rod and click with native CDP event.
-	likeBtn, err := page.Timeout(5 * time.Second).Element("[data-monoes-post-like='true']")
+	likeBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-post-like='true']")
 	if err != nil {
 		return fmt.Errorf("instagram: marked like button not found on %s: %w", postURL, err)
 	}
@@ -975,8 +975,8 @@ func (b *InstagramBot) LikePost(ctx context.Context, page *rod.Page, postURL str
 
 	// Clean up the marker attribute.
 	page.Eval(`() => {
-		const el = document.querySelector('[data-monoes-post-like]');
-		if (el) el.removeAttribute('data-monoes-post-like');
+		const el = document.querySelector('[data-monoagent-post-like]');
+		if (el) el.removeAttribute('data-monoagent-post-like');
 	}`)
 
 	return nil

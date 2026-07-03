@@ -140,7 +140,10 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
           padding: '0 8px 0 10px',
           cursor: 'grab', gap: 6,
         }}
-        onMouseDown={(e) => { e.stopPropagation(); onHeaderMouseDown(e) }}
+        onMouseDown={(e) => {
+          if (e.target.closest('button')) return
+          e.stopPropagation(); onHeaderMouseDown(e)
+        }}
       >
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
         <span style={{
@@ -149,14 +152,16 @@ function CanvasNode({ node, selected, zoom, onHeaderMouseDown, onOutputPortMouse
           color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{node.label}</span>
         <button
-          onMouseDown={e => { e.stopPropagation(); onConfigure() }}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onConfigure() }}
           title="Configure"
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.5)', padding: 2, display: 'flex', alignItems: 'center', transition: 'color 100ms' }}
           onMouseEnter={e => e.currentTarget.style.color = '#00b4d8'}
           onMouseLeave={e => e.currentTarget.style.color = 'rgba(148,163,184,.5)'}
         ><Settings2 size={12} /></button>
         <button
-          onMouseDown={e => { e.stopPropagation(); onDelete() }}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => { e.stopPropagation(); onDelete() }}
           title="Delete node"
           style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.3)', padding: 2, display: 'flex', alignItems: 'center', transition: 'color 100ms' }}
           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}

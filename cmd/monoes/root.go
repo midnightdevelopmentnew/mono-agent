@@ -25,7 +25,7 @@ func newRootCmd() *cobra.Command {
 	cfg := &globalConfig{}
 
 	cmd := &cobra.Command{
-		Use:           "monoes",
+		Use:           "monoagentcli",
 		Short:         "Multi-platform social media automation agent",
 		Long:          "Mono Agent — automate keyword search, profile discovery, bulk messaging, content publishing, and more across Instagram, LinkedIn, X, TikTok, Telegram, and Email.",
 		SilenceUsage:  true,
@@ -37,9 +37,9 @@ func newRootCmd() *cobra.Command {
 	}
 
 	// Global flags
-	cmd.PersistentFlags().StringVar(&cfg.DBPath, "db-path", "~/.monoes/monoes.db", "SQLite database path")
-	cmd.PersistentFlags().StringVar(&cfg.OutputDir, "output-dir", "~/.monoes/output", "JSON file output directory")
-	cmd.PersistentFlags().StringVar(&cfg.ConfigDir, "config-dir", "~/.monoes/configs", "XPath config cache directory")
+	cmd.PersistentFlags().StringVar(&cfg.DBPath, "db-path", "~/.monoagent/monoagent.db", "SQLite database path")
+	cmd.PersistentFlags().StringVar(&cfg.OutputDir, "output-dir", "~/.monoagent/output", "JSON file output directory")
+	cmd.PersistentFlags().StringVar(&cfg.ConfigDir, "config-dir", "~/.monoagent/configs", "XPath config cache directory")
 	cmd.PersistentFlags().BoolVar(&cfg.Headless, "headless", false, "Run browser in headless mode")
 	cmd.PersistentFlags().IntVar(&cfg.Workers, "workers", 1, "Number of concurrent browser workers")
 	cmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Enable debug logging")
@@ -66,6 +66,7 @@ func newRootCmd() *cobra.Command {
 		newExportCmd(cfg),
 		newStatusCmd(cfg),
 		newVersionCmd(),
+		newUpdateCmd(),
 		newWorkflowCmd(cfg),
 		newNodeCmd(cfg),
 		newConnectCmd(cfg),

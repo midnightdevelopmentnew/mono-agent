@@ -52,7 +52,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/monoes", s.handleWS)
+	mux.HandleFunc("/monoagent", s.handleWS)
 
 	s.server = &http.Server{
 		Addr:    s.addr,

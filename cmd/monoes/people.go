@@ -40,7 +40,7 @@ func newPeopleListCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List people in the database",
-		Example: `  monoes people list
+		Example: `  monoagentcli people list
   monoes people list --platform instagram --limit 20
   monoes people list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -282,7 +282,7 @@ func newPeopleImportCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import people from a JSON array file",
-		Example: `  monoes people import --file people.json --platform instagram
+		Example: `  monoagentcli people import --file people.json --platform instagram
   monoes people import --file contacts.json --platform linkedin`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if filePath == "" {

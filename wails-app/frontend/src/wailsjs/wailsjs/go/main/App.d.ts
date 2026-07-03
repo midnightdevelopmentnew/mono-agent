@@ -165,6 +165,8 @@ export function SearchVaultImages(arg1:string):Promise<Array<Record<string, any>
 
 export function SelfUpdate():Promise<main.UpdateResult>;
 
+export function AppSelfUpdate():Promise<main.UpdateResult>;
+
 export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetWorkflowActive(arg1:string,arg2:boolean):Promise<void>;

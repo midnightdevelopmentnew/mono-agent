@@ -34,7 +34,7 @@ async function init() {
 
   // Load saved URL
   const result = await chrome.storage.local.get("wsUrl");
-  wsUrlInput.value = result.wsUrl || "ws://127.0.0.1:9222/monoes";
+  wsUrlInput.value = result.wsUrl || "ws://127.0.0.1:9222/monoagent";
 }
 
 // Listen for live status updates from background

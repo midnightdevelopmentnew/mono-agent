@@ -33,7 +33,7 @@ func newTemplateListCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all templates",
-		Example: `  monoes template list
+		Example: `  monoagentcli template list
   monoes template list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := initDB(cfg)
@@ -165,7 +165,7 @@ func newTemplateCreateCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new template",
-		Example: `  monoes template create --name "Welcome" --body "Hello {{name}}!" --subject "Welcome aboard"
+		Example: `  monoagentcli template create --name "Welcome" --body "Hello {{name}}!" --subject "Welcome aboard"
   monoes template create --name "Follow-up" --body "Just checking in..."`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {

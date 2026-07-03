@@ -326,6 +326,10 @@ export function SelfUpdate() {
   return window['go']['main']['App']['SelfUpdate']();
 }
 
+export function AppSelfUpdate() {
+  return window['go']['main']['App']['AppSelfUpdate']();
+}
+
 export function SetOAuthCredentials(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetOAuthCredentials'](arg1, arg2, arg3);
 }

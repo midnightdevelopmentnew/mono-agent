@@ -35,7 +35,7 @@ func newListLsCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls",
 		Short: "Show all social lists",
-		Example: `  monoes list ls
+		Example: `  monoagentcli list ls
   monoes list ls --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := initDB(cfg)
@@ -109,7 +109,7 @@ func newListCreateCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new social list",
-		Example: `  monoes list create --name "My List"`,
+		Example: `  monoagentcli list create --name "My List"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("--name is required")
@@ -293,7 +293,7 @@ func newListAddItemCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add-item <list-id>",
 		Short: "Add an item to a social list",
-		Example: `  monoes list add-item abc-123 --username johndoe --platform instagram`,
+		Example: `  monoagentcli list add-item abc-123 --username johndoe --platform instagram`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			listID := args[0]

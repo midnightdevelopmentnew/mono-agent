@@ -11,14 +11,14 @@ import (
 	"github.com/monoes/mono-agent/data"
 )
 
-// userActionsDir returns the path to ~/.monoes/actions where user-installed
+// userActionsDir returns the path to ~/.monoagent/actions where user-installed
 // action templates are stored at runtime.
 func userActionsDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".monoes", "actions")
+	return filepath.Join(home, ".monoagent", "actions")
 }
 
 // ActionDef represents a complete action definition loaded from an embedded

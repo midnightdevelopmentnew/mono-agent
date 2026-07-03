@@ -52,7 +52,7 @@ func (s *testStorageAdapter) SaveExtractedData(actionID string, items []map[stri
 }
 
 // launchTestBrowser creates a visible Chrome browser with Instagram session
-// cookies restored. Requires a valid session in ~/.monoes/monoes.db.
+// cookies restored. Requires a valid session in ~/.monoagent/monoagent.db.
 func launchTestBrowser(t *testing.T) (*rod.Browser, *rod.Page, func()) {
 	t.Helper()
 
@@ -76,7 +76,7 @@ func launchTestBrowser(t *testing.T) (*rod.Browser, *rod.Page, func()) {
 	}
 
 	// Restore session cookies from the database.
-	dbPath := os.ExpandEnv("$HOME/.monoes/monoes.db")
+	dbPath := os.ExpandEnv("$HOME/.monoagent/monoagent.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		browser.Close()
@@ -90,7 +90,7 @@ func launchTestBrowser(t *testing.T) (*rod.Browser, *rod.Page, func()) {
 	).Scan(&cookiesJSON)
 	if err != nil {
 		browser.Close()
-		t.Fatalf("No Instagram session found in DB. Run `monoes login instagram` first. Error: %v", err)
+		t.Fatalf("No Instagram session found in DB. Run `monoagentcli login instagram` first. Error: %v", err)
 	}
 
 	if cookiesJSON != "" {

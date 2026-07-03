@@ -50,7 +50,7 @@ type App struct {
 func NewApp() *App {
 	home, _ := os.UserHomeDir()
 	return &App{
-		dbPath:      filepath.Join(home, ".monoes", "monoes.db"),
+		dbPath:      filepath.Join(home, ".monoagent", "monoagent.db"),
 		logs:        make([]LogEntry, 0, 200),
 		runningCmds: make(map[string]*exec.Cmd),
 	}
@@ -66,14 +66,14 @@ func (a *App) startup(ctx context.Context) {
 	a.db = db
 
 	// Ensure vault directory exists.
-	vaultDir := filepath.Join(os.Getenv("HOME"), ".monoes", "vault")
+	vaultDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "vault")
 	if err := os.MkdirAll(vaultDir, 0700); err != nil {
 		runtime.LogErrorf(ctx, "vault dir error: %v", err)
 	}
 
 	// Initialize workflow hybrid store (file + SQLite) so workflows created
 	// by both the GUI and the CLI are visible.
-	wfDir := filepath.Join(os.Getenv("HOME"), ".monoes", "workflows")
+	wfDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "workflows")
 	fileStore, wfErr := workflow.NewWorkflowFileStore(wfDir)
 	if wfErr != nil {
 		fmt.Printf("workflow file store init error: %v\n", wfErr)
@@ -294,6 +294,8 @@ func (a *App) startup(ctx context.Context) {
 	a.activeProfileID = activeProfileID
 
 	a.emitLog("SYSTEM", "INFO", "Mono Agent UI connected to "+a.dbPath)
+
+	go a.backgroundUpdateCheck()
 }
 
 func (a *App) shutdown(_ context.Context) {
@@ -1265,23 +1267,23 @@ func (a *App) GetTemplates() []TemplateInfo {
 // Action Execution
 // ─────────────────────────────────────────────────────────────────────────────
 
-// findMonoesBinary locates the monoes CLI binary.
-func findMonoesBinary() (string, error) {
-	if p, err := exec.LookPath("monoes"); err == nil {
+// findMonoAgentCLI locates the monoagentcli binary.
+func findMonoAgentCLI() (string, error) {
+	if p, err := exec.LookPath("monoagentcli"); err == nil {
 		return p, nil
 	}
 	home, _ := os.UserHomeDir()
 	candidates := []string{
-		filepath.Join(home, "go", "bin", "monoes"),
-		filepath.Join(home, ".local", "bin", "monoes"),
-		"/usr/local/bin/monoes",
-		"/opt/homebrew/bin/monoes",
+		filepath.Join(home, "go", "bin", "monoagentcli"),
+		filepath.Join(home, ".local", "bin", "monoagentcli"),
+		"/usr/local/bin/monoagentcli",
+		"/opt/homebrew/bin/monoagentcli",
 	}
 	// Also check relative to executable (bundled app).
 	if execDir, err := filepath.Abs(filepath.Dir(os.Args[0])); err == nil {
 		candidates = append(candidates,
-			filepath.Join(execDir, "monoes"),
-			filepath.Join(execDir, "..", "..", "..", "cmd", "monoes", "monoes"),
+			filepath.Join(execDir, "monoagentcli"),
+			filepath.Join(execDir, "..", "..", "..", "cmd", "monoes", "monoagentcli"),
 		)
 	}
 	for _, p := range candidates {
@@ -1289,7 +1291,7 @@ func findMonoesBinary() (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("monoes binary not found — run `go install` or place the binary in PATH")
+	return "", fmt.Errorf("monoagentcli binary not found — run `go install` or place the binary in PATH")
 }
 
 func fileExists(p string) bool {
@@ -1321,7 +1323,7 @@ func nodeTypeToPlatform(nodeType string) string {
 // ExecuteAction runs a legacy action by spawning the CLI subprocess.
 // stdout/stderr are streamed to the UI log panel in real time.
 func (a *App) ExecuteAction(id string) error {
-	monoesBin, err := findMonoesBinary()
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return err
 	}
@@ -1329,7 +1331,7 @@ func (a *App) ExecuteAction(id string) error {
 	_, _ = a.db.Exec("UPDATE actions SET state = 'RUNNING', updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
 		time.Now().Format(time.RFC3339), id, a.activeProfileID)
 
-	cmd := exec.CommandContext(a.ctx, monoesBin, "run", id, "--verbose")
+	cmd := exec.CommandContext(a.ctx, cliBin, "run", id, "--verbose")
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -1778,7 +1780,7 @@ func (a *App) SetWorkflowActive(id string, active bool) error {
 // RunWorkflow spawns `monoes workflow run <id>` as a subprocess.
 // Stdout/stderr stream to the UI. The subprocess can be killed via CancelWorkflow.
 func (a *App) RunWorkflow(id string) error {
-	monoesBin, err := findMonoesBinary()
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return err
 	}
@@ -1790,7 +1792,7 @@ func (a *App) RunWorkflow(id string) error {
 
 	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Starting workflow %s", id))
 
-	cmd := exec.CommandContext(a.ctx, monoesBin, "--profile", a.activeProfileID, "workflow", "run", id)
+	cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.activeProfileID, "workflow", "run", id)
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -2462,7 +2464,7 @@ func (a *App) RunNode(req NodeRunRequest) NodeRunResult {
 		}
 	}
 
-	monoesBin, err := findMonoesBinary()
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return NodeRunResult{Error: err.Error()}
 	}
@@ -2486,7 +2488,7 @@ func (a *App) RunNode(req NodeRunRequest) NodeRunResult {
 	}
 
 	start := time.Now()
-	cmd := exec.Command(monoesBin,
+	cmd := exec.Command(cliBin,
 		"node", "run", req.NodeType,
 		"--config", string(configBytes),
 		"--input", string(inputBytes),
@@ -2862,7 +2864,7 @@ func (a *App) ConnectPlatformOAuth(platformID string) string {
 // Returns "started" immediately or "error: ..." if the binary is not found.
 func (a *App) LoginSocial(platform string) string {
 	pid := strings.ToLower(platform)
-	monoesBin, err := findMonoesBinary()
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
@@ -2876,7 +2878,7 @@ func (a *App) LoginSocial(platform string) string {
 	}
 
 	go func() {
-		cmd := exec.CommandContext(a.ctx, monoesBin, "--profile", a.activeProfileID, "login", pid)
+		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.activeProfileID, "login", pid)
 		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
 

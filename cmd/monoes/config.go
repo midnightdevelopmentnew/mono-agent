@@ -32,7 +32,7 @@ func newConfigListCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all config entries",
-		Example: `  monoes config list
+		Example: `  monoagentcli config list
   monoes config list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			db, err := initDB(cfg)
@@ -143,7 +143,7 @@ func newConfigSetCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <name> <value>",
 		Short: "Set a config value",
-		Example: `  monoes config set api_key "sk-abc123"
+		Example: `  monoagentcli config set api_key "sk-abc123"
   monoes config set max_retries "3"`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

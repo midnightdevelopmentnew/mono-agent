@@ -1,4 +1,4 @@
-name: Auto Release
+name: Release
 
 on:
   push:
@@ -8,145 +8,377 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # ─── 1. Determine next semantic version ───────────────────────────────────
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      tag:  ${{ steps.semver.outputs.tag }}
+      prev: ${{ steps.semver.outputs.prev }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Bump version
-        id: version
+      - name: Compute next semver
+        id: semver
         run: |
           LAST=$(git tag --sort=-v:refname | head -1)
           if [ -z "$LAST" ]; then
-            NEXT="v0.1.0"
+            NEXT="v0.1.0"; PREV=""
           else
             MAJOR=$(echo "$LAST" | sed 's/v//' | cut -d. -f1)
             MINOR=$(echo "$LAST" | sed 's/v//' | cut -d. -f2)
             PATCH=$(echo "$LAST" | sed 's/v//' | cut -d. -f3)
-            # Bump minor when any commit since last tag starts with "feat:"
             if git log --oneline "${LAST}..HEAD" | grep -qE '^[0-9a-f]+ feat(\(.+\))?:'; then
-              MINOR=$((MINOR + 1))
-              PATCH=0
+              MINOR=$((MINOR + 1)); PATCH=0
             else
               PATCH=$((PATCH + 1))
             fi
-            NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+            NEXT="v${MAJOR}.${MINOR}.${PATCH}"; PREV="$LAST"
           fi
-          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "prev=$LAST" >> "$GITHUB_OUTPUT"
-          echo "Bumping $LAST → $NEXT"
+          echo "tag=$NEXT"  >> "$GITHUB_OUTPUT"
+          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Bumping ${PREV} → ${NEXT}"
 
       - name: Create tag
         run: |
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          git tag -a "${{ steps.semver.outputs.tag }}" -m "Release ${{ steps.semver.outputs.tag }}"
+          git push origin "${{ steps.semver.outputs.tag }}"
 
+  # ─── 2a. Build CLI (cross-compile, CGO_ENABLED=0) ─────────────────────────
+  build-cli:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Build binaries
-        run: make build-all
+      - name: Build CLI for all platforms
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p dist
+          GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-amd64   ./cmd/monoes
+          GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-arm64   ./cmd/monoes
+          GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-linux-amd64    ./cmd/monoes
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-windows-amd64.exe ./cmd/monoes
+          cd dist && sha256sum * > CLI-SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-binaries
+          path: dist/
+
+  # ─── 2b. Build macOS app (Apple Silicon / arm64) ──────────────────────────
+  build-macos-arm64:
+    needs: version
+    runs-on: macos-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wails-app/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wails-app/frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: wails-app/frontend
+
+      - name: Build CLI (bundled, arm64)
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli ./cmd/monoes
+
+      - name: Build Wails app (arm64)
+        working-directory: wails-app
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          wails build -ldflags "$LD" -skipbindings=false
+
+      - name: Bundle CLI into .app and zip
+        run: |
+          APP="wails-app/build/bin/MonoAgent.app"
+          cp wails-app/monoagentcli "${APP}/Contents/MacOS/monoagentcli"
+          mkdir -p dist
+          (cd wails-app/build/bin && zip -r "../../../dist/MonoAgent-darwin-arm64.zip" "MonoAgent.app")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-app
+          path: dist/MonoAgent-darwin-arm64.zip
+
+  # ─── 2c. Build macOS app (Intel / amd64) ──────────────────────────────────
+  build-macos-amd64:
+    needs: version
+    runs-on: macos-13
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wails-app/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wails-app/frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: wails-app/frontend
+
+      - name: Build CLI (bundled, amd64)
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli ./cmd/monoes
+
+      - name: Build Wails app (amd64)
+        working-directory: wails-app
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          wails build -ldflags "$LD" -skipbindings=false -platform darwin/amd64
+
+      - name: Bundle CLI into .app and zip
+        run: |
+          APP="wails-app/build/bin/MonoAgent.app"
+          cp wails-app/monoagentcli "${APP}/Contents/MacOS/monoagentcli"
+          mkdir -p dist
+          (cd wails-app/build/bin && zip -r "../../../dist/MonoAgent-darwin-amd64.zip" "MonoAgent.app")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-amd64-app
+          path: dist/MonoAgent-darwin-amd64.zip
+
+  # ─── 2d. Build Windows app ────────────────────────────────────────────────
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wails-app/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wails-app/frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: wails-app/frontend
+
+      - name: Build CLI (bundled, windows)
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli.exe ./cmd/monoes
+
+      - name: Build Wails app (windows)
+        working-directory: wails-app
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          wails build -ldflags "$LD" -skipbindings=false
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          # Copy Wails-built exe (outputfilename = monoagent-ui → monoagent-ui.exe)
+          cp wails-app/build/bin/monoagent-ui.exe dist/MonoAgent-windows-amd64.exe
+          cp wails-app/monoagentcli.exe dist/monoagentcli-windows-amd64-bundled.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: dist/
+
+  # ─── 2e. Build Linux app ──────────────────────────────────────────────────
+  build-linux:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: wails-app/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wails-app/frontend/package-lock.json
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.0-dev gcc pkg-config
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: wails-app/frontend
+
+      - name: Build CLI (bundled, linux)
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli-linux ./cmd/monoes
+
+      - name: Build Wails app (linux)
+        working-directory: wails-app
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          wails build -ldflags "$LD" -skipbindings=false
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist
+          # Wails linux binary (outputfilename = monoagent-ui)
+          cp wails-app/build/bin/monoagent-ui dist/MonoAgent-linux-amd64
+          chmod +x dist/MonoAgent-linux-amd64
+          # Bundle with CLI sidecar
+          cp wails-app/monoagentcli-linux dist/monoagentcli-linux-amd64-bundled
+          tar -czf dist/MonoAgent-linux-amd64.tar.gz -C dist MonoAgent-linux-amd64 monoagentcli-linux-amd64-bundled
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-app
+          path: |
+            dist/MonoAgent-linux-amd64.tar.gz
+
+  # ─── 3. Publish GitHub Release with all artifacts ─────────────────────────
+  release:
+    needs: [version, build-cli, build-macos-arm64, build-macos-amd64, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    env:
+      TAG:  ${{ needs.version.outputs.tag }}
+      PREV: ${{ needs.version.outputs.prev }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Flatten and checksum all release files
+        run: |
+          mkdir -p release-files
+          find artifacts/ -type f | while read f; do cp "$f" "release-files/$(basename "$f")"; done
+          cd release-files
+          sha256sum * > SHA256SUMS.txt
+          echo "--- Release files ---"
+          ls -lh
 
       - name: Generate release notes
         id: notes
         run: |
-          PREV="${{ steps.version.outputs.prev }}"
-          TAG="${{ steps.version.outputs.tag }}"
+          PREV="${PREV}"
+          TAG="${TAG}"
           if [ -z "$PREV" ]; then
             COMMITS=$(git log --oneline --no-decorate)
           else
             COMMITS=$(git log --oneline --no-decorate "${PREV}..HEAD")
           fi
-
-          # Separate commits by type
-          FEATS=$(echo "$COMMITS"   | grep -E '^[0-9a-f]+ feat(\(.+\))?:'   | sed 's/^[0-9a-f]* //')
-          FIXES=$(echo "$COMMITS"   | grep -E '^[0-9a-f]+ fix(\(.+\))?:'    | sed 's/^[0-9a-f]* //')
-          DOCS=$(echo "$COMMITS"    | grep -E '^[0-9a-f]+ docs?(\(.+\))?:'  | sed 's/^[0-9a-f]* //')
-          BUILDS=$(echo "$COMMITS"  | grep -E '^[0-9a-f]+ build(\(.+\))?:'  | sed 's/^[0-9a-f]* //')
-          OTHERS=$(echo "$COMMITS"  | grep -vE '^[0-9a-f]+ (feat|fix|docs?|build)(\(.+\))?:' | sed 's/^[0-9a-f]* //')
+          FEATS=$(echo "$COMMITS"  | grep -E '^[0-9a-f]+ feat(\(.+\))?:'  | sed 's/^[0-9a-f]* //')
+          FIXES=$(echo "$COMMITS"  | grep -E '^[0-9a-f]+ fix(\(.+\))?:'   | sed 's/^[0-9a-f]* //')
+          BUILDS=$(echo "$COMMITS" | grep -E '^[0-9a-f]+ build(\(.+\))?:' | sed 's/^[0-9a-f]* //')
+          OTHERS=$(echo "$COMMITS" | grep -vE '^[0-9a-f]+ (feat|fix|docs?|build)(\(.+\))?:' | sed 's/^[0-9a-f]* //')
 
           {
             echo 'NOTES<<RELEASE_EOF'
             echo "## What's New in ${TAG}"
             echo ""
-
             if [ -n "$FEATS" ]; then
               echo "### ✨ New Features"
-              echo "$FEATS" | while read -r line; do
-                # Pretty-print: strip "feat: " / "feat(scope): " prefix
-                pretty=$(echo "$line" | sed 's/^feat([^)]*): //' | sed 's/^feat: //')
-                echo "- $pretty"
-              done
+              echo "$FEATS" | while read -r l; do echo "- $(echo "$l" | sed 's/^feat([^)]*): //;s/^feat: //')"; done
               echo ""
             fi
-
             if [ -n "$FIXES" ]; then
               echo "### 🐛 Bug Fixes"
-              echo "$FIXES" | while read -r line; do
-                pretty=$(echo "$line" | sed 's/^fix([^)]*): //' | sed 's/^fix: //')
-                echo "- $pretty"
-              done
+              echo "$FIXES" | while read -r l; do echo "- $(echo "$l" | sed 's/^fix([^)]*): //;s/^fix: //')"; done
               echo ""
             fi
-
-            if [ -n "$DOCS" ]; then
-              echo "### 📚 Documentation"
-              echo "$DOCS" | while read -r line; do
-                pretty=$(echo "$line" | sed 's/^docs\?([^)]*): //' | sed 's/^docs\?: //')
-                echo "- $pretty"
-              done
-              echo ""
-            fi
-
             if [ -n "$BUILDS" ]; then
               echo "### 🔧 Build & CI"
-              echo "$BUILDS" | while read -r line; do
-                pretty=$(echo "$line" | sed 's/^build([^)]*): //' | sed 's/^build: //')
-                echo "- $pretty"
-              done
+              echo "$BUILDS" | while read -r l; do echo "- $(echo "$l" | sed 's/^build([^)]*): //;s/^build: //')"; done
               echo ""
             fi
-
             if [ -n "$OTHERS" ]; then
               echo "### 🔄 Other Changes"
-              echo "$OTHERS" | while read -r line; do echo "- $line"; done
+              echo "$OTHERS" | while read -r l; do [ -n "$l" ] && echo "- $l"; done
               echo ""
             fi
-
             echo "---"
             echo ""
-            echo "## Install / Upgrade"
+            echo "## Desktop App Downloads"
+            echo ""
+            echo "| Platform | Download |"
+            echo "|----------|----------|"
+            echo "| macOS (Apple Silicon) | [MonoAgent-darwin-arm64.zip](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-darwin-arm64.zip) |"
+            echo "| macOS (Intel) | [MonoAgent-darwin-amd64.zip](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-darwin-amd64.zip) |"
+            echo "| Windows | [MonoAgent-windows-amd64.exe](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-windows-amd64.exe) |"
+            echo "| Linux | [MonoAgent-linux-amd64.tar.gz](https://github.com/monoes/mono-agent/releases/download/${TAG}/MonoAgent-linux-amd64.tar.gz) |"
+            echo ""
+            echo "## CLI Downloads"
             echo ""
             echo '```bash'
             echo "# macOS (Apple Silicon)"
-            echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagent-darwin-arm64 -o monoagent && chmod +x monoagent && sudo mv monoagent /usr/local/bin/"
+            echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagentcli-darwin-arm64 -o monoagentcli && chmod +x monoagentcli && sudo mv monoagentcli /usr/local/bin/"
             echo ""
             echo "# macOS (Intel)"
-            echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagent-darwin-amd64 -o monoagent && chmod +x monoagent && sudo mv monoagent /usr/local/bin/"
+            echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagentcli-darwin-amd64 -o monoagentcli && chmod +x monoagentcli && sudo mv monoagentcli /usr/local/bin/"
             echo ""
-            echo "# Linux (x86_64)"
-            echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagent-linux-amd64 -o monoagent && chmod +x monoagent && sudo mv monoagent /usr/local/bin/"
+            echo "# Linux"
+            echo "curl -fsSL https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagentcli-linux-amd64 -o monoagentcli && chmod +x monoagentcli && sudo mv monoagentcli /usr/local/bin/"
+            echo ""
+            echo "# Self-update (once installed)"
+            echo "monoagentcli update"
             echo '```'
-            echo ""
-            echo "> **Go install**"
-            echo '> ```bash'
-            echo "> go install github.com/monoes/mono-agent/cmd/monoes@${TAG}"
-            echo '> ```'
             echo 'RELEASE_EOF'
           } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ env.TAG }}
           body: ${{ steps.notes.outputs.NOTES }}
-          files: |
-            bin/monoagent-darwin-amd64
-            bin/monoagent-darwin-arm64
-            bin/monoagent-linux-amd64
-            bin/monoagent-windows-amd64.exe
+          files: release-files/*

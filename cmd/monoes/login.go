@@ -50,7 +50,7 @@ func newLoginCmd(cfg *globalConfig) *cobra.Command {
 		Use:   "login <platform>",
 		Short: "Login to a social platform via browser",
 		Long:  "Opens a browser window for the specified platform and waits for you to log in manually. Cookies are saved to the database upon successful login.",
-		Example: `  monoes login instagram
+		Example: `  monoagentcli login instagram
   monoes login linkedin --timeout 5m
   monoes login x --headless=false`,
 		Args: cobra.ExactArgs(1),
@@ -256,7 +256,7 @@ func newLogoutCmd(cfg *globalConfig) *cobra.Command {
 		Use:   "logout [platform]",
 		Short: "Delete saved session for a platform",
 		Long:  "Removes saved cookies/session for the specified platform. Use --all to remove all sessions.",
-		Example: `  monoes logout instagram
+		Example: `  monoagentcli logout instagram
   monoes logout --all`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

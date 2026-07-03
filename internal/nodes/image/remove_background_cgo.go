@@ -76,20 +76,20 @@ var (
 	sessionOutput *ort.Tensor[float32]
 )
 
-// modelsDir returns ~/.monoes/models
+// modelsDir returns ~/.monoagent/models
 func modelsDir() string {
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".monoes", "models")
+		return filepath.Join(h, ".monoagent", "models")
 	}
-	return filepath.Join(os.TempDir(), "monoes", "models")
+	return filepath.Join(os.TempDir(), "monoagent", "models")
 }
 
-// libDir returns ~/.monoes/lib
+// libDir returns ~/.monoagent/lib
 func libDir() string {
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".monoes", "lib")
+		return filepath.Join(h, ".monoagent", "lib")
 	}
-	return filepath.Join(os.TempDir(), "monoes", "lib")
+	return filepath.Join(os.TempDir(), "monoagent", "lib")
 }
 
 // ensureORT downloads the ONNX Runtime shared library if not present and

@@ -21,7 +21,7 @@ func newSearchCmd(cfg *globalConfig) *cobra.Command {
 		Use:   "search <platform>",
 		Short: "Quick keyword search on a platform",
 		Long:  "Creates a KEYWORD_SEARCH action and immediately executes it. Results are saved to the database.",
-		Example: `  monoes search instagram --keyword "golang developer" --max 50
+		Example: `  monoagentcli search instagram --keyword "golang developer" --max 50
   monoes search linkedin --keyword "startup founder" --max 100
   monoes search x --keyword "AI engineer"`,
 		Args: cobra.ExactArgs(1),
