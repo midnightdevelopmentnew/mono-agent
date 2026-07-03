@@ -246,8 +246,9 @@ jobs:
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update -qq
+          # ubuntu-latest is Ubuntu 24.04 (Noble) — webkit2gtk-4.0 no longer exists; use 4.1
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libwebkit2gtk-4.0-dev gcc pkg-config
+            libgtk-3-dev libwebkit2gtk-4.1-dev gcc pkg-config
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
@@ -265,7 +266,7 @@ jobs:
         working-directory: wails-app
         run: |
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          wails build -ldflags "$LD" -skipbindings=false
+          wails build -ldflags "$LD" -skipbindings=false -tags webkit2_41
 
       - name: Package artifacts
         run: |
