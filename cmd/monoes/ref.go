@@ -1423,14 +1423,14 @@ var cliDocs = []cmdDoc{
 	},
 	{
 		Name:  "schedule",
-		Short: "Manage and run scheduled automation tasks",
+		Short: "Manage action schedules",
 		Usage: "monoes schedule <subcommand>",
-		Flags: `  list          List all schedules
-  add           Add a schedule
-  remove <id>   Remove a schedule
-  run           Start the scheduler daemon`,
+		Flags: `  list          List scheduled actions
+  add           Schedule an action
+  remove <id>   Remove schedule from an action`,
 		Examples: []string{
-			"monoes schedule run",
+			`monoes schedule add abc-123 --cron "0 9 * * *"`,
+			"monoes schedule list",
 		},
 	},
 	{

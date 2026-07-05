@@ -112,7 +112,6 @@
         "wait_for_caption_screen",
         "find_caption_input",
         "type_caption",
-        "check_has_location",
         "find_share_button",
         "click_share",
         "set_t2_result",
@@ -242,6 +241,34 @@
       }
     },
     {
+      "id": "wait_for_caption_screen",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_caption_input",
+      "type": "find_element",
+      "xpath": "//div[@aria-label='Write a caption...'] | //textarea[@aria-label='Write a caption...']",
+      "alternatives": [
+        "//div[@contenteditable='true' and @role='textbox']"
+      ],
+      "timeout": 10,
+      "onError": {
+        "action": "skip"
+      }
+    },
+    {
+      "id": "type_caption",
+      "type": "type",
+      "elementRef": "find_caption_input",
+      "text": "{{text}}",
+      "humanLike": true,
+      "onError": {
+        "action": "skip"
+      }
+    },
+    {
       "id": "find_share_button",
       "type": "find_element",
       "xpath": "//button[normalize-space(text())='Share'] | //div[@role='button' and normalize-space(text())='Share']",
@@ -290,7 +317,6 @@
         "wait_for_caption_screen_t3",
         "tier3_find_caption_input",
         "type_caption_t3",
-        "check_has_location_t3",
         "tier3_find_share_button",
         "click_share_t3"
       ],
@@ -416,6 +442,34 @@
       "id": "click_next2_t3",
       "type": "click",
       "elementRef": "find_next_button2_t3",
+      "onError": {
+        "action": "mark_failed"
+      }
+    },
+    {
+      "id": "wait_for_caption_screen_t3",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "tier3_find_caption_input",
+      "type": "find_element",
+      "xpath": "//div[@aria-label='Write a caption...'] | //textarea[@aria-label='Write a caption...']",
+      "alternatives": [
+        "//div[@contenteditable='true' and @role='textbox']"
+      ],
+      "timeout": 10,
+      "onError": {
+        "action": "mark_failed"
+      }
+    },
+    {
+      "id": "type_caption_t3",
+      "type": "type",
+      "elementRef": "tier3_find_caption_input",
+      "text": "{{text}}",
+      "humanLike": true,
       "onError": {
         "action": "mark_failed"
       }

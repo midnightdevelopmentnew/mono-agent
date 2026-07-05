@@ -81,15 +81,12 @@ func buildEngine(cfg *globalConfig) (*workflow.WorkflowEngine, error) {
 	nodes.SetGlobalCredentialStore(connections.NewStore(db.DB))
 
 	cfgLogger := zerolog.New(os.Stderr).Level(zerolog.WarnLevel)
-	var cfgStore cfgpkg.ConfigStore
-	if cfgDB, err2 := initDB(cfg); err2 == nil {
-		cfgStore = &cfgpkg.DBConfigStore{DB: cfgDB}
-	}
+	cfgStore := cfgpkg.ConfigStore(&cfgpkg.DBConfigStore{DB: db})
 	apiClient := cfgpkg.NewAPIClient(cfgLogger)
 	rawCfgMgr := cfgpkg.NewConfigManager(expandPath("~/.monoes/configs"), cfgStore, apiClient, cfgLogger)
 	nodes.SetGlobalConfigMgr(&cfgpkg.ConfigManagerAdapter{Mgr: rawCfgMgr})
 
-	sched := scheduler.NewScheduler(nil, nil, logger)
+	sched := scheduler.NewScheduler(logger)
 	sched.Start()
 
 	engCfg := workflow.EngineConfig{

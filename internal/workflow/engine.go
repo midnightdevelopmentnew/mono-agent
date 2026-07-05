@@ -25,7 +25,6 @@ type WorkflowEngine struct {
 	expr           *ExpressionEngine
 	logger         zerolog.Logger
 	mu             sync.RWMutex
-	cancelFuncs    map[string]context.CancelFunc // executionID → cancel
 	ctx            context.Context
 	cancel         context.CancelFunc
 	pruneInterval  time.Duration
@@ -62,7 +61,6 @@ func NewWorkflowEngineWithStore(store WorkflowStore, db *sql.DB, scheduler Sched
 		webhookServer:  webhookServer,
 		expr:           NewExpressionEngine(),
 		logger:         logger,
-		cancelFuncs:    make(map[string]context.CancelFunc),
 		pruneInterval:  cfg.PruneInterval,
 		maxExecHistory: cfg.MaxExecHistory,
 		profileID:      profileID,
@@ -113,7 +111,6 @@ func NewWorkflowEngine(db *sql.DB, scheduler SchedulerInterface, registry *NodeT
 		webhookServer:  webhookServer,
 		expr:           NewExpressionEngine(),
 		logger:         logger,
-		cancelFuncs:    make(map[string]context.CancelFunc),
 		pruneInterval:  cfg.PruneInterval,
 		maxExecHistory: cfg.MaxExecHistory,
 	}

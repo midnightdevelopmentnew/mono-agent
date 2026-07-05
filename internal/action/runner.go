@@ -76,6 +76,7 @@ func (r *ActionRunner) RunAll(
 	// Buffered channel acts as a semaphore to limit concurrency.
 	sem := make(chan struct{}, r.maxWorkers)
 
+submitLoop:
 	for i, action := range actions {
 		select {
 		case <-ctx.Done():
@@ -90,7 +91,7 @@ func (r *ActionRunner) RunAll(
 					}},
 				}
 			}
-			break
+			break submitLoop
 		default:
 		}
 

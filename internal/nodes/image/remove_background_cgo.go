@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"image"
 	"image/color"
@@ -468,7 +469,11 @@ func removeBackground(srcPath, outputDir, bgColor string) (string, error) {
 	// 6. Optional background colour flatten
 	var finalImg image.Image = rgba
 	if bgColor != "" {
-		finalImg = flattenOntoColor(rgba, bgColor)
+		flattened, err := flattenOntoColor(rgba, bgColor)
+		if err != nil {
+			return "", fmt.Errorf("invalid bgColor: %w", err)
+		}
+		finalImg = flattened
 	}
 
 	// 7. Save
@@ -489,17 +494,19 @@ func removeBackground(srcPath, outputDir, bgColor string) (string, error) {
 
 // flattenOntoColor composites the RGBA image onto a solid background colour.
 // hexColor is a 3- or 6-digit hex string (with or without leading #).
-func flattenOntoColor(img *image.NRGBA, hexColor string) *image.NRGBA {
+func flattenOntoColor(img *image.NRGBA, hexColor string) (*image.NRGBA, error) {
 	hexColor = strings.TrimPrefix(hexColor, "#")
 	if len(hexColor) == 3 {
 		hexColor = string([]byte{hexColor[0], hexColor[0], hexColor[1], hexColor[1], hexColor[2], hexColor[2]})
 	}
-	var br, bg, bb uint8
-	if len(hexColor) == 6 {
-		fmt.Sscanf(hexColor[0:2], "%02x", &br)
-		fmt.Sscanf(hexColor[2:4], "%02x", &bg)
-		fmt.Sscanf(hexColor[4:6], "%02x", &bb)
+	if len(hexColor) != 6 {
+		return nil, fmt.Errorf("hex color must be 3 or 6 digits, got %q", hexColor)
 	}
+	rgbBytes, err := hex.DecodeString(hexColor)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex color %q: %w", hexColor, err)
+	}
+	br, bg, bb := rgbBytes[0], rgbBytes[1], rgbBytes[2]
 	bounds := img.Bounds()
 	out := image.NewNRGBA(bounds)
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
@@ -514,5 +521,5 @@ func flattenOntoColor(img *image.NRGBA, hexColor string) *image.NRGBA {
 			})
 		}
 	}
-	return out
+	return out, nil
 }

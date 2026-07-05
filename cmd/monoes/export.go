@@ -200,6 +200,10 @@ func exportActionsData(db *storage.Database, outputDir, profileID string) (int, 
 			}
 			actions[i].Targets = append(actions[i].Targets, t)
 		}
+		if err := tRows.Err(); err != nil {
+			tRows.Close()
+			return 0, fmt.Errorf("iterating targets for action %s: %w", actions[i].ID, err)
+		}
 		tRows.Close()
 	}
 

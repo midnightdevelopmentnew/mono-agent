@@ -86,7 +86,6 @@ func RunExecution(
 				Msg("skipping disabled node")
 			skipNow := time.Now().UTC()
 			skipCtx, skipCancel := dbCtx()
-			defer skipCancel()
 			_ = store.CreateExecutionNode(skipCtx, &WorkflowExecutionNode{
 				ExecutionID: exec.ID,
 				NodeID:      node.ID,
@@ -97,6 +96,7 @@ func RunExecution(
 				StartedAt:   &skipNow,
 				FinishedAt:  &skipNow,
 			})
+			skipCancel()
 			completedNodes[node.ID] = true
 			decrementMergeWaiting(node.ID, dag, mergeWaiting, completedNodes)
 			continue
@@ -145,7 +145,6 @@ func RunExecution(
 				Msg("no input items from predecessors — skipping node")
 			skipNow := time.Now().UTC()
 			skipCtx, skipCancel := dbCtx()
-			defer skipCancel()
 			_ = store.CreateExecutionNode(skipCtx, &WorkflowExecutionNode{
 				ExecutionID: exec.ID,
 				NodeID:      node.ID,
@@ -156,6 +155,7 @@ func RunExecution(
 				StartedAt:   &skipNow,
 				FinishedAt:  &skipNow,
 			})
+			skipCancel()
 			completedNodes[node.ID] = true
 			decrementMergeWaiting(node.ID, dag, mergeWaiting, completedNodes)
 			continue
@@ -317,7 +317,6 @@ func RunExecution(
 			StartedAt:   &now,
 		}
 		dbCtx1, dbCancel1 := dbCtx()
-		defer dbCancel1()
 		if err := store.CreateExecutionNode(dbCtx1, execNode); err != nil {
 			logger.Error().Err(err).
 				Str("node_id", node.ID).
@@ -325,6 +324,7 @@ func RunExecution(
 				Msg("failed to create execution node record")
 			// Non-fatal for the execution itself — continue.
 		}
+		dbCancel1()
 
 		// Build NodeInput.
 		nodeInput := NodeInput{
@@ -348,12 +348,12 @@ func RunExecution(
 
 			// Persist failure.
 			dbCtx2, dbCancel2 := dbCtx()
-			defer dbCancel2()
 			if storeErr := store.SetExecutionNodeFinished(dbCtx2, execNode.ID, "FAILED", nil, execErr.Error()); storeErr != nil {
 				logger.Error().Err(storeErr).
 					Str("node_id", node.ID).
 					Msg("failed to persist node failure")
 			}
+			dbCancel2()
 
 			switch onError {
 			case "continue":
@@ -408,12 +408,12 @@ func RunExecution(
 
 		// Persist success.
 		dbCtx3, dbCancel3 := dbCtx()
-		defer dbCancel3()
 		if storeErr := store.SetExecutionNodeFinished(dbCtx3, execNode.ID, "SUCCESS", mainItems, ""); storeErr != nil {
 			logger.Error().Err(storeErr).
 				Str("node_id", node.ID).
 				Msg("failed to persist node success")
 		}
+		dbCancel3()
 
 		// Route outputs to downstream nodes by handle.
 		for _, out := range outputs {

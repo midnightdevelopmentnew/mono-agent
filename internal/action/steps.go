@@ -1149,9 +1149,46 @@ func (ae *ActionExecutor) stepCondition(ctx context.Context, step StepDef) (*Ste
 		return &StepResult{Success: true, Data: condResult, StepID: step.ID}, nil
 	}
 
-	// Resolve branch step IDs to StepDef and execute.
-	branchSteps := ae.getStepsByIDs(ae.actionDef.Steps, branchIDs)
-	if err := ae.executeSteps(ctx, branchSteps); err != nil {
+	// Resolve branch IDs to steps and loops, and execute in order. A branch id
+	// may reference either a regular step or a loop id (e.g. a tier-1 failure
+	// branch kicking off a per-item fallback loop). Consecutive step ids are
+	// batched into a single executeSteps call, matching prior behavior.
+	loopByID := make(map[string]LoopDef, len(ae.actionDef.Loops))
+	for _, loop := range ae.actionDef.Loops {
+		loopByID[loop.ID] = loop
+	}
+
+	runStepBatch := func(ids []string) error {
+		if len(ids) == 0 {
+			return nil
+		}
+		return ae.executeSteps(ctx, ae.getStepsByIDs(ae.actionDef.Steps, ids))
+	}
+
+	var stepBatch []string
+	for _, id := range branchIDs {
+		loop, isLoop := loopByID[id]
+		if !isLoop {
+			stepBatch = append(stepBatch, id)
+			continue
+		}
+		if err := runStepBatch(stepBatch); err != nil {
+			return &StepResult{
+				Success: false,
+				StepID:  step.ID,
+				Error:   fmt.Errorf("condition %s branch execution: %w", step.ID, err),
+			}, nil
+		}
+		stepBatch = nil
+		if err := ae.executeLoop(ctx, loop, ae.actionDef.Steps); err != nil {
+			return &StepResult{
+				Success: false,
+				StepID:  step.ID,
+				Error:   fmt.Errorf("condition %s branch loop %s: %w", step.ID, id, err),
+			}, nil
+		}
+	}
+	if err := runStepBatch(stepBatch); err != nil {
 		return &StepResult{
 			Success: false,
 			StepID:  step.ID,

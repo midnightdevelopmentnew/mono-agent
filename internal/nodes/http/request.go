@@ -129,8 +129,14 @@ func (n *RequestNode) executePaginated(
 	var allMain []workflow.Item
 	var allErrors []workflow.Item
 
+	// Default cap prevents an infinite loop against a misbehaving API; override via "max_pages" config.
+	maxPages := 1000
+	if v, ok := config["max_pages"].(float64); ok && v > 0 {
+		maxPages = int(v)
+	}
+
 outer:
-	for page := 0; ; page++ {
+	for page := 0; page < maxPages; page++ {
 		resp, errItem := n.executeRequest(ctx, client, method, rawURL, config, authType, bodyType, responseFormat, inputItem, page)
 		if errItem != nil {
 			allErrors = append(allErrors, *errItem)

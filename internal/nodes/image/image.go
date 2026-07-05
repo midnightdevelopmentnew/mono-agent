@@ -38,19 +38,6 @@ func expandHome(p string) string {
 	return p
 }
 
-func outputPath(inputPath, suffix, ext string) string {
-	dir := filepath.Dir(inputPath)
-	base := strings.TrimSuffix(filepath.Base(inputPath), filepath.Ext(inputPath))
-	if ext == "" {
-		ext = filepath.Ext(inputPath)
-	}
-	if !strings.HasPrefix(ext, ".") {
-		ext = "." + ext
-	}
-	ts := fmt.Sprintf("%d", time.Now().UnixNano()/1e6)
-	return filepath.Join(dir, fmt.Sprintf("%s_%s_%s%s", base, suffix, ts, ext))
-}
-
 func intConfig(config map[string]interface{}, key string, def int) int {
 	switch v := config[key].(type) {
 	case float64:
