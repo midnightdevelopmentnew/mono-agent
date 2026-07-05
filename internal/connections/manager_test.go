@@ -29,7 +29,7 @@ func TestManagerListEmpty(t *testing.T) {
 	mgr, _ := newManagerDB(t)
 	ctx := context.Background()
 
-	conns, err := mgr.List(ctx, "")
+	conns, err := mgr.List(ctx, "", "")
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestManagerRemoveNotFound(t *testing.T) {
 	mgr, _ := newManagerDB(t)
 	ctx := context.Background()
 
-	err := mgr.Remove(ctx, "nonexistent-id")
+	err := mgr.Remove(ctx, "nonexistent-id", "")
 	if err == nil {
 		t.Fatal("expected error when removing non-existent ID, got nil")
 	}

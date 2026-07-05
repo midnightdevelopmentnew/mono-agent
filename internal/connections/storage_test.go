@@ -78,7 +78,7 @@ func TestStoreDelete(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	if err := store.Delete(ctx, conn.ID); err != nil {
+	if err := store.Delete(ctx, conn.ID, ""); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestStoreListByPlatform(t *testing.T) {
 		}
 	}
 
-	results, err := store.ListByPlatform(ctx, "github")
+	results, err := store.ListByPlatform(ctx, "github", "")
 	if err != nil {
 		t.Fatalf("ListByPlatform: %v", err)
 	}

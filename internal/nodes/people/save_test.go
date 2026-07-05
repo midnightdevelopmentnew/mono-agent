@@ -31,6 +31,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		category TEXT,
 		job_title TEXT,
 		profile_url TEXT,
+		profile_id TEXT NOT NULL DEFAULT 'default',
 		created_at DATETIME,
 		updated_at DATETIME,
 		UNIQUE(platform_username, platform)

@@ -15,18 +15,20 @@ INSERT OR IGNORE INTO profiles (id, name) VALUES ('default', 'Default');
 -- Persist the active-profile selection across restarts.
 INSERT OR IGNORE INTO settings (key, value) VALUES ('active_profile_id', 'default');
 
--- Add profile_id to every user-scoped table.
-ALTER TABLE people              ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE crawler_sessions    ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE actions             ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE social_lists        ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE threads             ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE workflows           ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE credentials         ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE vault_images        ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE hil_pending         ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
-ALTER TABLE tags                ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default';
+-- Add profile_id to every user-scoped table. modernc.org/sqlite does not
+-- support "ADD COLUMN IF NOT EXISTS"; schema_migrations already guarantees
+-- this file runs at most once, so a plain ADD COLUMN is safe here.
+ALTER TABLE people              ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE crawler_sessions    ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE actions             ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE social_lists        ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE threads             ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE workflows           ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE workflow_executions ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE credentials         ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE vault_images        ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE hil_pending         ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE tags                ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default';
 
 -- Performance indexes for profile-scoped queries.
 CREATE INDEX IF NOT EXISTS idx_people_profile              ON people(profile_id);
