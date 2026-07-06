@@ -64,7 +64,7 @@ func TestProviderCRUD(t *testing.T) {
 	}
 
 	// Get
-	got, err := store.GetProvider("p1")
+	got, err := store.GetProvider("p1", "default")
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestProviderCRUD(t *testing.T) {
 	}
 
 	// List
-	providers, err := store.ListProviders()
+	providers, err := store.ListProviders("default")
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestProviderCRUD(t *testing.T) {
 	if err := store.SaveProvider(p); err != nil {
 		t.Fatalf("SaveProvider (update): %v", err)
 	}
-	got2, err := store.GetProvider("p1")
+	got2, err := store.GetProvider("p1", "default")
 	if err != nil {
 		t.Fatalf("GetProvider after update: %v", err)
 	}
@@ -102,12 +102,44 @@ func TestProviderCRUD(t *testing.T) {
 	}
 
 	// Delete
-	if err := store.DeleteProvider("p1"); err != nil {
+	if err := store.DeleteProvider("p1", "default"); err != nil {
 		t.Fatalf("DeleteProvider: %v", err)
 	}
-	_, err = store.GetProvider("p1")
+	_, err = store.GetProvider("p1", "default")
 	if err != sql.ErrNoRows {
 		t.Errorf("GetProvider after delete: err = %v, want sql.ErrNoRows", err)
+	}
+}
+
+// TestProviderProfileIsolation is a regression test: a provider saved under one
+// profile must not be visible, testable, or deletable from a different profile.
+func TestProviderProfileIsolation(t *testing.T) {
+	db := openTestDB(t)
+	store, err := NewAIStore(db)
+	if err != nil {
+		t.Fatalf("NewAIStore: %v", err)
+	}
+
+	p := AIProvider{ID: "p-a", Name: "Profile A Key", ProviderID: "openai", Tier: "known", APIKey: "sk-a", ProfileID: "profile-a"}
+	if err := store.SaveProvider(p); err != nil {
+		t.Fatalf("SaveProvider: %v", err)
+	}
+
+	if _, err := store.GetProvider("p-a", "profile-b"); err == nil {
+		t.Error("GetProvider: expected error reading another profile's provider, got nil")
+	}
+	list, err := store.ListProviders("profile-b")
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if len(list) != 0 {
+		t.Errorf("ListProviders(profile-b) = %d providers, want 0", len(list))
+	}
+	if err := store.DeleteProvider("p-a", "profile-b"); err != nil {
+		t.Fatalf("DeleteProvider from wrong profile should not error (no rows affected): %v", err)
+	}
+	if _, err := store.GetProvider("p-a", "profile-a"); err != nil {
+		t.Errorf("provider should still exist after cross-profile delete attempt: %v", err)
 	}
 }
 
@@ -194,7 +226,7 @@ func TestProviderStatus(t *testing.T) {
 	}
 
 	// Verify initial status
-	got, err := store.GetProvider("ps1")
+	got, err := store.GetProvider("ps1", "default")
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
@@ -204,11 +236,11 @@ func TestProviderStatus(t *testing.T) {
 
 	// Update status
 	testedAt := "2025-06-15T12:00:00Z"
-	if err := store.UpdateProviderStatus("ps1", "active", testedAt); err != nil {
+	if err := store.UpdateProviderStatus("ps1", "active", testedAt, "default"); err != nil {
 		t.Fatalf("UpdateProviderStatus: %v", err)
 	}
 
-	got, err = store.GetProvider("ps1")
+	got, err = store.GetProvider("ps1", "default")
 	if err != nil {
 		t.Fatalf("GetProvider after status update: %v", err)
 	}

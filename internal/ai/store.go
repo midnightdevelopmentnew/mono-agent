@@ -18,6 +18,7 @@ type AIProvider struct {
 	ExtraHeaders string `json:"extra_headers"` // JSON string
 	Status       string `json:"status"`        // "active" | "error" | "untested"
 	LastTested   string `json:"last_tested"`
+	ProfileID    string `json:"profile_id,omitempty"`
 	CreatedAt    string `json:"created_at"`
 }
 
@@ -61,6 +62,7 @@ func (s *AIStore) initTables() error {
 		extra_headers TEXT NOT NULL DEFAULT '',
 		status TEXT NOT NULL DEFAULT 'untested',
 		last_tested TEXT NOT NULL DEFAULT '',
+		profile_id TEXT NOT NULL DEFAULT 'default',
 		created_at TEXT NOT NULL
 	)`
 
@@ -83,18 +85,26 @@ func (s *AIStore) initTables() error {
 	if _, err := s.db.Exec(messagesSQL); err != nil {
 		return fmt.Errorf("create ai_chat_messages: %w", err)
 	}
-	// Migrate: add tool_call_id column if missing (existing DBs).
+	// Migrate: add columns that may be missing on existing DBs. SQLite errors
+	// if the column already exists; that error is expected and ignored.
 	s.db.Exec(`ALTER TABLE ai_chat_messages ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT ''`)
+	s.db.Exec(`ALTER TABLE ai_providers ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default'`)
 	return nil
 }
 
 // SaveProvider upserts an AI provider. If CreatedAt is empty it is set to now.
+// ProfileID defaults to "default" if unset; it is intentionally excluded from
+// the ON CONFLICT update clause so an existing provider cannot be re-assigned
+// to a different profile via an upsert.
 func (s *AIStore) SaveProvider(p AIProvider) error {
 	if p.CreatedAt == "" {
 		p.CreatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
-	const q = `INSERT INTO ai_providers (id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	if p.ProfileID == "" {
+		p.ProfileID = "default"
+	}
+	const q = `INSERT INTO ai_providers (id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name,
 			provider_id=excluded.provider_id,
@@ -109,20 +119,23 @@ func (s *AIStore) SaveProvider(p AIProvider) error {
 	_, err := s.db.Exec(q,
 		p.ID, p.Name, p.ProviderID, p.Tier, p.APIKey,
 		p.BaseURL, p.DefaultModel, p.ExtraHeaders,
-		p.Status, p.LastTested, p.CreatedAt,
+		p.Status, p.LastTested, p.ProfileID, p.CreatedAt,
 	)
 	return err
 }
 
-// GetProvider retrieves a single provider by ID.
-func (s *AIStore) GetProvider(id string) (AIProvider, error) {
-	const q = `SELECT id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, created_at
-		FROM ai_providers WHERE id = ?`
+// GetProvider retrieves a single provider by ID, scoped to profileID.
+func (s *AIStore) GetProvider(id, profileID string) (AIProvider, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	const q = `SELECT id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, created_at
+		FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`
 	var p AIProvider
-	err := s.db.QueryRow(q, id).Scan(
+	err := s.db.QueryRow(q, id, profileID).Scan(
 		&p.ID, &p.Name, &p.ProviderID, &p.Tier, &p.APIKey,
 		&p.BaseURL, &p.DefaultModel, &p.ExtraHeaders,
-		&p.Status, &p.LastTested, &p.CreatedAt,
+		&p.Status, &p.LastTested, &p.ProfileID, &p.CreatedAt,
 	)
 	if err != nil {
 		return AIProvider{}, err
@@ -130,11 +143,14 @@ func (s *AIStore) GetProvider(id string) (AIProvider, error) {
 	return p, nil
 }
 
-// ListProviders returns all providers ordered by created_at descending.
-func (s *AIStore) ListProviders() ([]AIProvider, error) {
-	const q = `SELECT id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, created_at
-		FROM ai_providers ORDER BY created_at DESC`
-	rows, err := s.db.Query(q)
+// ListProviders returns all providers for profileID, ordered by created_at descending.
+func (s *AIStore) ListProviders(profileID string) ([]AIProvider, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	const q = `SELECT id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, created_at
+		FROM ai_providers WHERE COALESCE(profile_id,'default') = ? ORDER BY created_at DESC`
+	rows, err := s.db.Query(q, profileID)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +162,7 @@ func (s *AIStore) ListProviders() ([]AIProvider, error) {
 		if err := rows.Scan(
 			&p.ID, &p.Name, &p.ProviderID, &p.Tier, &p.APIKey,
 			&p.BaseURL, &p.DefaultModel, &p.ExtraHeaders,
-			&p.Status, &p.LastTested, &p.CreatedAt,
+			&p.Status, &p.LastTested, &p.ProfileID, &p.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -155,17 +171,23 @@ func (s *AIStore) ListProviders() ([]AIProvider, error) {
 	return providers, rows.Err()
 }
 
-// DeleteProvider removes a provider by ID.
-func (s *AIStore) DeleteProvider(id string) error {
-	_, err := s.db.Exec(`DELETE FROM ai_providers WHERE id = ?`, id)
+// DeleteProvider removes a provider by ID, scoped to profileID.
+func (s *AIStore) DeleteProvider(id, profileID string) error {
+	if profileID == "" {
+		profileID = "default"
+	}
+	_, err := s.db.Exec(`DELETE FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID)
 	return err
 }
 
-// UpdateProviderStatus updates the status and last_tested fields for a provider.
-func (s *AIStore) UpdateProviderStatus(id, status, lastTested string) error {
+// UpdateProviderStatus updates the status and last_tested fields for a provider, scoped to profileID.
+func (s *AIStore) UpdateProviderStatus(id, status, lastTested, profileID string) error {
+	if profileID == "" {
+		profileID = "default"
+	}
 	_, err := s.db.Exec(
-		`UPDATE ai_providers SET status = ?, last_tested = ? WHERE id = ?`,
-		status, lastTested, id,
+		`UPDATE ai_providers SET status = ?, last_tested = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+		status, lastTested, id, profileID,
 	)
 	return err
 }

@@ -21,7 +21,7 @@ func (n *CompressionNode) Type() string { return "data.compression" }
 
 func (n *CompressionNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	operation, _ := config["operation"].(string)
-	field, _ := config["field"].(string)
+	field, _ := config["input_field"].(string)
 	outputField, _ := config["output_field"].(string)
 	filename, _ := config["filename"].(string)
 
@@ -43,7 +43,7 @@ func (n *CompressionNode) Execute(ctx context.Context, input workflow.NodeInput,
 		var err error
 
 		switch operation {
-		case "gzip_compress":
+		case "gzip":
 			// fieldVal is a base64-encoded raw input
 			raw, decErr := base64.StdEncoding.DecodeString(fieldVal)
 			if decErr != nil {
@@ -52,24 +52,24 @@ func (n *CompressionNode) Execute(ctx context.Context, input workflow.NodeInput,
 			}
 			result, err = gzipCompress(raw)
 
-		case "gzip_decompress":
+		case "gunzip":
 			raw, decErr := base64.StdEncoding.DecodeString(fieldVal)
 			if decErr != nil {
-				return nil, fmt.Errorf("data.compression gzip_decompress: base64 decode: %w", decErr)
+				return nil, fmt.Errorf("data.compression gunzip: base64 decode: %w", decErr)
 			}
 			result, err = gzipDecompress(raw)
 
-		case "zip_compress":
+		case "zip":
 			raw, decErr := base64.StdEncoding.DecodeString(fieldVal)
 			if decErr != nil {
 				raw = []byte(fieldVal)
 			}
 			result, err = zipCompress(filename, raw)
 
-		case "zip_decompress":
+		case "unzip":
 			raw, decErr := base64.StdEncoding.DecodeString(fieldVal)
 			if decErr != nil {
-				return nil, fmt.Errorf("data.compression zip_decompress: base64 decode: %w", decErr)
+				return nil, fmt.Errorf("data.compression unzip: base64 decode: %w", decErr)
 			}
 			result, err = zipDecompress(raw)
 

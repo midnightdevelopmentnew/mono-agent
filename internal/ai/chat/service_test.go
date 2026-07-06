@@ -33,13 +33,31 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open in-memory sqlite: %v", err)
 	}
+	if _, err := db.Exec(`CREATE TABLE workflows (
+		id TEXT PRIMARY KEY,
+		profile_id TEXT NOT NULL DEFAULT 'default'
+	)`); err != nil {
+		t.Fatalf("create workflows table: %v", err)
+	}
 	t.Cleanup(func() { db.Close() })
 	return db
 }
 
-func newTestService(t *testing.T, mockResp string) *ChatService {
+// seedWorkflow registers a workflow row owned by the default profile, so
+// checkWorkflowOwnership (called by StreamChat/GetHistory/ClearHistory) allows it.
+func seedWorkflow(t *testing.T, db *sql.DB, workflowID string) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO workflows (id, profile_id) VALUES (?, 'default')`, workflowID); err != nil {
+		t.Fatalf("seed workflow %s: %v", workflowID, err)
+	}
+}
+
+func newTestService(t *testing.T, mockResp string, workflowIDs ...string) *ChatService {
 	t.Helper()
 	db := openTestDB(t)
+	for _, id := range workflowIDs {
+		seedWorkflow(t, db, id)
+	}
 	store, err := ai.NewAIStore(db)
 	if err != nil {
 		t.Fatalf("NewAIStore: %v", err)
@@ -69,7 +87,7 @@ func newTestService(t *testing.T, mockResp string) *ChatService {
 // --- tests ---
 
 func TestStreamChatBasic(t *testing.T) {
-	svc := newTestService(t, "Hello from AI!")
+	svc := newTestService(t, "Hello from AI!", "wf-1")
 
 	var mu sync.Mutex
 	var chunks []ai.StreamChunk
@@ -131,7 +149,7 @@ func TestStreamChatBasic(t *testing.T) {
 }
 
 func TestGetHistory(t *testing.T) {
-	svc := newTestService(t, "Response 1")
+	svc := newTestService(t, "Response 1", "wf-2")
 
 	// Send two messages to build history.
 	err := svc.StreamChat(context.Background(), "wf-2", "First message", "test-provider", "gpt-4o", nil, nil)
@@ -169,7 +187,7 @@ func TestGetHistory(t *testing.T) {
 }
 
 func TestClearHistory(t *testing.T) {
-	svc := newTestService(t, "Some response")
+	svc := newTestService(t, "Some response", "wf-3")
 
 	// Create some history.
 	err := svc.StreamChat(context.Background(), "wf-3", "Hello", "test-provider", "gpt-4o", nil, nil)

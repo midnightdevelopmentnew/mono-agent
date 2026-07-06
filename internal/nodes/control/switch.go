@@ -10,17 +10,51 @@ import (
 // SwitchNode evaluates an expression and routes items to one of N output handles.
 // Config fields:
 //
-//	"expression" (string, required): value expression, e.g. "{{$json.status}}"
-//	"cases" ([]interface{}, required): each element is map{"value": "pending", "handle": "case0"}
+//	"field" (string, required): value expression, e.g. "{{$json.status}}"
+//	"cases" ([]interface{}, required): either plain strings (each string is both
+//	  the match value and the output handle name) or map{"value": "pending", "handle": "case0"}
+//	  for a custom handle name.
 //	"default_handle" (string, optional): handle name for unmatched items, default "default"
 //	"fallthrough" (bool, optional): if true, item can match multiple cases
 type SwitchNode struct{}
 
 func (n *SwitchNode) Type() string { return "core.switch" }
 
+// switchCase is the normalized form of one entry in the "cases" config array.
+type switchCase struct {
+	value  string
+	handle string
+}
+
+// parseSwitchCases normalizes the "cases" config value. Each element is either
+// a plain string (used as both match value and handle name) or a
+// map{"value":..., "handle":...} object with an explicit handle name.
+func parseSwitchCases(casesRaw []interface{}) []switchCase {
+	cases := make([]switchCase, 0, len(casesRaw))
+	for _, caseRaw := range casesRaw {
+		switch v := caseRaw.(type) {
+		case string:
+			if v != "" {
+				cases = append(cases, switchCase{value: v, handle: v})
+			}
+		case map[string]interface{}:
+			handle, _ := v["handle"].(string)
+			if handle == "" {
+				continue
+			}
+			cases = append(cases, switchCase{value: fmt.Sprintf("%v", v["value"]), handle: handle})
+		}
+	}
+	return cases
+}
+
 func (n *SwitchNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	expression, _ := config["expression"].(string)
-	casesRaw, _ := config["cases"].([]interface{})
+	expression, _ := config["field"].(string)
+	if expression == "" {
+		expression, _ = config["expression"].(string)
+	}
+	casesRawIface, _ := config["cases"].([]interface{})
+	cases := parseSwitchCases(casesRawIface)
 	defaultHandle, _ := config["default_handle"].(string)
 	if defaultHandle == "" {
 		defaultHandle = "default"
@@ -46,19 +80,9 @@ func (n *SwitchNode) Execute(ctx context.Context, input workflow.NodeInput, conf
 		}
 
 		matched := false
-		for _, caseRaw := range casesRaw {
-			caseMap, ok := caseRaw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			caseValue := fmt.Sprintf("%v", caseMap["value"])
-			caseHandle, _ := caseMap["handle"].(string)
-			if caseHandle == "" {
-				continue
-			}
-
-			if val == caseValue {
-				handleItems[caseHandle] = append(handleItems[caseHandle], item)
+		for _, c := range cases {
+			if val == c.value {
+				handleItems[c.handle] = append(handleItems[c.handle], item)
 				matched = true
 				if !fallthroughMode {
 					break
@@ -75,19 +99,14 @@ func (n *SwitchNode) Execute(ctx context.Context, input workflow.NodeInput, conf
 	seen := make(map[string]bool)
 	var outputs []workflow.NodeOutput
 
-	for _, caseRaw := range casesRaw {
-		caseMap, ok := caseRaw.(map[string]interface{})
-		if !ok {
+	for _, c := range cases {
+		if seen[c.handle] {
 			continue
 		}
-		handle, _ := caseMap["handle"].(string)
-		if handle == "" || seen[handle] {
-			continue
-		}
-		seen[handle] = true
+		seen[c.handle] = true
 		outputs = append(outputs, workflow.NodeOutput{
-			Handle: handle,
-			Items:  handleItems[handle],
+			Handle: c.handle,
+			Items:  handleItems[c.handle],
 		})
 	}
 

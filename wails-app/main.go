@@ -43,8 +43,10 @@ const enableDevTools = false
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// vaultImageHandler serves files from ~/.monoagent/vault/ at /vault-image/<filename>.
-func vaultImageHandler() http.Handler {
+// vaultImageHandler serves files from ~/.monoagent/vault/ at /vault-image/<filename>,
+// scoped to the currently active profile so one profile cannot enumerate or view
+// another profile's vault images.
+func vaultImageHandler(app *App) http.Handler {
 	vaultDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "vault")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/vault-image/") {
@@ -53,6 +55,25 @@ func vaultImageHandler() http.Handler {
 		}
 		// Use filepath.Base to prevent path traversal.
 		name := filepath.Base(r.URL.Path)
+
+		if app.db == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		profileID := app.activeProfileID
+		if profileID == "" {
+			profileID = "default"
+		}
+		var exists int
+		err := app.db.QueryRow(
+			`SELECT 1 FROM vault_images WHERE filename = ? AND COALESCE(profile_id,'default') = ?`,
+			name, profileID,
+		).Scan(&exists)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
 		http.ServeFile(w, r, filepath.Join(vaultDir, name))
 	})
 }
@@ -69,7 +90,7 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 4, G: 6, B: 10, A: 255},
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
-			Handler: vaultImageHandler(),
+			Handler: vaultImageHandler(app),
 		},
 		OnStartup:  app.startup,
 		OnShutdown: app.shutdown,

@@ -2,7 +2,11 @@
   "credential_platform": "discord",
   "fields": [
     { "key": "credential_id", "label": "Discord Connection", "type": "credential_picker", "required": true },
-    { "key": "channel_id", "label": "Channel", "type": "resource_picker", "required": true, "resource": { "type": "channels", "create_label": null } },
-    { "key": "message", "label": "Message", "type": "textarea", "required": true, "rows": 3 }
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["send_message", "send_embed", "get_channels"], "default": "send_message" },
+    { "key": "channel_id", "label": "Channel", "type": "resource_picker", "required": false, "resource": { "type": "channels", "create_label": null }, "depends_on": { "key": "operation", "values": ["send_message", "send_embed"] } },
+    { "key": "content", "label": "Message", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["send_message"] } },
+    { "key": "embed_title", "label": "Embed Title", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_embed"] } },
+    { "key": "embed_description", "label": "Embed Description", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["send_embed"] } },
+    { "key": "guild_id", "label": "Server (Guild) ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_channels"] } }
   ]
 }

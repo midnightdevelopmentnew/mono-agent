@@ -34,7 +34,9 @@ func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	}
 
 	timeoutSecs := 30
-	if v, ok := config["timeout_seconds"].(float64); ok {
+	if v, ok := config["timeout"].(float64); ok {
+		timeoutSecs = int(v)
+	} else if v, ok := config["timeout_seconds"].(float64); ok {
 		timeoutSecs = int(v)
 	}
 

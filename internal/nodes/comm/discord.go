@@ -27,14 +27,17 @@ type DiscordNode struct{}
 func (n *DiscordNode) Type() string { return "comm.discord" }
 
 func (n *DiscordNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	token, _ := config["token"].(string)
+	token, _ := config["bot_token"].(string)
 	if token == "" {
-		return nil, fmt.Errorf("comm.discord: token is required")
+		token, _ = config["token"].(string)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("comm.discord: bot_token is required")
 	}
 
 	operation, _ := config["operation"].(string)
 	if operation == "" {
-		return nil, fmt.Errorf("comm.discord: operation is required")
+		operation = "send_message"
 	}
 
 	// Ensure the "Bot " prefix is present.

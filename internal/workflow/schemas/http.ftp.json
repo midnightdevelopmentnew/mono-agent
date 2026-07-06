@@ -6,6 +6,7 @@
     { "key": "username", "label": "Username", "type": "text", "required": true },
     { "key": "password", "label": "Password", "type": "password", "required": true },
     { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list", "download", "upload", "delete"], "default": "list" },
-    { "key": "path", "label": "Remote Path", "type": "text", "required": true, "placeholder": "/remote/dir/file.csv" }
+    { "key": "remote_path", "label": "Remote Path", "type": "text", "required": true, "placeholder": "/remote/dir/file.csv" },
+    { "key": "local_path", "label": "Local File Path", "type": "text", "required": false, "help": "Required for upload. For download, saves to this path instead of returning base64 contents.", "depends_on": { "key": "operation", "values": ["upload", "download"] } }
   ]
 }

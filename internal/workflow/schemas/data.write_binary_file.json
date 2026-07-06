@@ -1,7 +1,9 @@
 {
   "credential_platform": null,
   "fields": [
-    { "key": "path", "label": "File Path", "type": "text", "required": true, "placeholder": "/tmp/output.pdf" },
-    { "key": "data_field", "label": "Binary Data Field", "type": "text", "required": true, "placeholder": "pdf_bytes" }
+    { "key": "file_path", "label": "File Path", "type": "text", "required": true, "placeholder": "/tmp/output.pdf" },
+    { "key": "field", "label": "Binary Data Field", "type": "text", "required": true, "placeholder": "pdf_bytes" },
+    { "key": "encoding", "label": "Field Encoding", "type": "select", "required": false, "options": ["base64", "utf8"], "default": "base64" },
+    { "key": "create_dirs", "label": "Create Parent Directories", "type": "boolean", "required": false, "default": true }
   ]
 }

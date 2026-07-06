@@ -21,16 +21,13 @@ func (n *RedisNode) Execute(ctx context.Context, input workflow.NodeInput, confi
 		return nil, fmt.Errorf("db.redis: 'operation' is required")
 	}
 
-	addr, _ := config["addr"].(string)
-	if addr == "" {
-		addr = "localhost:6379"
+	connStr, _ := config["connection_string"].(string)
+	if connStr == "" {
+		return nil, fmt.Errorf("db.redis: 'connection_string' is required")
 	}
-
-	password, _ := config["password"].(string)
-
-	dbIndex := 0
-	if v, ok := config["db"].(float64); ok {
-		dbIndex = int(v)
+	opts, err := redis.ParseURL(connStr)
+	if err != nil {
+		return nil, fmt.Errorf("db.redis: invalid connection_string: %w", err)
 	}
 
 	key, _ := config["key"].(string)
@@ -44,11 +41,7 @@ func (n *RedisNode) Execute(ctx context.Context, input workflow.NodeInput, confi
 		ttl = time.Duration(ttlSecs) * time.Second
 	}
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-		DB:       dbIndex,
-	})
+	rdb := redis.NewClient(opts)
 	defer rdb.Close()
 
 	var resultItem workflow.Item

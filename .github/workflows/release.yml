@@ -7,6 +7,13 @@ on:
 permissions:
   contents: write
 
+# Serialize releases: two pushes computing "next version" off the same last
+# tag would race to create the same tag, and the loser's whole run would die
+# before any build/release job started. Queue instead of running concurrently.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ─── 1. Determine next semantic version ───────────────────────────────────
   version:

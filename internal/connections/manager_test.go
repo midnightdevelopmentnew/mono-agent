@@ -62,3 +62,32 @@ func TestManagerConnectUnknownPlatform(t *testing.T) {
 		t.Fatal("expected error when connecting to unknown platform, got nil")
 	}
 }
+
+// TestManagerConnectSavesProfileID is a regression test: Connect previously never
+// set ProfileID on the created Connection, so every connection made via
+// `monoes connect` (regardless of the active profile) was silently saved under
+// "default" and became invisible to other profiles.
+func TestManagerConnectSavesProfileID(t *testing.T) {
+	mgr, _ := newManagerDB(t)
+	ctx := context.Background()
+
+	conn, err := mgr.Connect(ctx, "postgresql", ConnectOptions{
+		Method:      MethodConnStr,
+		ProfileID:   "work",
+		FieldValues: map[string]string{"connection_string": "postgres://u:p@localhost:5432/db"},
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if conn.ProfileID != "work" {
+		t.Fatalf("ProfileID = %q, want %q", conn.ProfileID, "work")
+	}
+
+	saved, err := mgr.Get(ctx, conn.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if saved.ProfileID != "work" {
+		t.Fatalf("saved ProfileID = %q, want %q", saved.ProfileID, "work")
+	}
+}

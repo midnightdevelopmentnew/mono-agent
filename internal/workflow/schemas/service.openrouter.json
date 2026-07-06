@@ -36,22 +36,6 @@
       "required": false,
       "default": 500,
       "depends_on": { "key": "operation", "values": ["generate_text"] }
-    },
-    {
-      "key": "width",
-      "label": "Width (px)",
-      "type": "number",
-      "required": false,
-      "default": 1024,
-      "depends_on": { "key": "operation", "values": ["generate_image"] }
-    },
-    {
-      "key": "height",
-      "label": "Height (px)",
-      "type": "number",
-      "required": false,
-      "default": 1024,
-      "depends_on": { "key": "operation", "values": ["generate_image"] }
     }
   ]
 }

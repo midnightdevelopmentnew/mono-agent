@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,6 +25,8 @@ type WebhookRegistration struct {
 	Path       string             // unique URL path segment, e.g. UUID
 	Method     string             // "GET", "POST", "ANY"
 	HMACSecret string             // if non-empty, validate X-Hub-Signature-256 header
+	AuthHeader string             // if non-empty, validate this header equals AuthToken
+	AuthToken  string             // secret value expected in AuthHeader
 	TriggerFn  func(items []Item) // called when the webhook fires
 }
 
@@ -133,13 +136,17 @@ func (s *WebhookServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reg, ok := s.routes[pathKey]
 	s.mu.RUnlock()
 
-	// Set CORS headers only when the webhook has HMAC authentication configured.
-	if ok && reg.HMACSecret != "" {
+	// Set CORS headers only when the webhook has authentication configured.
+	if ok && (reg.HMACSecret != "" || reg.AuthHeader != "") {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
+			allowedHeaders := "Content-Type, X-Hub-Signature-256"
+			if reg.AuthHeader != "" {
+				allowedHeaders += ", " + reg.AuthHeader
+			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Hub-Signature-256")
+			w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 		}
 	}
 
@@ -189,6 +196,15 @@ func (s *WebhookServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if !validateHMAC(bodyBytes, reg.HMACSecret, sigHeader) {
 			writeJSONError(w, http.StatusUnauthorized, "invalid signature")
+			return
+		}
+	}
+
+	// Static header token validation
+	if reg.AuthHeader != "" {
+		got := r.Header.Get(reg.AuthHeader)
+		if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(reg.AuthToken)) != 1 {
+			writeJSONError(w, http.StatusUnauthorized, fmt.Sprintf("missing or invalid %s header", reg.AuthHeader))
 			return
 		}
 	}

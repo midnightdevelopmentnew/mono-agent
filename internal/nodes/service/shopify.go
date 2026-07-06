@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"monoagent/internal/workflow"
 )
@@ -18,7 +19,10 @@ type ShopifyNode struct{}
 func (n *ShopifyNode) Type() string { return "service.shopify" }
 
 // shopifyRequest makes an authenticated request to the Shopify Admin API.
+// shop may be given as the bare store name ("mystore") or the full domain
+// ("mystore.myshopify.com"); either form works.
 func shopifyRequest(ctx context.Context, method, shop, accessToken, path string, body interface{}) (map[string]interface{}, error) {
+	shop = strings.TrimSuffix(shop, ".myshopify.com")
 	fullURL := fmt.Sprintf("https://%s.myshopify.com/admin/api/2024-01%s", shop, path)
 	var bodyReader io.Reader
 	if body != nil {
@@ -62,9 +66,9 @@ func shopifyRequest(ctx context.Context, method, shop, accessToken, path string,
 }
 
 func (n *ShopifyNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	shop := strVal(config, "shop")
+	shop := strVal(config, "shop_domain")
 	if shop == "" {
-		return nil, fmt.Errorf("shopify: shop is required")
+		return nil, fmt.Errorf("shopify: shop_domain is required")
 	}
 	accessToken := strVal(config, "access_token")
 	if accessToken == "" {

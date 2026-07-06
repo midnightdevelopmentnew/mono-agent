@@ -40,7 +40,7 @@
       "id": "upload_media",
       "type": "type",
       "elementRef": "find_file_input",
-      "text": "{{media[0].url}}",
+      "text": "{{media}}",
       "onError": {
         "action": "retry",
         "maxRetries": 2

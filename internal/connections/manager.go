@@ -30,6 +30,7 @@ type ConnectOptions struct {
 	Method       AuthMethod            // force a specific method (zero = prompt if multiple)
 	OAuthTimeout time.Duration
 	FieldValues  map[string]string // pre-filled field values for non-interactive use
+	ProfileID    string            // profile to save the connection under (empty = "default")
 }
 
 // Connect authenticates to platform and saves the result. Returns saved Connection.
@@ -60,9 +61,10 @@ func (m *Manager) Connect(ctx context.Context, platformID string, opts ConnectOp
 	}
 
 	conn := &Connection{
-		Platform: platformID,
-		Method:   method,
-		Data:     map[string]interface{}{},
+		Platform:  platformID,
+		Method:    method,
+		Data:      map[string]interface{}{},
+		ProfileID: opts.ProfileID,
 	}
 
 	// 4. Switch on method

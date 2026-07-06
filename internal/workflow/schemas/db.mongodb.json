@@ -1,10 +1,14 @@
 {
   "credential_platform": "mongodb",
   "fields": [
-    { "key": "uri", "label": "MongoDB URI", "type": "password", "required": true, "placeholder": "mongodb://user:pass@host:27017/db" },
+    { "key": "connection_string", "label": "MongoDB Connection String", "type": "password", "required": true, "placeholder": "mongodb://user:pass@host:27017/db" },
+    { "key": "database", "label": "Database", "type": "text", "required": true },
     { "key": "collection", "label": "Collection", "type": "text", "required": true },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["find", "findOne", "insertOne", "insertMany", "updateOne", "updateMany", "deleteOne", "deleteMany"], "default": "find" },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["find", "insert_one", "insert_many", "update_one", "update_many", "delete_one", "delete_many", "aggregate"], "default": "find" },
     { "key": "filter", "label": "Filter (JSON)", "type": "textarea", "required": false, "rows": 3, "placeholder": "{ \"status\": \"active\" }" },
-    { "key": "update", "label": "Update (JSON)", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["updateOne", "updateMany"] } }
+    { "key": "update", "label": "Update (JSON)", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["update_one", "update_many"] } },
+    { "key": "document", "label": "Document (JSON)", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["insert_one", "insert_many"] } },
+    { "key": "pipeline", "label": "Aggregation Pipeline (JSON array)", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["aggregate"] } },
+    { "key": "limit", "label": "Limit", "type": "number", "required": false, "depends_on": { "key": "operation", "values": ["find"] } }
   ]
 }

@@ -17,9 +17,12 @@ type AirtableNode struct{}
 func (n *AirtableNode) Type() string { return "service.airtable" }
 
 func (n *AirtableNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	token := strVal(config, "token")
+	token := strVal(config, "api_key")
 	if token == "" {
-		return nil, fmt.Errorf("service.airtable: 'token' is required")
+		token = strVal(config, "access_token")
+	}
+	if token == "" {
+		return nil, fmt.Errorf("service.airtable: 'api_key' is required")
 	}
 	baseID := strVal(config, "base_id")
 	if baseID == "" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -26,14 +27,17 @@ type TelegramNode struct{}
 func (n *TelegramNode) Type() string { return "comm.telegram" }
 
 func (n *TelegramNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	token, _ := config["token"].(string)
+	token, _ := config["bot_token"].(string)
 	if token == "" {
-		return nil, fmt.Errorf("comm.telegram: token is required")
+		token, _ = config["token"].(string)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("comm.telegram: bot_token is required")
 	}
 
 	operation, _ := config["operation"].(string)
 	if operation == "" {
-		return nil, fmt.Errorf("comm.telegram: operation is required")
+		operation = "send_message"
 	}
 
 	bot, err := tgbotapi.NewBotAPI(token)
@@ -43,18 +47,22 @@ func (n *TelegramNode) Execute(ctx context.Context, input workflow.NodeInput, co
 
 	parseMode := "HTML"
 	if pm, ok := config["parse_mode"].(string); ok && pm != "" {
+		if pm == "plain" {
+			pm = ""
+		}
 		parseMode = pm
 	}
 
-	chatID, err := resolveTelegramChatID(config["chat_id"])
+	chatID, channelUsername, err := resolveTelegramChatID(config["chat_id"])
 	if err != nil && operation != "get_updates" {
 		return nil, fmt.Errorf("comm.telegram: %w", err)
 	}
 
 	switch operation {
 	case "send_message":
-		text, _ := config["text"].(string)
+		text := telegramText(config)
 		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ChannelUsername = channelUsername
 		msg.ParseMode = parseMode
 
 		sent, err := bot.Send(msg)
@@ -72,7 +80,7 @@ func (n *TelegramNode) Execute(ctx context.Context, input workflow.NodeInput, co
 		if photoURL == "" {
 			return nil, fmt.Errorf("comm.telegram: photo_url is required for send_photo")
 		}
-		text, _ := config["text"].(string)
+		text := telegramText(config)
 
 		var fileData tgbotapi.RequestFileData
 		if _, err := os.Stat(photoURL); err == nil {
@@ -84,6 +92,7 @@ func (n *TelegramNode) Execute(ctx context.Context, input workflow.NodeInput, co
 		}
 
 		photo := tgbotapi.NewPhoto(chatID, fileData)
+		photo.ChannelUsername = channelUsername
 		photo.Caption = text
 		photo.ParseMode = parseMode
 
@@ -128,26 +137,39 @@ func (n *TelegramNode) Execute(ctx context.Context, input workflow.NodeInput, co
 	}
 }
 
-// resolveTelegramChatID coerces the chat_id config value to int64.
-func resolveTelegramChatID(v interface{}) (int64, error) {
+// telegramText reads the message body from config, accepting either the
+// schema's "message" key or the doc comment's legacy "text" key.
+func telegramText(config map[string]interface{}) string {
+	if text, ok := config["message"].(string); ok {
+		return text
+	}
+	text, _ := config["text"].(string)
+	return text
+}
+
+// resolveTelegramChatID coerces the chat_id config value to either a numeric
+// Telegram chat ID or a "@channel_username" string, as documented by the
+// comm.telegram.json schema's chat_id help text.
+func resolveTelegramChatID(v interface{}) (chatID int64, channelUsername string, err error) {
 	if v == nil {
-		return 0, fmt.Errorf("chat_id is required")
+		return 0, "", fmt.Errorf("chat_id is required")
 	}
 	switch val := v.(type) {
 	case int64:
-		return val, nil
+		return val, "", nil
 	case int:
-		return int64(val), nil
+		return int64(val), "", nil
 	case float64:
-		return int64(val), nil
+		return int64(val), "", nil
 	case string:
-		// Telegram accepts string usernames via chat_id only for certain methods;
-		// this cast covers numeric string IDs passed as strings.
+		if strings.HasPrefix(val, "@") {
+			return 0, val, nil
+		}
 		var id int64
 		if _, err := fmt.Sscanf(val, "%d", &id); err != nil {
-			return 0, fmt.Errorf("chat_id %q is not a valid integer ID", val)
+			return 0, "", fmt.Errorf("chat_id %q is not a valid integer ID or @channel_username", val)
 		}
-		return id, nil
+		return id, "", nil
 	}
-	return 0, fmt.Errorf("chat_id must be an integer or string, got %T", v)
+	return 0, "", fmt.Errorf("chat_id must be an integer or string, got %T", v)
 }

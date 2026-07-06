@@ -1,7 +1,7 @@
 {
   "credential_platform": null,
   "fields": [
-    { "key": "key_field", "label": "Key Field", "type": "text", "required": true, "placeholder": "id" },
-    { "key": "output", "label": "Output", "type": "select", "required": true, "options": ["new_items", "removed_items", "changed_items", "all_differences"], "default": "new_items" }
+    { "key": "key_field", "label": "Key Field", "type": "text", "required": true, "placeholder": "id", "help": "Field used as the unique identifier when matching items between the two datasets." },
+    { "key": "split_at", "label": "Split Index", "type": "number", "required": false, "help": "Index at which the incoming items are split into dataset A (before) and dataset B (from this index on). Defaults to a 50/50 split." }
   ]
 }

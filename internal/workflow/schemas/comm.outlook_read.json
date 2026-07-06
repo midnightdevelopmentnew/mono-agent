@@ -1,0 +1,10 @@
+{
+  "credential_platform": "outlook",
+  "fields": [
+    { "key": "email", "label": "Outlook Email Address", "type": "text", "required": true, "placeholder": "you@outlook.com" },
+    { "key": "app_password", "label": "App Password", "type": "password", "required": true },
+    { "key": "mailbox", "label": "Mailbox", "type": "text", "required": false, "default": "INBOX" },
+    { "key": "limit", "label": "Max Emails", "type": "number", "required": false, "default": 10 },
+    { "key": "unread_only", "label": "Unread Only", "type": "boolean", "required": false, "default": false }
+  ]
+}

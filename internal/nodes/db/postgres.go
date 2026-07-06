@@ -32,20 +32,10 @@ func (n *PostgresNode) Execute(ctx context.Context, input workflow.NodeInput, co
 		operation = "select"
 	}
 
-	host, _ := config["host"].(string)
-	if host == "" {
-		host = "localhost"
+	dsn, _ := config["connection_string"].(string)
+	if dsn == "" {
+		return nil, fmt.Errorf("db.postgres: 'connection_string' is required")
 	}
-	port := 5432
-	if v, ok := config["port"].(float64); ok {
-		port = int(v)
-	}
-	database, _ := config["database"].(string)
-	username, _ := config["username"].(string)
-	password, _ := config["password"].(string)
-
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		host, port, username, password, database)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

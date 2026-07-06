@@ -1,26 +1,29 @@
 package ainodes
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"monoagent/internal/ai"
+	"monoagent/internal/vault"
 	"monoagent/internal/workflow"
 )
 
 // templatePattern matches {{$json.FIELD}} placeholders in prompt templates.
 var templatePattern = regexp.MustCompile(`\{\{\$json\.(\w+)\}\}`)
 
-// getClient reads provider_id and model from config, fetches the provider from the store,
-// and creates an AIClient. Returns the client and model name.
-func getClient(store *ai.AIStore, config map[string]interface{}) (ai.AIClient, string, error) {
+// getClient reads provider_id and model from config, fetches the provider from the store
+// (scoped to the executing workflow's profile), and creates an AIClient. Returns the
+// client and model name.
+func getClient(ctx context.Context, store *ai.AIStore, config map[string]interface{}) (ai.AIClient, string, error) {
 	providerID := configString(config, "provider_id", "")
 	if providerID == "" {
 		return nil, "", fmt.Errorf("%w: provider_id is required", workflow.ErrInvalidConfig)
 	}
 
-	provider, err := store.GetProvider(providerID)
+	provider, err := store.GetProvider(providerID, vault.ProfileIDFromContext(ctx))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get AI provider %q: %w", providerID, err)
 	}

@@ -43,6 +43,28 @@ func (ct *CanvasTools) SetNodeTypes(types []NodeTypeInfo) {
 	ct.nodeTypes = types
 }
 
+// checkWorkflowOwnership verifies that workflowID belongs to the active profile,
+// preventing the AI chat tools from reading or mutating another profile's workflow.
+// "general" and "draft" are placeholder IDs used before a real workflow exists
+// (see systemPromptTemplate) and are always allowed through.
+func (ct *CanvasTools) checkWorkflowOwnership(workflowID string) error {
+	if workflowID == "general" || workflowID == "draft" {
+		return nil
+	}
+	var exists int
+	err := ct.db.QueryRow(
+		`SELECT 1 FROM workflows WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+		workflowID, ct.profileID,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("workflow %s not found", workflowID)
+	}
+	if err != nil {
+		return fmt.Errorf("check workflow ownership: %w", err)
+	}
+	return nil
+}
+
 // ToolDefs returns the tool definitions the AI model can call.
 func (ct *CanvasTools) ToolDefs() []ai.ToolDef {
 	return []ai.ToolDef{
@@ -244,6 +266,9 @@ func (ct *CanvasTools) getWorkflowState(args string) (string, error) {
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
+	if err := ct.checkWorkflowOwnership(a.WorkflowID); err != nil {
+		return "", err
+	}
 
 	// Query nodes
 	rows, err := ct.db.Query(
@@ -351,6 +376,9 @@ func (ct *CanvasTools) createNodes(args string) (string, error) {
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
+	if err := ct.checkWorkflowOwnership(a.WorkflowID); err != nil {
+		return "", err
+	}
 
 	now := time.Now().UTC()
 	createdIDs := make([]string, 0, len(a.Nodes))
@@ -405,6 +433,9 @@ func (ct *CanvasTools) updateNodeConfig(args string) (string, error) {
 	var a updateNodeConfigArgs
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if err := ct.checkWorkflowOwnership(a.WorkflowID); err != nil {
+		return "", err
 	}
 
 	// Read existing config
@@ -461,6 +492,9 @@ func (ct *CanvasTools) deleteNodes(args string) (string, error) {
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
+	if err := ct.checkWorkflowOwnership(a.WorkflowID); err != nil {
+		return "", err
+	}
 
 	tx, err := ct.db.Begin()
 	if err != nil {
@@ -506,6 +540,9 @@ func (ct *CanvasTools) connectNodes(args string) (string, error) {
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
+	if err := ct.checkWorkflowOwnership(a.WorkflowID); err != nil {
+		return "", err
+	}
 
 	id := uuid.New().String()
 	if _, err := ct.db.Exec(
@@ -531,6 +568,9 @@ func (ct *CanvasTools) disconnectNodes(args string) (string, error) {
 	var a disconnectNodesArgs
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if err := ct.checkWorkflowOwnership(a.WorkflowID); err != nil {
+		return "", err
 	}
 
 	res, err := ct.db.Exec(

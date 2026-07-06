@@ -3,8 +3,11 @@
   "fields": [
     { "key": "account_sid", "label": "Account SID", "type": "text", "required": true },
     { "key": "auth_token", "label": "Auth Token", "type": "password", "required": true },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["send_sms", "send_whatsapp", "make_call"], "default": "send_sms" },
     { "key": "from", "label": "From Number", "type": "text", "required": true, "placeholder": "+15551234567" },
     { "key": "to", "label": "To Number", "type": "text", "required": true, "placeholder": "+15557654321" },
-    { "key": "message", "label": "SMS Message", "type": "textarea", "required": true, "rows": 3 }
+    { "key": "body", "label": "Message", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["send_sms", "send_whatsapp"] } },
+    { "key": "url", "label": "TwiML URL", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["make_call"] } },
+    { "key": "twiml", "label": "Inline TwiML", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["make_call"] } }
   ]
 }

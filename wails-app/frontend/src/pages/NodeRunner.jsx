@@ -2144,14 +2144,18 @@ function normalizeNodeType(t) { return LEGACY_NODE_TYPES[t] || t }
 const NODE_CONFIG_FIELDS = {
   // ── Triggers ──────────────────────────────────────────────────────────────
   'trigger.schedule': [
-    { key: 'cron', label: 'Cron Expression', type: 'text', default: '0 * * * *' },
-    { key: 'timezone', label: 'Timezone', type: 'text', default: 'UTC' },
+    { key: 'cron', label: 'Cron Expression', type: 'text', default: '0 0 * * * *',
+      help: '6-field cron: sec min hour dom month dow (e.g. "0 0 9 * * *" for 9am daily). 5-field expressions are rejected.' },
+    { key: 'timezone', label: 'Timezone', type: 'text', default: 'UTC',
+      help: 'IANA timezone name (e.g. "America/New_York"). Leave as UTC to run in server time.' },
   ],
   'trigger.webhook': [
     { key: 'path', label: 'URL Path', type: 'text', default: '/webhook' },
     { key: 'method', label: 'HTTP Method', type: 'select', options: ['GET','POST','PUT','PATCH','DELETE'], default: 'POST' },
-    { key: 'auth_type', label: 'Auth Type', type: 'select', options: ['none','header_token','basic'], default: 'none' },
-    { key: 'auth_token', label: 'Auth Token', type: 'password', default: '' },
+    { key: 'auth_header', label: 'Auth Header Name', type: 'text', default: '',
+      help: 'If set, requests must include this header with the auth token value (e.g. X-Webhook-Secret). Leave blank for no auth.' },
+    { key: 'auth_token', label: 'Auth Token', type: 'password', default: '',
+      help: 'Secret value expected in the auth header.' },
   ],
 
   // ── Control ───────────────────────────────────────────────────────────────
@@ -2579,8 +2583,8 @@ const NODE_CONFIG_FIELDS = {
   ],
   'instagram.publish_post': [
     { key: 'username', label: 'Account Username', type: 'text', default: '' },
-    { key: 'caption', label: 'Caption', type: 'textarea', default: '' },
-    { key: 'image_path', label: 'Image Path / URL', type: 'text', default: '' },
+    { key: 'text', label: 'Caption', type: 'textarea', default: '' },
+    { key: 'media', label: 'Image Path / URL', type: 'text', default: '' },
   ],
   'linkedin.find_by_keyword': [
     { key: 'keywords', label: 'Keywords', type: 'text', default: '' },
@@ -2591,6 +2595,11 @@ const NODE_CONFIG_FIELDS = {
     { key: 'username', label: 'Account Username', type: 'text', default: '' },
     { key: 'message', label: 'Message Template', type: 'textarea', default: 'Hi {{name}},' },
     { key: 'targets', label: 'Target Profiles (JSON array)', type: 'textarea', default: '[]' },
+  ],
+  'linkedin.publish_post': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'text', label: 'Post Text', type: 'textarea', default: '' },
+    { key: 'media', label: 'Image Path / URL', type: 'text', default: '' },
   ],
   'x.find_by_keyword': [
     { key: 'keywords', label: 'Keywords / Hashtags', type: 'text', default: '' },
@@ -2605,6 +2614,11 @@ const NODE_CONFIG_FIELDS = {
     { key: 'keywords', label: 'Keywords / Hashtags', type: 'text', default: '' },
     { key: 'limit', label: 'Max Results', type: 'number', default: '50' },
     { key: 'username', label: 'Account Username', type: 'text', default: '' },
+  ],
+  'tiktok.publish_post': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'text', label: 'Caption', type: 'textarea', default: '' },
+    { key: 'media', label: 'Video Path / URL', type: 'text', default: '' },
   ],
 }
 

@@ -2,9 +2,11 @@
   "credential_platform": "slack",
   "fields": [
     { "key": "credential_id", "label": "Slack Connection", "type": "credential_picker", "required": true },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["send_message", "update_message", "delete_message", "get_channel", "list_channels", "get_user"], "default": "send_message" },
-    { "key": "channel_id", "label": "Channel", "type": "resource_picker", "required": true, "resource": { "type": "channels", "create_label": null }, "help": "Select a Slack channel." },
-    { "key": "text", "label": "Message Text", "type": "textarea", "required": true, "rows": 3, "depends_on": { "key": "operation", "values": ["send_message", "update_message"] } },
-    { "key": "message_ts", "label": "Message Timestamp", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["update_message", "delete_message"] } }
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["post_message", "upload_file", "list_channels", "get_user"], "default": "post_message" },
+    { "key": "channel", "label": "Channel", "type": "resource_picker", "required": false, "resource": { "type": "channels", "create_label": null }, "help": "Select a Slack channel.", "depends_on": { "key": "operation", "values": ["post_message", "upload_file"] } },
+    { "key": "text", "label": "Message Text", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["post_message"] } },
+    { "key": "file_path", "label": "File Path", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload_file"] } },
+    { "key": "filename", "label": "Filename", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload_file"] } },
+    { "key": "user_id", "label": "User ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_user"] } }
   ]
 }

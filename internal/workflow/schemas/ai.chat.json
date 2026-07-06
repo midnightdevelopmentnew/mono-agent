@@ -1,0 +1,12 @@
+{
+  "credential_platform": null,
+  "fields": [
+    { "key": "provider_id", "label": "AI Provider", "type": "text", "required": true, "help": "ID of a configured AI provider (see AI Providers settings)." },
+    { "key": "model", "label": "Model", "type": "text", "required": false, "help": "Falls back to the provider's default model." },
+    { "key": "system_prompt", "label": "System Prompt", "type": "textarea", "required": false, "rows": 3 },
+    { "key": "prompt", "label": "Prompt", "type": "textarea", "required": true, "rows": 4, "default": "{{$json.text}}", "help": "Supports {{$json.field}} placeholders." },
+    { "key": "temperature", "label": "Temperature", "type": "number", "required": false, "default": 0.7 },
+    { "key": "max_tokens", "label": "Max Tokens", "type": "number", "required": false, "default": 1024 },
+    { "key": "output_key", "label": "Output Key", "type": "text", "required": false, "default": "ai_response" }
+  ]
+}

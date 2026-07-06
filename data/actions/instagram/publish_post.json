@@ -76,7 +76,7 @@
       "type": "call_bot_method",
       "methodName": "publish_content",
       "args": [
-        "{{media[0].url}}",
+        "{{media}}",
         "{{text}}",
         "{{locationTag}}"
       ],
@@ -189,7 +189,7 @@
       "id": "upload_media",
       "type": "upload",
       "elementRef": "find_file_input",
-      "text": "{{media[0].url}}",
+      "text": "{{media}}",
       "onError": {
         "action": "skip"
       }
@@ -395,7 +395,7 @@
       "id": "upload_media_t3",
       "type": "upload",
       "elementRef": "find_file_input_t3",
-      "text": "{{media[0].url}}",
+      "text": "{{media}}",
       "onError": {
         "action": "mark_failed"
       }
@@ -495,60 +495,6 @@
       "id": "wait_for_post_shared",
       "type": "wait",
       "duration": 8,
-      "waitFor": "time"
-    },
-    {
-      "id": "navigate_to_profile",
-      "type": "navigate",
-      "url": "https://www.instagram.com/planet_cute_cats/",
-      "timeout": 15
-    },
-    {
-      "id": "wait_profile_load",
-      "type": "wait",
-      "duration": 8,
-      "waitFor": "time"
-    },
-    {
-      "id": "find_first_post",
-      "type": "find_element",
-      "selector": "a[href*='/p/']",
-      "timeout": 20,
-      "onError": {
-        "action": "skip"
-      }
-    },
-    {
-      "id": "click_first_post",
-      "type": "click",
-      "elementRef": "find_first_post",
-      "onError": {
-        "action": "skip"
-      }
-    },
-    {
-      "id": "wait_post_open",
-      "type": "wait",
-      "duration": 3,
-      "waitFor": "time"
-    },
-    {
-      "id": "post_comment_cdp",
-      "type": "call_bot_method",
-      "methodName": "post_comment_cdp",
-      "args": [
-        "{{text}}"
-      ],
-      "variable_name": "commentResult",
-      "timeout": 30,
-      "onError": {
-        "action": "skip"
-      }
-    },
-    {
-      "id": "wait_final",
-      "type": "wait",
-      "duration": 3,
       "waitFor": "time"
     }
   ],

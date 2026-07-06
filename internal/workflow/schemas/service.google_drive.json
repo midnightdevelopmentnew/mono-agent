@@ -2,8 +2,12 @@
   "credential_platform": "google_drive",
   "fields": [
     { "key": "credential_id", "label": "Google Account", "type": "credential_picker", "required": true },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_files", "upload", "download", "delete", "create_folder", "move"], "default": "list_files" },
-    { "key": "folder_id", "label": "Folder", "type": "resource_picker", "required": false, "resource": { "type": "folders", "create_label": "Create New Folder" } },
-    { "key": "file_name", "label": "File Name", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload", "download"] } }
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_files", "get_file", "upload_file", "download_file", "create_folder", "delete_file", "share_file"], "default": "list_files" },
+    { "key": "parent_folder_id", "label": "Parent Folder", "type": "resource_picker", "required": false, "resource": { "type": "folders", "create_label": "Create New Folder" }, "depends_on": { "key": "operation", "values": ["list_files", "upload_file", "create_folder"] } },
+    { "key": "query", "label": "Search Query", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["list_files"] } },
+    { "key": "file_id", "label": "File ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_file", "download_file", "delete_file", "share_file"] } },
+    { "key": "file_path", "label": "Local File Path", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload_file", "download_file"] } },
+    { "key": "file_name", "label": "File / Folder Name", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload_file", "create_folder"] } },
+    { "key": "mime_type", "label": "MIME Type", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload_file"] } }
   ]
 }

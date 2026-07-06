@@ -27,7 +27,10 @@ func (n *SortNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	if field == "" {
 		return nil, fmt.Errorf("sort: 'field' config is required")
 	}
-	order, _ := config["order"].(string)
+	order, _ := config["direction"].(string)
+	if order == "" {
+		order, _ = config["order"].(string)
+	}
 	if order == "" {
 		order = "asc"
 	}

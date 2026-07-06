@@ -435,6 +435,9 @@ func (e *WorkflowEngine) SaveWorkflow(ctx context.Context, w *Workflow) error {
 	if existing == nil {
 		return fmt.Errorf("engine: save workflow: %w", ErrWorkflowNotFound)
 	}
+	if err := e.checkWorkflowProfile(existing); err != nil {
+		return fmt.Errorf("engine: save workflow: %w", err)
+	}
 
 	wasActive := existing.IsActive
 
@@ -471,6 +474,16 @@ func (e *WorkflowEngine) SaveWorkflow(ctx context.Context, w *Workflow) error {
 	return nil
 }
 
+// checkWorkflowProfile returns an error if wf belongs to a different profile
+// than the engine's active profile, preventing cross-profile access to a
+// workflow whose ID was guessed or leaked from another profile.
+func (e *WorkflowEngine) checkWorkflowProfile(wf *Workflow) error {
+	if wf.ProfileID != "" && wf.ProfileID != e.profileID {
+		return fmt.Errorf("workflow belongs to a different profile")
+	}
+	return nil
+}
+
 // DeleteWorkflow deactivates and deletes a workflow.
 func (e *WorkflowEngine) DeleteWorkflow(ctx context.Context, id string) error {
 	existing, err := e.store.GetWorkflow(ctx, id)
@@ -480,9 +493,8 @@ func (e *WorkflowEngine) DeleteWorkflow(ctx context.Context, id string) error {
 	if existing == nil {
 		return fmt.Errorf("engine: delete workflow: %w", ErrWorkflowNotFound)
 	}
-
-	if existing.ProfileID != "" && existing.ProfileID != e.profileID {
-		return fmt.Errorf("engine: delete workflow: workflow belongs to a different profile")
+	if err := e.checkWorkflowProfile(existing); err != nil {
+		return fmt.Errorf("engine: delete workflow: %w", err)
 	}
 
 	if existing.IsActive {
@@ -505,6 +517,9 @@ func (e *WorkflowEngine) ActivateWorkflow(ctx context.Context, id string) error 
 	}
 	if wf == nil {
 		return fmt.Errorf("engine: activate workflow: %w", ErrWorkflowNotFound)
+	}
+	if err := e.checkWorkflowProfile(wf); err != nil {
+		return fmt.Errorf("engine: activate workflow: %w", err)
 	}
 
 	if err := e.store.SetWorkflowActive(ctx, id, true); err != nil {
@@ -531,6 +546,9 @@ func (e *WorkflowEngine) DeactivateWorkflow(ctx context.Context, id string) erro
 	if existing == nil {
 		return fmt.Errorf("engine: deactivate workflow: %w", ErrWorkflowNotFound)
 	}
+	if err := e.checkWorkflowProfile(existing); err != nil {
+		return fmt.Errorf("engine: deactivate workflow: %w", err)
+	}
 
 	e.triggerMgr.DeactivateWorkflow(id)
 
@@ -555,6 +573,9 @@ func (e *WorkflowEngine) TriggerWorkflow(ctx context.Context, workflowID string,
 	}
 	if wf == nil {
 		return "", fmt.Errorf("engine: trigger workflow: %w", ErrWorkflowNotFound)
+	}
+	if err := e.checkWorkflowProfile(wf); err != nil {
+		return "", fmt.Errorf("engine: trigger workflow: %w", err)
 	}
 	if !wf.IsActive {
 		return "", fmt.Errorf("engine: trigger workflow: %w", ErrWorkflowInactive)
@@ -618,6 +639,9 @@ func (e *WorkflowEngine) RetryExecution(ctx context.Context, executionID string)
 	if wf == nil {
 		return "", fmt.Errorf("engine: retry execution: %w", ErrWorkflowNotFound)
 	}
+	if err := e.checkWorkflowProfile(wf); err != nil {
+		return "", fmt.Errorf("engine: retry execution: %w", err)
+	}
 
 	exec := &WorkflowExecution{
 		WorkflowID:  orig.WorkflowID,
@@ -661,6 +685,9 @@ func (e *WorkflowEngine) GetWorkflow(ctx context.Context, id string) (*Workflow,
 	}
 	if wf == nil {
 		return nil, fmt.Errorf("engine: get workflow: %w", ErrWorkflowNotFound)
+	}
+	if err := e.checkWorkflowProfile(wf); err != nil {
+		return nil, fmt.Errorf("engine: get workflow: %w", err)
 	}
 	return wf, nil
 }

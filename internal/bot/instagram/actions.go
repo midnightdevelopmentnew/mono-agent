@@ -319,6 +319,8 @@ func (b *InstagramBot) FetchFollowersList(ctx context.Context, page *rod.Page, p
 	var results []map[string]interface{}
 	seen := make(map[string]bool)
 	maxScrollAttempts := 20
+	prevCount := 0
+	noChangeRounds := 0
 
 	if maxCount <= 0 {
 		maxCount = 100
@@ -380,9 +382,10 @@ func (b *InstagramBot) FetchFollowersList(ctx context.Context, page *rod.Page, p
 		}`)
 		time.Sleep(2 * time.Second)
 
-		// Check if we got new results.
-		if attempt > 3 && len(results) == len(seen) {
-			// No new results after scrolling — we've hit the bottom.
+		// Check if we got new results since the last scroll.
+		prevCount, noChangeRounds = trackStagnation(len(results), prevCount, noChangeRounds)
+		if attempt > 3 && noChangeRounds >= 3 {
+			// No new results after several scrolls — we've hit the bottom.
 			break
 		}
 	}
@@ -393,6 +396,16 @@ func (b *InstagramBot) FetchFollowersList(ctx context.Context, page *rod.Page, p
 // parseJSONArray is a helper to unmarshal a JSON array string.
 func parseJSONArray(jsonStr string, target *[]map[string]interface{}) error {
 	return json.Unmarshal([]byte(jsonStr), target)
+}
+
+// trackStagnation updates the scroll-progress counters used to detect when a
+// scrollable list has stopped loading new items. It returns the new prevCount
+// and noChangeRounds to carry into the next iteration.
+func trackStagnation(currentCount, prevCount, noChangeRounds int) (newPrevCount, newNoChangeRounds int) {
+	if currentCount == prevCount {
+		return prevCount, noChangeRounds + 1
+	}
+	return currentCount, 0
 }
 
 // ---------------------------------------------------------------------------

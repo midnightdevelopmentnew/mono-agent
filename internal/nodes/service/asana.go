@@ -16,9 +16,9 @@ type AsanaNode struct{}
 func (n *AsanaNode) Type() string { return "service.asana" }
 
 func (n *AsanaNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	token := strVal(config, "token")
+	token := strVal(config, "access_token")
 	if token == "" {
-		return nil, fmt.Errorf("service.asana: 'token' is required")
+		return nil, fmt.Errorf("service.asana: 'access_token' is required")
 	}
 
 	operation := strVal(config, "operation")

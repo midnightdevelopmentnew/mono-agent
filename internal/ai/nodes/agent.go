@@ -29,7 +29,7 @@ type AgentNode struct {
 func (n *AgentNode) Type() string { return "ai.agent" }
 
 func (n *AgentNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	client, model, err := n.getClientAndModel(config)
+	client, model, err := n.getClientAndModel(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -77,10 +77,10 @@ func (n *AgentNode) Execute(ctx context.Context, input workflow.NodeInput, confi
 	}, nil
 }
 
-func (n *AgentNode) getClientAndModel(config map[string]interface{}) (ai.AIClient, string, error) {
+func (n *AgentNode) getClientAndModel(ctx context.Context, config map[string]interface{}) (ai.AIClient, string, error) {
 	if n.ClientOverride != nil {
 		model := configString(config, "model", "test-model")
 		return n.ClientOverride, model, nil
 	}
-	return getClient(n.Store, config)
+	return getClient(ctx, n.Store, config)
 }

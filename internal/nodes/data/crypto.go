@@ -25,7 +25,10 @@ func (n *CryptoNode) Type() string { return "data.crypto" }
 func (n *CryptoNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	operation, _ := config["operation"].(string)
 	field, _ := config["field"].(string)
-	key, _ := config["key"].(string)
+	key, _ := config["secret"].(string)
+	if key == "" {
+		key, _ = config["key"].(string)
+	}
 	outputField, _ := config["output_field"].(string)
 	encoding, _ := config["encoding"].(string)
 
@@ -47,17 +50,17 @@ func (n *CryptoNode) Execute(ctx context.Context, input workflow.NodeInput, conf
 		newJSON := copyMap(item.JSON)
 
 		switch operation {
-		case "md5":
+		case "hash_md5":
 			data := []byte(fmt.Sprintf("%v", newJSON[field]))
 			h := md5.Sum(data) //nolint:gosec
 			newJSON[outputField] = encodeHash(h[:], encoding)
 
-		case "sha256":
+		case "hash_sha256":
 			data := []byte(fmt.Sprintf("%v", newJSON[field]))
 			h := sha256.Sum256(data)
 			newJSON[outputField] = encodeHash(h[:], encoding)
 
-		case "sha512":
+		case "hash_sha512":
 			data := []byte(fmt.Sprintf("%v", newJSON[field]))
 			h := sha512.Sum512(data)
 			newJSON[outputField] = encodeHash(h[:], encoding)

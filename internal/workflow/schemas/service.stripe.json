@@ -2,8 +2,14 @@
   "credential_platform": "stripe",
   "fields": [
     { "key": "api_key", "label": "Stripe Secret Key", "type": "password", "required": true },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_customers", "get_customer", "list_payments", "get_payment", "create_refund", "list_subscriptions"], "default": "list_customers" },
-    { "key": "customer_id", "label": "Customer ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_customer", "list_payments", "list_subscriptions"] } },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_customers", "create_customer", "get_customer", "list_charges", "create_charge", "list_subscriptions", "cancel_subscription", "list_products"], "default": "list_customers" },
+    { "key": "customer_id", "label": "Customer ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_customer", "list_charges", "create_charge", "list_subscriptions"] } },
+    { "key": "email", "label": "Email", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_customer"] } },
+    { "key": "name", "label": "Name", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_customer"] } },
+    { "key": "amount", "label": "Amount (cents)", "type": "number", "required": false, "depends_on": { "key": "operation", "values": ["create_charge"] } },
+    { "key": "currency", "label": "Currency", "type": "text", "required": false, "default": "usd", "depends_on": { "key": "operation", "values": ["create_charge"] } },
+    { "key": "source", "label": "Source Token", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_charge"] } },
+    { "key": "subscription_id", "label": "Subscription ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["cancel_subscription"] } },
     { "key": "limit", "label": "Max Results", "type": "number", "required": false, "default": 20 }
   ]
 }

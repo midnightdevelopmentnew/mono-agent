@@ -28,9 +28,12 @@ type SlackNode struct{}
 func (n *SlackNode) Type() string { return "comm.slack" }
 
 func (n *SlackNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	token, _ := config["token"].(string)
+	token, _ := config["access_token"].(string)
 	if token == "" {
-		return nil, fmt.Errorf("comm.slack: token is required")
+		token, _ = config["token"].(string)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("comm.slack: access_token is required")
 	}
 
 	operation, _ := config["operation"].(string)

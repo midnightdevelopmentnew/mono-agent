@@ -30,7 +30,7 @@ type ClassifyNode struct {
 func (n *ClassifyNode) Type() string { return "ai.classify" }
 
 func (n *ClassifyNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	client, model, err := n.getClientAndModel(config)
+	client, model, err := n.getClientAndModel(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -135,10 +135,10 @@ func (n *ClassifyNode) Execute(ctx context.Context, input workflow.NodeInput, co
 	return outputs, nil
 }
 
-func (n *ClassifyNode) getClientAndModel(config map[string]interface{}) (ai.AIClient, string, error) {
+func (n *ClassifyNode) getClientAndModel(ctx context.Context, config map[string]interface{}) (ai.AIClient, string, error) {
 	if n.ClientOverride != nil {
 		model := configString(config, "model", "test-model")
 		return n.ClientOverride, model, nil
 	}
-	return getClient(n.Store, config)
+	return getClient(ctx, n.Store, config)
 }

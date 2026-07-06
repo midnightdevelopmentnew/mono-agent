@@ -1,0 +1,8 @@
+{
+  "credential_platform": null,
+  "fields": [
+    { "key": "readonly_fields", "label": "Read-Only Fields", "type": "array", "required": false, "item_type": "text", "help": "Item keys shown to the reviewer as read-only context." },
+    { "key": "editable_fields", "label": "Editable Fields", "type": "array", "required": false, "item_type": "text", "help": "Item keys the reviewer can edit before approving. If left empty, the whole item is editable." },
+    { "key": "timeout_minutes", "label": "Timeout (minutes)", "type": "number", "required": false, "default": 0, "help": "Max time to wait for a human decision. 0 = unlimited." }
+  ]
+}

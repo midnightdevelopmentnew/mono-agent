@@ -234,6 +234,11 @@ func (vr *VariableResolver) navigatePath(current interface{}, parts []string) in
 
 // accessMap extracts a keyed value from a map or returns nil.
 func (vr *VariableResolver) accessMap(current interface{}, key string) interface{} {
+	if key == "count" || key == "length" {
+		if n, ok := genericLength(current); ok {
+			return n
+		}
+	}
 	switch m := current.(type) {
 	case map[string]interface{}:
 		return m[key]
@@ -242,6 +247,27 @@ func (vr *VariableResolver) accessMap(current interface{}, key string) interface
 	default:
 		return nil
 	}
+}
+
+// genericLength returns the element/character count of v for the "count" and
+// "length" pseudo-properties (e.g. "{{items.count}}", "{{media.length}}"),
+// supporting slices, maps, and strings. This is what makes those
+// pseudo-properties work uniformly whether the referenced variable came from
+// a tracked step result or a plain SetVariable call.
+func genericLength(v interface{}) (int, bool) {
+	switch s := v.(type) {
+	case []interface{}:
+		return len(s), true
+	case []string:
+		return len(s), true
+	case []map[string]interface{}:
+		return len(s), true
+	case map[string]interface{}:
+		return len(s), true
+	case string:
+		return len(s), true
+	}
+	return 0, false
 }
 
 // accessSlice extracts an indexed value from a slice or returns nil.

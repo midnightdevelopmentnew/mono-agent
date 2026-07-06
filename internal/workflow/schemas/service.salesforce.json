@@ -3,9 +3,10 @@
   "fields": [
     { "key": "instance_url", "label": "Instance URL", "type": "text", "required": true, "placeholder": "https://myorg.salesforce.com" },
     { "key": "access_token", "label": "Access Token", "type": "password", "required": true },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["query", "create", "update", "delete", "describe"], "default": "query" },
-    { "key": "object_type", "label": "Object Type", "type": "text", "required": true, "placeholder": "Contact" },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["query", "get_record", "create_record", "update_record", "delete_record", "describe_object"], "default": "query" },
+    { "key": "object_type", "label": "Object Type", "type": "text", "required": false, "placeholder": "Contact", "depends_on": { "key": "operation", "values": ["get_record", "create_record", "update_record", "delete_record", "describe_object"] } },
+    { "key": "record_id", "label": "Record ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_record", "update_record", "delete_record"] } },
     { "key": "soql", "label": "SOQL Query", "type": "code", "required": false, "depends_on": { "key": "operation", "values": ["query"] } },
-    { "key": "record", "label": "Record Data (JSON)", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create", "update"] } }
+    { "key": "fields", "label": "Fields (JSON)", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create_record", "update_record"] } }
   ]
 }

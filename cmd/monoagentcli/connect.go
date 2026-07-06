@@ -61,6 +61,7 @@ func runConnectPlatform(cmd *cobra.Command, cfg *globalConfig, platformID string
 
 	_, err = mgr.Connect(cmd.Context(), platformID, connections.ConnectOptions{
 		OAuthTimeout: 5 * time.Minute,
+		ProfileID:    cfg.ProfileID,
 	})
 	return err
 }

@@ -1,10 +1,11 @@
 {
   "credential_platform": "hubspot",
   "fields": [
-    { "key": "api_key", "label": "HubSpot API Key", "type": "password", "required": true },
-    { "key": "object_type", "label": "Object Type", "type": "select", "required": true, "options": ["contacts", "companies", "deals", "tickets"], "default": "contacts" },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list", "get", "create", "update", "delete", "search"], "default": "list" },
-    { "key": "properties", "label": "Properties (JSON)", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create", "update"] } },
-    { "key": "filter_groups", "label": "Search Filters (JSON)", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["search"] } }
+    { "key": "credential_id", "label": "HubSpot Connection", "type": "credential_picker", "required": true },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_contacts", "get_contact", "create_contact", "update_contact", "list_deals", "create_deal", "update_deal", "list_companies", "create_company", "update_company"], "default": "list_contacts" },
+    { "key": "object_id", "label": "Object ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_contact", "update_contact", "update_deal", "update_company"] } },
+    { "key": "properties", "label": "Properties (JSON)", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create_contact", "update_contact", "create_deal", "update_deal", "create_company", "update_company"] } },
+    { "key": "limit", "label": "Limit", "type": "number", "required": false, "default": 10, "depends_on": { "key": "operation", "values": ["list_contacts", "list_deals", "list_companies"] } },
+    { "key": "after", "label": "Pagination Cursor", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["list_contacts", "list_deals", "list_companies"] } }
   ]
 }

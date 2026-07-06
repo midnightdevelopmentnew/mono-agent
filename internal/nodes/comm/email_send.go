@@ -81,6 +81,8 @@ func (n *EmailSendNode) Execute(ctx context.Context, input workflow.NodeInput, c
 	bodyType := "text"
 	if bt, ok := config["body_type"].(string); ok && bt != "" {
 		bodyType = bt
+	} else if html, ok := config["html"].(bool); ok && html {
+		bodyType = "html"
 	}
 
 	var attachmentPaths []string

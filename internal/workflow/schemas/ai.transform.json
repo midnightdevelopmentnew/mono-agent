@@ -1,0 +1,12 @@
+{
+  "credential_platform": null,
+  "fields": [
+    { "key": "provider_id", "label": "AI Provider", "type": "text", "required": true, "help": "ID of a configured AI provider (see AI Providers settings)." },
+    { "key": "model", "label": "Model", "type": "text", "required": false, "help": "Falls back to the provider's default model." },
+    { "key": "instruction", "label": "Instruction", "type": "textarea", "required": true, "rows": 4, "help": "Transformation instruction. Supports {{$json.field}} placeholders." },
+    { "key": "input_field", "label": "Input Field", "type": "text", "required": false, "help": "Field to read from each item. Defaults to the full item JSON." },
+    { "key": "temperature", "label": "Temperature", "type": "number", "required": false, "default": 0.5 },
+    { "key": "max_tokens", "label": "Max Tokens", "type": "number", "required": false, "default": 1024 },
+    { "key": "output_key", "label": "Output Key", "type": "text", "required": false, "default": "transformed" }
+  ]
+}

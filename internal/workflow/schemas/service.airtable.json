@@ -3,9 +3,11 @@
   "fields": [
     { "key": "credential_id", "label": "Airtable Account", "type": "credential_picker", "required": true },
     { "key": "base_id", "label": "Base", "type": "resource_picker", "required": true, "resource": { "type": "bases", "create_label": null } },
-    { "key": "table_id", "label": "Table", "type": "resource_picker", "required": true, "resource": { "type": "tables", "create_label": null, "param_field": "base_id" } },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list", "get", "create", "update", "delete"], "default": "list" },
-    { "key": "record_id", "label": "Record ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get", "update", "delete"] } },
-    { "key": "fields", "label": "Fields (JSON)", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create", "update"] } }
+    { "key": "table", "label": "Table", "type": "resource_picker", "required": true, "resource": { "type": "tables", "create_label": null, "param_field": "base_id" } },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_records", "get_record", "create_record", "update_record", "delete_record"], "default": "list_records" },
+    { "key": "record_id", "label": "Record ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_record", "update_record", "delete_record"] } },
+    { "key": "filter_formula", "label": "Filter Formula", "type": "text", "required": false, "placeholder": "{Status} = 'Active'", "depends_on": { "key": "operation", "values": ["list_records"] } },
+    { "key": "view", "label": "View", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["list_records"] } },
+    { "key": "fields", "label": "Fields (JSON)", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create_record", "update_record"] } }
   ]
 }

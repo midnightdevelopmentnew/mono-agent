@@ -1,7 +1,8 @@
 {
   "credential_platform": null,
   "fields": [
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["to_html", "to_text", "from_html"], "default": "to_html" },
-    { "key": "field", "label": "Input Field", "type": "text", "required": true, "placeholder": "content" }
+    { "key": "field", "label": "Input Field (Markdown)", "type": "text", "required": true, "placeholder": "content", "help": "Converts Markdown to HTML." },
+    { "key": "output_field", "label": "Output Field", "type": "text", "required": false, "help": "Defaults to the input field, overwriting it." },
+    { "key": "unsafe", "label": "Allow Raw HTML", "type": "boolean", "required": false, "default": false }
   ]
 }

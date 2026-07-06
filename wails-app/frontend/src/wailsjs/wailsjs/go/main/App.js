@@ -14,6 +14,10 @@ export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
 
+export function AppSelfUpdate() {
+  return window['go']['main']['App']['AppSelfUpdate']();
+}
+
 export function ApproveHIL(arg1, arg2) {
   return window['go']['main']['App']['ApproveHIL'](arg1, arg2);
 }
@@ -324,10 +328,6 @@ export function SearchVaultImages(arg1) {
 
 export function SelfUpdate() {
   return window['go']['main']['App']['SelfUpdate']();
-}
-
-export function AppSelfUpdate() {
-  return window['go']['main']['App']['AppSelfUpdate']();
 }
 
 export function SetOAuthCredentials(arg1, arg2, arg3) {

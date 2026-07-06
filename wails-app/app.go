@@ -607,8 +607,11 @@ func (a *App) GetActionTargets(actionID string) []TargetInfo {
 	if a.db == nil {
 		return nil
 	}
-	rows, err := a.db.Query(`SELECT id, action_id, platform, COALESCE(link,''), status, COALESCE(created_at,'')
-	                          FROM action_targets WHERE action_id = ? ORDER BY created_at DESC`, actionID)
+	rows, err := a.db.Query(`SELECT action_targets.id, action_id, platform, COALESCE(link,''), status, COALESCE(action_targets.created_at,'')
+	                          FROM action_targets
+	                          JOIN actions ON action_targets.action_id = actions.id
+	                          WHERE action_id = ? AND COALESCE(actions.profile_id,'default') = ?
+	                          ORDER BY action_targets.created_at DESC`, actionID, a.activeProfileID)
 	if err != nil {
 		return nil
 	}
@@ -626,6 +629,10 @@ func (a *App) GetActionTargets(actionID string) []TargetInfo {
 func (a *App) AddActionTarget(actionID, link, platform string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
+	}
+	var exists int
+	if err := a.db.QueryRow(`SELECT 1 FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, actionID, a.activeProfileID).Scan(&exists); err != nil {
+		return fmt.Errorf("action %s not found", actionID)
 	}
 	id := newUUID()
 	_, err := a.db.Exec(`INSERT INTO action_targets (id, action_id, platform, link, status) VALUES (?, ?, ?, ?, 'PENDING')`,
@@ -823,9 +830,10 @@ func (a *App) GetPersonInteractions(id string) []PersonInteraction {
 		       COALESCE(at.last_interacted_at,''), COALESCE(at.created_at,'')
 		FROM action_targets at
 		LEFT JOIN actions a ON at.action_id = a.id
-		WHERE at.person_id = ?
+		JOIN people p ON at.person_id = p.id
+		WHERE at.person_id = ? AND COALESCE(p.profile_id,'default') = ?
 		ORDER BY COALESCE(at.last_interacted_at, at.created_at) DESC
-		LIMIT 200`, id)
+		LIMIT 200`, id, a.activeProfileID)
 	if err != nil {
 		return nil
 	}
@@ -874,9 +882,10 @@ func (a *App) GetPersonPosts(personID string) []PostSummary {
 				  AND at3.status = 'COMPLETED'
 			) AS we_commented
 		FROM posts p
-		WHERE p.person_id = ?
+		JOIN people pe ON p.person_id = pe.id
+		WHERE p.person_id = ? AND COALESCE(pe.profile_id,'default') = ?
 		ORDER BY p.scraped_at DESC`,
-		personID,
+		personID, a.activeProfileID,
 	)
 	if err != nil {
 		return []PostSummary{}
@@ -915,15 +924,17 @@ func (a *App) GetPostDetail(postID string) *PostDetail {
 	}
 	var p PostDetail
 	err := a.db.QueryRow(`
-		SELECT id, shortcode, url,
+		SELECT posts.id, shortcode, url,
 		       COALESCE(thumbnail_url, ''),
 		       COALESCE(like_count, 0),
 		       COALESCE(comment_count, 0),
 		       COALESCE(caption, ''),
 		       COALESCE(posted_at, ''),
 		       scraped_at
-		FROM posts WHERE id = ?`,
-		postID,
+		FROM posts
+		JOIN people ON posts.person_id = people.id
+		WHERE posts.id = ? AND COALESCE(people.profile_id,'default') = ?`,
+		postID, a.activeProfileID,
 	).Scan(
 		&p.ID, &p.Shortcode, &p.URL, &p.ThumbnailURL,
 		&p.LikeCount, &p.CommentCount, &p.Caption,
@@ -941,14 +952,16 @@ func (a *App) GetPostComments(postID string) []PostComment {
 		return []PostComment{}
 	}
 	rows, err := a.db.Query(`
-		SELECT id, COALESCE(author, ''), COALESCE(text, ''),
+		SELECT post_comments.id, COALESCE(author, ''), COALESCE(text, ''),
 		       COALESCE(timestamp, ''),
 		       COALESCE(likes_count, 0),
 		       COALESCE(reply_count, 0)
 		FROM post_comments
-		WHERE post_id = ?
+		JOIN posts ON post_comments.post_id = posts.id
+		JOIN people ON posts.person_id = people.id
+		WHERE post_id = ? AND COALESCE(people.profile_id,'default') = ?
 		ORDER BY timestamp ASC`,
-		postID,
+		postID, a.activeProfileID,
 	)
 	if err != nil {
 		return []PostComment{}
@@ -1014,8 +1027,9 @@ func (a *App) GetPersonTags(personId string) []TagInfo {
 		SELECT t.id, t.name, t.color
 		FROM tags t
 		JOIN people_tags pt ON pt.tag_id = t.id
-		WHERE pt.person_id = ? AND COALESCE(t.profile_id,'default') = ?
-		ORDER BY t.name COLLATE NOCASE`, personId, a.activeProfileID)
+		JOIN people p ON pt.person_id = p.id
+		WHERE pt.person_id = ? AND COALESCE(t.profile_id,'default') = ? AND COALESCE(p.profile_id,'default') = ?
+		ORDER BY t.name COLLATE NOCASE`, personId, a.activeProfileID, a.activeProfileID)
 	if err != nil {
 		return nil
 	}
@@ -1038,6 +1052,11 @@ func (a *App) AddPersonTag(personId, tagName, color string) *TagInfo {
 	}
 	tagName = strings.TrimSpace(tagName)
 	if tagName == "" {
+		return nil
+	}
+
+	var personExists int
+	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.activeProfileID).Scan(&personExists); err != nil {
 		return nil
 	}
 
@@ -1085,6 +1104,10 @@ func (a *App) RemovePersonTag(personId, tagId string) {
 	if a.db == nil {
 		return
 	}
+	var exists int
+	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.activeProfileID).Scan(&exists); err != nil {
+		return
+	}
 	_, _ = a.db.Exec(`DELETE FROM people_tags WHERE person_id = ? AND tag_id = ?`, personId, tagId)
 }
 
@@ -1102,12 +1125,13 @@ func (a *App) GetPeopleTagsMap(personIds []string) map[string][]TagInfo {
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	args = append(args, a.activeProfileID)
+	args = append(args, a.activeProfileID, a.activeProfileID)
 	query := fmt.Sprintf(`
 		SELECT pt.person_id, t.id, t.name, t.color
 		FROM people_tags pt
 		JOIN tags t ON t.id = pt.tag_id
-		WHERE pt.person_id IN (%s) AND COALESCE(t.profile_id,'default') = ?
+		JOIN people p ON pt.person_id = p.id
+		WHERE pt.person_id IN (%s) AND COALESCE(t.profile_id,'default') = ? AND COALESCE(p.profile_id,'default') = ?
 		ORDER BY t.name COLLATE NOCASE`, strings.Join(placeholders, ","))
 
 	rows, err := a.db.Query(query, args...)
@@ -1681,6 +1705,13 @@ func (a *App) SaveWorkflow(req SaveWorkflowRequest) (*WorkflowSummary, error) {
 	if a.wfStore == nil {
 		return nil, fmt.Errorf("workflow store not available")
 	}
+	if a.db != nil && req.ID != "" {
+		var wfProfile string
+		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, req.ID).Scan(&wfProfile)
+		if wfProfile != "" && wfProfile != a.activeProfileID {
+			return nil, fmt.Errorf("workflow %s not found", req.ID)
+		}
+	}
 	ctx := context.Background()
 	wf := &workflow.Workflow{
 		ID:          req.ID,
@@ -1994,10 +2025,11 @@ func (a *App) CancelWorkflow(executionID string) error {
 		return fmt.Errorf("database not available")
 	}
 
-	// Look up the workflow_id and pid for this execution.
+	// Look up the workflow_id and pid for this execution, scoped to the active
+	// profile so one profile cannot resolve (and kill) another's subprocess.
 	var workflowID string
 	var pid int
-	_ = a.db.QueryRow(`SELECT workflow_id, COALESCE(pid,0) FROM workflow_executions WHERE id = ?`, executionID).Scan(&workflowID, &pid)
+	_ = a.db.QueryRow(`SELECT workflow_id, COALESCE(pid,0) FROM workflow_executions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.activeProfileID).Scan(&workflowID, &pid)
 
 	// Kill the subprocess if tracked by Wails (started via RunWorkflow).
 	a.runningMu.Lock()
@@ -2976,7 +3008,7 @@ func (a *App) ListAIProviders() string {
 	if a.aiStore == nil {
 		return "[]"
 	}
-	providers, err := a.aiStore.ListProviders()
+	providers, err := a.aiStore.ListProviders(a.activeProfileID)
 	if err != nil {
 		return aiError(err)
 	}
@@ -2994,7 +3026,10 @@ func (a *App) SaveAIProvider(providerJSON string) string {
 	}
 	if p.ID == "" {
 		p.ID = newUUID()
+	} else if _, err := a.aiStore.GetProvider(p.ID, a.activeProfileID); err != nil {
+		return aiError(fmt.Errorf("provider %s not found", p.ID))
 	}
+	p.ProfileID = a.activeProfileID
 	if err := a.aiStore.SaveProvider(p); err != nil {
 		return aiError(err)
 	}
@@ -3006,7 +3041,7 @@ func (a *App) DeleteAIProvider(id string) string {
 	if a.aiStore == nil {
 		return aiError(fmt.Errorf("ai store not initialized"))
 	}
-	if err := a.aiStore.DeleteProvider(id); err != nil {
+	if err := a.aiStore.DeleteProvider(id, a.activeProfileID); err != nil {
 		return aiError(err)
 	}
 	return `{"ok":true}`
@@ -3016,7 +3051,7 @@ func (a *App) TestAIProvider(id string) string {
 	if a.aiStore == nil {
 		return aiError(fmt.Errorf("ai store not initialized"))
 	}
-	p, err := a.aiStore.GetProvider(id)
+	p, err := a.aiStore.GetProvider(id, a.activeProfileID)
 	if err != nil {
 		return aiError(err)
 	}
@@ -3043,7 +3078,7 @@ func (a *App) TestAIProvider(id string) string {
 		status = "error"
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	_ = a.aiStore.UpdateProviderStatus(id, status, now)
+	_ = a.aiStore.UpdateProviderStatus(id, status, now, a.activeProfileID)
 	if err != nil {
 		return fmt.Sprintf(`{"status":"error","error":%q}`, err.Error())
 	}
@@ -3118,6 +3153,7 @@ func (a *App) GetAIChatHistory(workflowID string) string {
 	if a.chatService == nil {
 		return "[]"
 	}
+	a.chatService.SetProfileID(a.activeProfileID)
 	msgs, err := a.chatService.GetHistory(workflowID)
 	if err != nil {
 		return aiError(err)
@@ -3130,6 +3166,7 @@ func (a *App) ClearAIChatHistory(workflowID string) string {
 	if a.chatService == nil {
 		return aiError(fmt.Errorf("chat service not initialized"))
 	}
+	a.chatService.SetProfileID(a.activeProfileID)
 	if err := a.chatService.ClearHistory(workflowID); err != nil {
 		return aiError(err)
 	}
@@ -3268,7 +3305,7 @@ func (a *App) AddVaultImage(srcPath, label string) (map[string]interface{}, erro
 		return nil, fmt.Errorf("vault register: %w", err)
 	}
 	if label != "" {
-		_, _ = a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ?`, label, id)
+		_, _ = a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?`, label, id, a.activeProfileID)
 	}
 	return a.GetVaultImage(id)
 }

@@ -117,6 +117,9 @@ func (tm *TriggerManager) activateSchedule(workflowID string, node *WorkflowNode
 	if !ok || spec == "" {
 		return fmt.Errorf("trigger.schedule: missing or invalid \"cron\" field in config")
 	}
+	if tz, ok := node.Config["timezone"].(string); ok && tz != "" && tz != "UTC" {
+		spec = fmt.Sprintf("CRON_TZ=%s %s", tz, spec)
+	}
 
 	// Capture loop variables for the closure.
 	wfID := workflowID
@@ -186,6 +189,8 @@ func (tm *TriggerManager) activateWebhook(workflowID string, node *WorkflowNode)
 	}
 
 	hmacSecret, _ := node.Config["hmac_secret"].(string)
+	authHeader, _ := node.Config["auth_header"].(string)
+	authToken, _ := node.Config["auth_token"].(string)
 
 	// Capture loop variables for the closure.
 	wfID := workflowID
@@ -197,6 +202,8 @@ func (tm *TriggerManager) activateWebhook(workflowID string, node *WorkflowNode)
 		Path:       path,
 		Method:     method,
 		HMACSecret: hmacSecret,
+		AuthHeader: authHeader,
+		AuthToken:  authToken,
 		TriggerFn: func(items []Item) {
 			tm.triggerFn(wfID, nID, items)
 		},

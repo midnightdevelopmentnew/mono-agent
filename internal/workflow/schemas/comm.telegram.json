@@ -2,8 +2,10 @@
   "credential_platform": "telegram",
   "fields": [
     { "key": "bot_token", "label": "Bot Token", "type": "password", "required": true, "help": "Get from @BotFather on Telegram." },
-    { "key": "chat_id", "label": "Chat ID", "type": "text", "required": true, "help": "Numeric chat ID or @channel_username." },
-    { "key": "message", "label": "Message", "type": "textarea", "required": true, "rows": 3 },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["send_message", "send_photo", "get_updates"], "default": "send_message" },
+    { "key": "chat_id", "label": "Chat ID", "type": "text", "required": false, "help": "Numeric chat ID or @channel_username.", "depends_on": { "key": "operation", "values": ["send_message", "send_photo"] } },
+    { "key": "message", "label": "Message", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["send_message", "send_photo"] } },
+    { "key": "photo_url", "label": "Photo URL / File Path", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_photo"] } },
     { "key": "parse_mode", "label": "Parse Mode", "type": "select", "required": false, "options": ["plain", "Markdown", "HTML"], "default": "plain" }
   ]
 }

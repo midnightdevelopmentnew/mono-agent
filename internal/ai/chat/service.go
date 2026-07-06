@@ -80,8 +80,12 @@ func (s *ChatService) StreamChat(
 	onChunk func(ai.StreamChunk),
 	onToolCall func(name, args, result string),
 ) error {
+	if err := s.canvasTools.checkWorkflowOwnership(workflowID); err != nil {
+		return err
+	}
+
 	// 1. Resolve provider and create client.
-	provider, err := s.aiStore.GetProvider(providerID)
+	provider, err := s.aiStore.GetProvider(providerID, s.canvasTools.profileID)
 	if err != nil {
 		return fmt.Errorf("get provider %s: %w", providerID, err)
 	}
@@ -259,10 +263,16 @@ func (s *ChatService) executeTool(name, argsJSON string) string {
 
 // GetHistory returns the full chat history for a workflow.
 func (s *ChatService) GetHistory(workflowID string) ([]ai.ChatMessage, error) {
+	if err := s.canvasTools.checkWorkflowOwnership(workflowID); err != nil {
+		return nil, err
+	}
 	return s.aiStore.GetChatHistory(workflowID)
 }
 
 // ClearHistory deletes all chat messages for a workflow.
 func (s *ChatService) ClearHistory(workflowID string) error {
+	if err := s.canvasTools.checkWorkflowOwnership(workflowID); err != nil {
+		return err
+	}
 	return s.aiStore.ClearChatHistory(workflowID)
 }

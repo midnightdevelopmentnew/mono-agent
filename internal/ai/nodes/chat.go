@@ -27,7 +27,7 @@ type ChatNode struct {
 func (n *ChatNode) Type() string { return "ai.chat" }
 
 func (n *ChatNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	client, model, err := n.getClientAndModel(config)
+	client, model, err := n.getClientAndModel(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +72,10 @@ func (n *ChatNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	}, nil
 }
 
-func (n *ChatNode) getClientAndModel(config map[string]interface{}) (ai.AIClient, string, error) {
+func (n *ChatNode) getClientAndModel(ctx context.Context, config map[string]interface{}) (ai.AIClient, string, error) {
 	if n.ClientOverride != nil {
 		model := configString(config, "model", "test-model")
 		return n.ClientOverride, model, nil
 	}
-	return getClient(n.Store, config)
+	return getClient(ctx, n.Store, config)
 }

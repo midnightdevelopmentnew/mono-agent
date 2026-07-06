@@ -9,6 +9,8 @@ export function AddPersonTag(arg1:string,arg2:string,arg3:string):Promise<main.T
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function AppSelfUpdate():Promise<main.UpdateResult>;
+
 export function ApproveHIL(arg1:string,arg2:string):Promise<void>;
 
 export function CancelWorkflow(arg1:string):Promise<void>;
@@ -164,8 +166,6 @@ export function SaveWorkflow(arg1:main.SaveWorkflowRequest):Promise<main.Workflo
 export function SearchVaultImages(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function SelfUpdate():Promise<main.UpdateResult>;
-
-export function AppSelfUpdate():Promise<main.UpdateResult>;
 
 export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise<string>;
 

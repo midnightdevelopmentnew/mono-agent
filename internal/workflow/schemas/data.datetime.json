@@ -2,8 +2,10 @@
   "credential_platform": null,
   "fields": [
     { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["format", "parse", "add", "subtract", "diff", "now"], "default": "format" },
-    { "key": "field", "label": "Date Field", "type": "text", "required": false, "placeholder": "created_at", "depends_on": { "key": "operation", "values": ["format", "parse", "add", "subtract"] } },
-    { "key": "format", "label": "Output Format", "type": "text", "required": false, "placeholder": "2006-01-02T15:04:05Z07:00", "help": "Go time layout string." },
+    { "key": "field", "label": "Date Field", "type": "text", "required": false, "placeholder": "created_at", "depends_on": { "key": "operation", "values": ["format", "parse", "add", "subtract", "diff"] } },
+    { "key": "field2", "label": "Second Date Field", "type": "text", "required": false, "placeholder": "updated_at", "depends_on": { "key": "operation", "values": ["diff"] } },
+    { "key": "input_format", "label": "Input Format", "type": "text", "required": false, "placeholder": "2006-01-02T15:04:05Z07:00", "default": "2006-01-02T15:04:05Z07:00", "help": "Go time layout string used to parse the input date field(s)." },
+    { "key": "output_format", "label": "Output Format", "type": "text", "required": false, "placeholder": "2006-01-02T15:04:05Z07:00", "help": "Go time layout string." },
     { "key": "duration", "label": "Duration", "type": "text", "required": false, "placeholder": "24h", "depends_on": { "key": "operation", "values": ["add", "subtract"] } }
   ]
 }

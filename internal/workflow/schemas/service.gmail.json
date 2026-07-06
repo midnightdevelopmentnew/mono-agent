@@ -2,10 +2,14 @@
   "credential_platform": "gmail",
   "fields": [
     { "key": "credential_id", "label": "Gmail Account", "type": "credential_picker", "required": true },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["send", "list", "get", "label"], "default": "send" },
-    { "key": "to", "label": "To", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send"] } },
-    { "key": "subject", "label": "Subject", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send"] } },
-    { "key": "body", "label": "Body", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["send"] } },
-    { "key": "label_id", "label": "Label", "type": "resource_picker", "required": false, "resource": { "type": "labels", "create_label": null }, "depends_on": { "key": "operation", "values": ["list", "label"] } }
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["send_message", "list_messages", "get_message", "list_labels", "trash_message"], "default": "send_message" },
+    { "key": "to", "label": "To", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_message"] } },
+    { "key": "from", "label": "From", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_message"] } },
+    { "key": "subject", "label": "Subject", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_message"] } },
+    { "key": "body", "label": "Body", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["send_message"] } },
+    { "key": "body_type", "label": "Body Type", "type": "select", "required": false, "options": ["text", "html"], "default": "text", "depends_on": { "key": "operation", "values": ["send_message"] } },
+    { "key": "message_id", "label": "Message ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_message", "trash_message"] } },
+    { "key": "query", "label": "Search Query", "type": "text", "required": false, "placeholder": "is:unread from:someone@example.com", "depends_on": { "key": "operation", "values": ["list_messages"] } },
+    { "key": "max_results", "label": "Max Results", "type": "number", "required": false, "default": 10, "depends_on": { "key": "operation", "values": ["list_messages"] } }
   ]
 }

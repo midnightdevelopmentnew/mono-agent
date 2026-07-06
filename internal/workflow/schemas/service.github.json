@@ -2,9 +2,15 @@
   "credential_platform": "github",
   "fields": [
     { "key": "credential_id", "label": "GitHub Account", "type": "credential_picker", "required": true },
-    { "key": "repo", "label": "Repository", "type": "resource_picker", "required": true, "resource": { "type": "repos", "create_label": null } },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_issues", "create_issue", "close_issue", "list_prs", "get_file", "create_file"], "default": "list_issues" },
-    { "key": "title", "label": "Issue/PR Title", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_issue"] } },
-    { "key": "body", "label": "Body", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create_issue"] } }
+    { "key": "owner", "label": "Repository Owner", "type": "text", "required": false, "placeholder": "e.g. octocat", "depends_on": { "key": "operation", "values": ["list_issues", "get_issue", "create_issue", "update_issue", "list_prs", "create_pr", "list_releases", "create_release"] } },
+    { "key": "repo", "label": "Repository", "type": "resource_picker", "required": false, "resource": { "type": "repos", "create_label": null }, "depends_on": { "key": "operation", "values": ["list_issues", "get_issue", "create_issue", "update_issue", "list_prs", "create_pr", "list_releases", "create_release"] } },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_repos", "list_issues", "get_issue", "create_issue", "update_issue", "list_prs", "create_pr", "list_releases", "create_release"], "default": "list_repos" },
+    { "key": "number", "label": "Issue/PR Number", "type": "number", "required": false, "depends_on": { "key": "operation", "values": ["get_issue", "update_issue"] } },
+    { "key": "title", "label": "Issue/PR Title", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_issue", "update_issue", "create_pr"] } },
+    { "key": "body", "label": "Body", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["create_issue", "update_issue", "create_pr", "create_release"] } },
+    { "key": "head", "label": "Head Branch", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_pr"] } },
+    { "key": "base", "label": "Base Branch", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_pr"] } },
+    { "key": "tag_name", "label": "Tag Name", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_release"] } },
+    { "key": "release_name", "label": "Release Name", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_release"] } }
   ]
 }

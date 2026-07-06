@@ -26,12 +26,32 @@ type aggOp struct {
 	outputField string
 }
 
-func (n *AggregateNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	groupBy, _ := config["group_by"].(string)
+// collectOpAliases maps a schema-facing operation name to the internal name
+// computeOp understands, for names that differ between the two.
+var collectOpAliases = map[string]string{"collect": "array"}
 
+// parseAggregateOps builds the list of aggregate operations to run, supporting
+// two config shapes:
+//   - the flat single-operation schema (core.aggregate.json): "operation",
+//     "field", "output_field" as top-level config keys.
+//   - the multi-operation array ("operations": []map{field, operation,
+//     output_field}), for callers that need more than one aggregate per group.
+func parseAggregateOps(config map[string]interface{}) ([]aggOp, error) {
 	opsRaw, ok := config["operations"].([]interface{})
 	if !ok || len(opsRaw) == 0 {
-		return nil, fmt.Errorf("aggregate: 'operations' config is required and must be a non-empty array")
+		operation, _ := config["operation"].(string)
+		if operation == "" {
+			return nil, fmt.Errorf("aggregate: 'operation' or 'operations' config is required")
+		}
+		if alias, ok := collectOpAliases[operation]; ok {
+			operation = alias
+		}
+		field, _ := config["field"].(string)
+		outputField, _ := config["output_field"].(string)
+		if outputField == "" {
+			outputField = operation
+		}
+		return []aggOp{{field: field, operation: operation, outputField: outputField}}, nil
 	}
 
 	ops := make([]aggOp, 0, len(opsRaw))
@@ -40,9 +60,13 @@ func (n *AggregateNode) Execute(ctx context.Context, input workflow.NodeInput, c
 		if !ok {
 			return nil, fmt.Errorf("aggregate: operation[%d] must be an object", i)
 		}
+		operation := fmt.Sprintf("%v", m["operation"])
+		if alias, ok := collectOpAliases[operation]; ok {
+			operation = alias
+		}
 		op := aggOp{
 			field:       fmt.Sprintf("%v", m["field"]),
-			operation:   fmt.Sprintf("%v", m["operation"]),
+			operation:   operation,
 			outputField: fmt.Sprintf("%v", m["output_field"]),
 		}
 		if op.operation == "" || op.operation == "<nil>" {
@@ -52,6 +76,16 @@ func (n *AggregateNode) Execute(ctx context.Context, input workflow.NodeInput, c
 			return nil, fmt.Errorf("aggregate: operation[%d] missing 'output_field'", i)
 		}
 		ops = append(ops, op)
+	}
+	return ops, nil
+}
+
+func (n *AggregateNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
+	groupBy, _ := config["group_by"].(string)
+
+	ops, err := parseAggregateOps(config)
+	if err != nil {
+		return nil, err
 	}
 
 	// Group items — preserve insertion order of group keys

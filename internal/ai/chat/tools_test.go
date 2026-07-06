@@ -17,6 +17,16 @@ func setupTestDB(t *testing.T) *sql.DB {
 	}
 
 	schema := `
+	CREATE TABLE workflows (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT,
+		is_active INTEGER NOT NULL DEFAULT 0,
+		version INTEGER NOT NULL DEFAULT 1,
+		profile_id TEXT NOT NULL DEFAULT 'default',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 	CREATE TABLE workflow_nodes (
 		id TEXT PRIMARY KEY,
 		workflow_id TEXT NOT NULL,
@@ -41,6 +51,11 @@ func setupTestDB(t *testing.T) *sql.DB {
 
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatalf("create tables: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO workflows (id, name, profile_id) VALUES ('wf-1', 'Test Workflow', 'default')`,
+	); err != nil {
+		t.Fatalf("insert default workflow: %v", err)
 	}
 
 	t.Cleanup(func() { db.Close() })
@@ -426,5 +441,53 @@ func TestExecuteUnknownTool(t *testing.T) {
 	_, err := ct.Execute("nonexistent", `{}`)
 	if err == nil {
 		t.Fatal("expected error for unknown tool")
+	}
+}
+
+// TestCanvasToolsRejectCrossProfileWorkflow is a regression test: a CanvasTools
+// instance scoped to one profile must not be able to read or mutate a workflow
+// that belongs to a different profile.
+func TestCanvasToolsRejectCrossProfileWorkflow(t *testing.T) {
+	db := setupTestDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO workflows (id, name, profile_id) VALUES ('wf-other', 'Other Profile Workflow', 'other-profile')`,
+	); err != nil {
+		t.Fatalf("insert other-profile workflow: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO workflow_nodes (id, workflow_id, node_type, name, config) VALUES ('n1', 'wf-other', 'trigger.manual', 'Start', '{}')`,
+	); err != nil {
+		t.Fatalf("insert node: %v", err)
+	}
+
+	ct := NewCanvasTools(db) // defaults to profileID "default"
+
+	if _, err := ct.Execute("get_workflow_state", `{"workflow_id":"wf-other"}`); err == nil {
+		t.Error("get_workflow_state: expected error for cross-profile workflow, got nil")
+	}
+	if _, err := ct.Execute("create_nodes", `{"workflow_id":"wf-other","nodes":[{"node_type":"core.set","name":"x"}]}`); err == nil {
+		t.Error("create_nodes: expected error for cross-profile workflow, got nil")
+	}
+	if _, err := ct.Execute("update_node_config", `{"workflow_id":"wf-other","node_id":"n1","config":{"a":1}}`); err == nil {
+		t.Error("update_node_config: expected error for cross-profile workflow, got nil")
+	}
+	if _, err := ct.Execute("delete_nodes", `{"workflow_id":"wf-other","node_ids":["n1"]}`); err == nil {
+		t.Error("delete_nodes: expected error for cross-profile workflow, got nil")
+	}
+	if _, err := ct.Execute("connect_nodes", `{"workflow_id":"wf-other","source_node_id":"n1","source_handle":"main","target_node_id":"n1","target_handle":"main"}`); err == nil {
+		t.Error("connect_nodes: expected error for cross-profile workflow, got nil")
+	}
+	if _, err := ct.Execute("disconnect_nodes", `{"workflow_id":"wf-other","source_node_id":"n1","target_node_id":"n1"}`); err == nil {
+		t.Error("disconnect_nodes: expected error for cross-profile workflow, got nil")
+	}
+
+	// Sanity: the same profile's own workflow (wf-1, inserted by setupTestDB) is still accessible.
+	if _, err := ct.Execute("get_workflow_state", `{"workflow_id":"wf-1"}`); err != nil {
+		t.Errorf("get_workflow_state on own workflow: unexpected error: %v", err)
+	}
+
+	// Placeholder IDs used before a real workflow exists must always be allowed.
+	if _, err := ct.Execute("get_workflow_state", `{"workflow_id":"general"}`); err != nil {
+		t.Errorf("get_workflow_state on placeholder 'general': unexpected error: %v", err)
 	}
 }

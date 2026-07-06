@@ -3,9 +3,10 @@
   "fields": [
     { "key": "credential_id", "label": "Jira Connection", "type": "credential_picker", "required": true },
     { "key": "project_key", "label": "Project", "type": "resource_picker", "required": true, "resource": { "type": "projects", "create_label": null } },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_issues", "create_issue", "update_issue", "transition_issue", "get_issue"], "default": "list_issues" },
-    { "key": "issue_key", "label": "Issue Key", "type": "text", "required": false, "placeholder": "PROJ-123", "depends_on": { "key": "operation", "values": ["update_issue", "transition_issue", "get_issue"] } },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_issues", "create_issue", "update_issue", "get_issue", "add_comment", "list_projects"], "default": "list_issues" },
+    { "key": "issue_key", "label": "Issue Key", "type": "text", "required": false, "placeholder": "PROJ-123", "depends_on": { "key": "operation", "values": ["update_issue", "get_issue", "add_comment"] } },
     { "key": "summary", "label": "Summary", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_issue"] } },
-    { "key": "issue_type", "label": "Issue Type", "type": "text", "required": false, "default": "Task", "depends_on": { "key": "operation", "values": ["create_issue"] } }
+    { "key": "issue_type", "label": "Issue Type", "type": "text", "required": false, "default": "Task", "depends_on": { "key": "operation", "values": ["create_issue"] } },
+    { "key": "comment", "label": "Comment", "type": "textarea", "required": false, "depends_on": { "key": "operation", "values": ["add_comment"] } }
   ]
 }

@@ -21,6 +21,9 @@ func (n *GitHubNode) Type() string { return "service.github" }
 func (n *GitHubNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	token := strVal(config, "token")
 	if token == "" {
+		token = strVal(config, "access_token")
+	}
+	if token == "" {
 		return nil, fmt.Errorf("service.github: 'token' is required")
 	}
 

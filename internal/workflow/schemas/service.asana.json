@@ -2,10 +2,14 @@
   "credential_platform": "asana",
   "fields": [
     { "key": "credential_id", "label": "Asana Connection", "type": "credential_picker", "required": true },
-    { "key": "workspace_id", "label": "Workspace", "type": "resource_picker", "required": true, "resource": { "type": "workspaces", "create_label": null } },
-    { "key": "project_id", "label": "Project", "type": "resource_picker", "required": false, "resource": { "type": "projects", "create_label": null } },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_tasks", "create_task", "complete_task", "get_task"], "default": "list_tasks" },
-    { "key": "name", "label": "Task Name", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_task"] } },
-    { "key": "due_on", "label": "Due Date (YYYY-MM-DD)", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_task"] } }
+    { "key": "workspace_gid", "label": "Workspace", "type": "resource_picker", "required": false, "resource": { "type": "workspaces", "create_label": null }, "depends_on": { "key": "operation", "values": ["list_tasks", "create_task", "list_projects"] } },
+    { "key": "project_gid", "label": "Project", "type": "resource_picker", "required": false, "resource": { "type": "projects", "create_label": null }, "depends_on": { "key": "operation", "values": ["list_tasks", "create_task"] } },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_tasks", "get_task", "create_task", "update_task", "list_projects", "list_workspaces"], "default": "list_tasks" },
+    { "key": "task_gid", "label": "Task ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_task", "update_task"] } },
+    { "key": "assignee", "label": "Assignee", "type": "text", "required": false, "help": "Required when listing tasks by workspace without a project.", "depends_on": { "key": "operation", "values": ["list_tasks", "create_task", "update_task"] } },
+    { "key": "name", "label": "Task Name", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_task", "update_task"] } },
+    { "key": "notes", "label": "Notes", "type": "textarea", "required": false, "depends_on": { "key": "operation", "values": ["create_task", "update_task"] } },
+    { "key": "due_on", "label": "Due Date (YYYY-MM-DD)", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_task", "update_task"] } },
+    { "key": "completed", "label": "Mark Completed", "type": "boolean", "required": false, "depends_on": { "key": "operation", "values": ["update_task"] } }
   ]
 }

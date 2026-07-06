@@ -114,9 +114,12 @@ type LinearNode struct{}
 func (n *LinearNode) Type() string { return "service.linear" }
 
 func (n *LinearNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	token := strVal(config, "token")
+	token := strVal(config, "api_key")
 	if token == "" {
-		return nil, fmt.Errorf("service.linear: 'token' is required")
+		token = strVal(config, "access_token")
+	}
+	if token == "" {
+		return nil, fmt.Errorf("service.linear: 'api_key' is required")
 	}
 
 	operation := strVal(config, "operation")

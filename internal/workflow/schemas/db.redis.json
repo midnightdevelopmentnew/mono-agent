@@ -1,10 +1,13 @@
 {
   "credential_platform": "redis",
   "fields": [
-    { "key": "url", "label": "Redis URL", "type": "password", "required": true, "placeholder": "redis://localhost:6379" },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["get", "set", "del", "exists", "expire", "hget", "hset", "lpush", "rpop"], "default": "get" },
-    { "key": "key", "label": "Key", "type": "text", "required": true },
+    { "key": "connection_string", "label": "Redis Connection String", "type": "password", "required": true, "placeholder": "redis://:password@localhost:6379/0" },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["get", "set", "del", "exists", "expire", "hget", "hset", "hgetall", "lpush", "lrange", "keys", "incr"], "default": "get" },
+    { "key": "key", "label": "Key / Pattern", "type": "text", "required": true, "help": "For 'keys', this is a glob pattern (default '*')." },
     { "key": "value", "label": "Value", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["set", "hset", "lpush"] } },
-    { "key": "ttl", "label": "TTL (seconds)", "type": "number", "required": false, "depends_on": { "key": "operation", "values": ["set", "expire"] } }
+    { "key": "field", "label": "Hash Field", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["hget", "hset"] } },
+    { "key": "ttl_seconds", "label": "TTL (seconds)", "type": "number", "required": false, "depends_on": { "key": "operation", "values": ["set", "expire"] } },
+    { "key": "start", "label": "Start Index", "type": "number", "required": false, "default": 0, "depends_on": { "key": "operation", "values": ["lrange"] } },
+    { "key": "stop", "label": "Stop Index", "type": "number", "required": false, "default": -1, "depends_on": { "key": "operation", "values": ["lrange"] } }
   ]
 }

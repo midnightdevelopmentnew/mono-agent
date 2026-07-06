@@ -1,0 +1,14 @@
+{
+  "credential_platform": "outlook",
+  "fields": [
+    { "key": "email", "label": "Outlook Email Address", "type": "text", "required": true, "placeholder": "you@outlook.com" },
+    { "key": "app_password", "label": "App Password", "type": "password", "required": true },
+    { "key": "to", "label": "To Address(es)", "type": "text", "required": true, "placeholder": "user@example.com, other@example.com" },
+    { "key": "cc", "label": "CC Address(es)", "type": "text", "required": false },
+    { "key": "bcc", "label": "BCC Address(es)", "type": "text", "required": false },
+    { "key": "subject", "label": "Subject", "type": "text", "required": true },
+    { "key": "body", "label": "Email Body", "type": "textarea", "required": true, "rows": 6 },
+    { "key": "body_type", "label": "Body Type", "type": "select", "required": false, "default": "text", "options": ["text", "html"] },
+    { "key": "attachments", "label": "Attachment File Paths", "type": "text", "required": false }
+  ]
+}

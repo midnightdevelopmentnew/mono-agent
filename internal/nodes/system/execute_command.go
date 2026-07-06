@@ -33,7 +33,9 @@ func (n *ExecuteCommandNode) Execute(ctx context.Context, input workflow.NodeInp
 	workingDir, _ := config["working_dir"].(string)
 
 	timeoutSecs := 30
-	if v, ok := config["timeout_seconds"].(float64); ok {
+	if v, ok := config["timeout"].(float64); ok {
+		timeoutSecs = int(v)
+	} else if v, ok := config["timeout_seconds"].(float64); ok {
 		timeoutSecs = int(v)
 	}
 

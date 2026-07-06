@@ -1,8 +1,11 @@
 {
   "credential_platform": null,
   "fields": [
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["extract_text", "extract_links", "select", "sanitize"], "default": "extract_text" },
-    { "key": "field", "label": "HTML Field", "type": "text", "required": true, "placeholder": "html_content" },
-    { "key": "selector", "label": "CSS Selector", "type": "text", "required": false, "placeholder": "div.article p", "depends_on": { "key": "operation", "values": ["select"] } }
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["extract", "extract_all", "text", "generate"], "default": "extract" },
+    { "key": "field", "label": "HTML Field", "type": "text", "required": true, "placeholder": "html_content", "depends_on": { "key": "operation", "values": ["extract", "extract_all", "text"] } },
+    { "key": "selector", "label": "CSS Selector", "type": "text", "required": false, "placeholder": "div.article p", "depends_on": { "key": "operation", "values": ["extract", "extract_all"] } },
+    { "key": "attribute", "label": "Attribute (optional)", "type": "text", "required": false, "placeholder": "href", "help": "Extract this HTML attribute instead of text content.", "depends_on": { "key": "operation", "values": ["extract", "extract_all"] } },
+    { "key": "output_field", "label": "Output Field", "type": "text", "required": false, "help": "Defaults to the HTML field, overwriting it." },
+    { "key": "template", "label": "HTML Template", "type": "textarea", "required": false, "rows": 5, "placeholder": "<div>{{.title}}</div>", "depends_on": { "key": "operation", "values": ["generate"] } }
   ]
 }

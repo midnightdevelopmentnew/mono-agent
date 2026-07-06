@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"monoagent/internal/workflow"
 )
@@ -21,7 +22,16 @@ func (n *JiraNode) Type() string { return "service.jira" }
 func (n *JiraNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	baseURL := strVal(config, "base_url")
 	if baseURL == "" {
-		return nil, fmt.Errorf("service.jira: 'base_url' is required")
+		if domain := strVal(config, "domain"); domain != "" {
+			if strings.HasPrefix(domain, "http://") || strings.HasPrefix(domain, "https://") {
+				baseURL = strings.TrimSuffix(domain, "/")
+			} else {
+				baseURL = "https://" + domain
+			}
+		}
+	}
+	if baseURL == "" {
+		return nil, fmt.Errorf("service.jira: 'domain' is required")
 	}
 	email := strVal(config, "email")
 	if email == "" {

@@ -27,7 +27,7 @@ type TransformNode struct {
 func (n *TransformNode) Type() string { return "ai.transform" }
 
 func (n *TransformNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	client, model, err := n.getClientAndModel(config)
+	client, model, err := n.getClientAndModel(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -86,10 +86,10 @@ func (n *TransformNode) Execute(ctx context.Context, input workflow.NodeInput, c
 	}, nil
 }
 
-func (n *TransformNode) getClientAndModel(config map[string]interface{}) (ai.AIClient, string, error) {
+func (n *TransformNode) getClientAndModel(ctx context.Context, config map[string]interface{}) (ai.AIClient, string, error) {
 	if n.ClientOverride != nil {
 		model := configString(config, "model", "test-model")
 		return n.ClientOverride, model, nil
 	}
-	return getClient(n.Store, config)
+	return getClient(ctx, n.Store, config)
 }

@@ -33,8 +33,10 @@ func (s *Scheduler) Stop() context.Context {
 }
 
 // AddWorkflowJob adds a cron job and returns its entry ID.
-// spec is a standard cron expression (5 fields) or "@every Xm" etc.
-// The underlying cron instance uses WithSeconds(), so 6-field expressions are also accepted.
+// spec must be a 6-field cron expression (sec min hour dom month dow) or
+// "@every Xm" etc; the underlying cron instance uses WithSeconds(), so
+// standard 5-field expressions are rejected. spec may optionally start with
+// "CRON_TZ=<zone> " to schedule in a specific timezone.
 func (s *Scheduler) AddWorkflowJob(spec string, fn func()) (cron.EntryID, error) {
 	id, err := s.cron.AddFunc(spec, fn)
 	if err != nil {

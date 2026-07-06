@@ -1,0 +1,12 @@
+{
+  "credential_platform": null,
+  "fields": [
+    { "key": "provider_id", "label": "AI Provider", "type": "text", "required": true, "help": "ID of a configured AI provider (see AI Providers settings)." },
+    { "key": "model", "label": "Model", "type": "text", "required": false, "help": "Falls back to the provider's default model." },
+    { "key": "prompt", "label": "Extraction Prompt", "type": "textarea", "required": true, "rows": 4, "help": "Describes what to extract. Supports {{$json.field}} placeholders." },
+    { "key": "output_schema", "label": "Output Schema (JSON)", "type": "textarea", "required": false, "rows": 4 },
+    { "key": "temperature", "label": "Temperature", "type": "number", "required": false, "default": 0.2 },
+    { "key": "max_tokens", "label": "Max Tokens", "type": "number", "required": false, "default": 1024 },
+    { "key": "output_key", "label": "Output Key", "type": "text", "required": false, "default": "extracted" }
+  ]
+}

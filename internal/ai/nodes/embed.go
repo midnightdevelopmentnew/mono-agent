@@ -29,7 +29,7 @@ type EmbedNode struct {
 func (n *EmbedNode) Type() string { return "ai.embed" }
 
 func (n *EmbedNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
-	client, model, err := n.getClientAndModel(config)
+	client, model, err := n.getClientAndModel(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +91,10 @@ func (n *EmbedNode) Execute(ctx context.Context, input workflow.NodeInput, confi
 	}, nil
 }
 
-func (n *EmbedNode) getClientAndModel(config map[string]interface{}) (ai.AIClient, string, error) {
+func (n *EmbedNode) getClientAndModel(ctx context.Context, config map[string]interface{}) (ai.AIClient, string, error) {
 	if n.ClientOverride != nil {
 		model := configString(config, "model", "test-model")
 		return n.ClientOverride, model, nil
 	}
-	return getClient(n.Store, config)
+	return getClient(ctx, n.Store, config)
 }

@@ -1,0 +1,11 @@
+{
+  "credential_platform": null,
+  "fields": [
+    { "key": "provider_id", "label": "AI Provider", "type": "text", "required": true, "help": "ID of a configured AI provider (see AI Providers settings)." },
+    { "key": "model", "label": "Model", "type": "text", "required": false, "help": "Falls back to the provider's default model." },
+    { "key": "categories", "label": "Categories", "type": "array", "item_type": "text", "required": true, "help": "Each value becomes a category the AI can classify items into (also becomes an output handle)." },
+    { "key": "prompt_template", "label": "Custom Prompt", "type": "textarea", "required": false, "rows": 4, "help": "Optional. If left empty, a default classification prompt is used." },
+    { "key": "temperature", "label": "Temperature", "type": "number", "required": false, "default": 0.3 },
+    { "key": "max_tokens", "label": "Max Tokens", "type": "number", "required": false, "default": 256 }
+  ]
+}

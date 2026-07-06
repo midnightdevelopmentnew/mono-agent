@@ -34,14 +34,14 @@ type OAuthConfig struct {
 
 // PlatformDef defines a platform's connection capabilities.
 type PlatformDef struct {
-	ID          string
-	Name        string
-	Category    string
-	ConnectVia  string
-	Methods     []AuthMethod
-	Fields      map[AuthMethod][]CredentialField
-	OAuth       *OAuthConfig
-	IconEmoji   string
+	ID         string
+	Name       string
+	Category   string
+	ConnectVia string
+	Methods    []AuthMethod
+	Fields     map[AuthMethod][]CredentialField
+	OAuth      *OAuthConfig
+	IconEmoji  string
 }
 
 // Registry is the map of all supported platforms keyed by platform ID.
@@ -358,19 +358,12 @@ var Registry = map[string]PlatformDef{
 		Name:       "Gmail",
 		Category:   "service",
 		ConnectVia: "API",
-		Methods:    []AuthMethod{MethodOAuth, MethodAppPass},
-		Fields: map[AuthMethod][]CredentialField{
-			MethodAppPass: {
-				{Key: "email", Label: "Email", Secret: false, Required: true},
-				{
-					Key:      "app_password",
-					Label:    "App Password",
-					Secret:   true,
-					Required: true,
-					HelpURL:  "https://myaccount.google.com/apppasswords",
-				},
-			},
-		},
+		// App Password is intentionally not offered: internal/nodes/service/gmail.go
+		// calls the Gmail REST API (gmail.googleapis.com), which is OAuth-only — an
+		// app password can't authenticate against it (that only works for raw
+		// SMTP/IMAP, which this node doesn't use).
+		Methods: []AuthMethod{MethodOAuth},
+		Fields:  map[AuthMethod][]CredentialField{},
 		OAuth: &OAuthConfig{
 			AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
 			TokenURL:     "https://oauth2.googleapis.com/token",
@@ -414,6 +407,25 @@ var Registry = map[string]PlatformDef{
 			},
 		},
 		IconEmoji: "🤖",
+	},
+	"huggingface": {
+		ID:         "huggingface",
+		Name:       "Hugging Face",
+		Category:   "service",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{
+					Key:      "api_key",
+					Label:    "API Key",
+					Secret:   true,
+					Required: true,
+					HelpText: "Your Hugging Face access token. Find it at huggingface.co/settings/tokens.",
+				},
+			},
+		},
+		IconEmoji: "🤗",
 	},
 
 	// ─── Communication ─────────────────────────────────────────────────────────
@@ -511,7 +523,12 @@ var Registry = map[string]PlatformDef{
 		Name:       "Outlook / Hotmail",
 		Category:   "communication",
 		ConnectVia: "API",
-		Methods:    []AuthMethod{MethodOAuth, MethodAppPass},
+		// OAuth is intentionally not offered here: comm.outlook_send/outlook_read
+		// talk to Outlook over raw SMTP/IMAP, which requires an XOAUTH2 SASL
+		// exchange to use an OAuth access token. That isn't implemented yet, so
+		// offering MethodOAuth would silently produce a credential the nodes
+		// can't actually use. Add it back once XOAUTH2 support lands.
+		Methods: []AuthMethod{MethodAppPass},
 		Fields: map[AuthMethod][]CredentialField{
 			MethodAppPass: {
 				{
@@ -530,13 +547,6 @@ var Registry = map[string]PlatformDef{
 					HelpText: "Generate an app password in your Microsoft account security settings",
 				},
 			},
-		},
-		OAuth: &OAuthConfig{
-			AuthURL:      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-			TokenURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-			Scopes:       []string{"openid", "offline_access", "User.Read", "https://outlook.office.com/SMTP.Send", "https://outlook.office.com/IMAP.AccessAsUser.All"},
-			CallbackPort: 9876,
-			ExtraParams:  map[string]string{"response_mode": "query"},
 		},
 		IconEmoji: "📨",
 	},

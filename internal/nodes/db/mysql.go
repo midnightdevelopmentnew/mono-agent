@@ -32,19 +32,17 @@ func (n *MySQLNode) Execute(ctx context.Context, input workflow.NodeInput, confi
 		operation = "select"
 	}
 
-	host, _ := config["host"].(string)
-	if host == "" {
-		host = "localhost"
+	dsn, _ := config["connection_string"].(string)
+	if dsn == "" {
+		return nil, fmt.Errorf("db.mysql: 'connection_string' is required")
 	}
-	port := 3306
-	if v, ok := config["port"].(float64); ok {
-		port = int(v)
+	if !strings.Contains(dsn, "parseTime=true") {
+		if strings.Contains(dsn, "?") {
+			dsn += "&parseTime=true"
+		} else {
+			dsn += "?parseTime=true"
+		}
 	}
-	database, _ := config["database"].(string)
-	username, _ := config["username"].(string)
-	password, _ := config["password"].(string)
-
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true", username, password, host, port, database)
 
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
