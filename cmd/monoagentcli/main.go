@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -30,6 +31,17 @@ func init() {
 }
 
 func main() {
+	// Report-then-repanic: files a crash report as a side effect, then
+	// re-panics so the process still crashes with the original trace and
+	// exit behavior a user would otherwise see — this only observes, it
+	// never swallows the panic.
+	defer func() {
+		if r := recover(); r != nil {
+			reportCrash(r, debug.Stack())
+			panic(r)
+		}
+	}()
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
