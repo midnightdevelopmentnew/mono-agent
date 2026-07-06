@@ -1,5 +1,5 @@
 /**
- * Monoes Agent Bridge — Popup Script
+ * MonoAgent Bridge — Popup Script
  *
  * Displays connection status and allows configuring the WebSocket URL.
  */

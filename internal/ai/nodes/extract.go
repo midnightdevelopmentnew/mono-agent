@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/ai"
+	"monoagent/internal/workflow"
 )
 
 // ExtractNode sends each input item to an AI model with instructions to extract structured data.

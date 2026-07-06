@@ -182,7 +182,7 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 		cfg.ClientSecret = dbClientSecret
 	}
 	// Allow env var overrides.
-	envPrefix := "MONOES_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
+	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
 	if cfg.ClientID == "" {
 		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
 	}

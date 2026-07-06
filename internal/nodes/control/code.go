@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // CodeNode executes JavaScript code via the goja runtime.

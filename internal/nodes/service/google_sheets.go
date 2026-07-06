@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // GoogleSheetsNode implements the service.google_sheets node type.
@@ -33,7 +33,7 @@ func (n *GoogleSheetsNode) Execute(ctx context.Context, input workflow.NodeInput
 	if operation == "create_spreadsheet" {
 		title := strVal(config, "title")
 		if title == "" {
-			title = "Monoes Export"
+			title = "MonoAgent Export"
 		}
 		meta, err := sheetsCreateSpreadsheet(ctx, accessToken, title)
 		if err != nil {
@@ -48,7 +48,7 @@ func (n *GoogleSheetsNode) Execute(ctx context.Context, input workflow.NodeInput
 	if spreadsheetID == "" || spreadsheetID == "new" {
 		title := strVal(config, "title")
 		if title == "" {
-			title = "Monoes Export"
+			title = "MonoAgent Export"
 		}
 		meta, err := sheetsCreateSpreadsheet(ctx, accessToken, title)
 		if err != nil {

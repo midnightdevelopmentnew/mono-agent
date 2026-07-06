@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // HTMLNode performs HTML extraction and generation operations.

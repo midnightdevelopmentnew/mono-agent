@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/browser"
+	"monoagent/internal/browser"
 )
 
 // ListUserVideos navigates to a TikTok profile page, scrolls to load the video

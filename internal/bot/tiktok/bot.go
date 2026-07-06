@@ -10,8 +10,8 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
-	botpkg "github.com/monoes/mono-agent/internal/bot"
-	"github.com/monoes/mono-agent/internal/browser"
+	botpkg "monoagent/internal/bot"
+	"monoagent/internal/browser"
 )
 
 // TikTokBot implements botpkg.BotAdapter for TikTok.

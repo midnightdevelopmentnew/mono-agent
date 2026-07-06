@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/ai"
+	"monoagent/internal/workflow"
 )
 
 // mockClient is a test double that returns a fixed response.

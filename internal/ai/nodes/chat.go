@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/ai"
+	"monoagent/internal/workflow"
 )
 
 // ChatNode sends each input item through an AI chat completion.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // EmailReadNode fetches emails from an IMAP server.

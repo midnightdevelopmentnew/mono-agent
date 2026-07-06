@@ -3,7 +3,7 @@ package control
 import (
 	"context"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // MergeNode collects items from all input branches and emits a single combined output.

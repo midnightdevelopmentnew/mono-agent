@@ -1,8 +1,8 @@
 package crawl
 
 import (
-	cfgpkg "github.com/monoes/mono-agent/internal/config"
-	"github.com/monoes/mono-agent/internal/workflow"
+	cfgpkg "monoagent/internal/config"
+	"monoagent/internal/workflow"
 )
 
 func RegisterAll(r *workflow.NodeTypeRegistry, cfgClient *cfgpkg.APIClient) {

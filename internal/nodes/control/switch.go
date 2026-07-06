@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // SwitchNode evaluates an expression and routes items to one of N output handles.

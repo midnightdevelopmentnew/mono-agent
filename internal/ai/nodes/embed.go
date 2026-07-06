@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/ai"
+	"monoagent/internal/workflow"
 )
 
 // EmbedNode generates a numerical embedding for a text field in each input item.

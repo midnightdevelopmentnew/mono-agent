@@ -6,7 +6,7 @@ package browser
 
 import "time"
 
-// PageInterface abstracts every browser page operation used by the monoes
+// PageInterface abstracts every browser page operation used by the monoagentcli
 // action executor and bot adapters. A concrete implementation wraps either a
 // Rod *Page or a Chrome Extension messaging bridge.
 type PageInterface interface {

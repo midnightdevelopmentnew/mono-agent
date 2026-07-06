@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/ai"
+	"monoagent/internal/workflow"
 )
 
 // TransformNode uses AI to transform a specific field of each input item.

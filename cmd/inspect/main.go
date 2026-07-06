@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/extension"
+	"monoagent/internal/extension"
 	"github.com/rs/zerolog"
 )
 

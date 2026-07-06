@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // StopErrorNode terminates the workflow with a user-defined error message.

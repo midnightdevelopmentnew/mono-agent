@@ -1,5 +1,5 @@
 /**
- * Monoes Agent Bridge — Content Script
+ * MonoAgent Bridge — Content Script
  *
  * Handles all DOM operations dispatched from the background service worker.
  * Maintains an element registry using WeakRef for GC-friendly element tracking.

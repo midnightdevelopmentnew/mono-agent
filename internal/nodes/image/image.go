@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/disintegration/imaging"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // resolveImageField extracts a file path from an item field (or falls back to

@@ -63,10 +63,10 @@ jobs:
         run: |
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p dist
-          GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-amd64   ./cmd/monoes
-          GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-arm64   ./cmd/monoes
-          GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-linux-amd64    ./cmd/monoes
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-windows-amd64.exe ./cmd/monoes
+          GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-amd64   ./cmd/monoagentcli
+          GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-arm64   ./cmd/monoagentcli
+          GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-linux-amd64    ./cmd/monoagentcli
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-windows-amd64.exe ./cmd/monoagentcli
           cd dist && sha256sum * > CLI-SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
@@ -103,7 +103,7 @@ jobs:
       - name: Build CLI (bundled, arm64)
         run: |
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli ./cmd/monoes
+          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli ./cmd/monoagentcli
 
       - name: Build Wails app (arm64)
         working-directory: wails-app
@@ -155,7 +155,7 @@ jobs:
       - name: Build CLI (bundled, windows)
         run: |
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli.exe ./cmd/monoes
+          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli.exe ./cmd/monoagentcli
 
       - name: Build Wails app (windows)
         working-directory: wails-app
@@ -211,7 +211,7 @@ jobs:
       - name: Build CLI (bundled, linux)
         run: |
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli-linux ./cmd/monoes
+          CGO_ENABLED=0 go build -ldflags "$LD" -o wails-app/monoagentcli-linux ./cmd/monoagentcli
 
       - name: Build Wails app (linux)
         working-directory: wails-app

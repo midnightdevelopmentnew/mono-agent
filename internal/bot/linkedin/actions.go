@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/browser"
+	"monoagent/internal/browser"
 )
 
 // reLinkedInActivity matches the numeric activity ID in LinkedIn post URLs.

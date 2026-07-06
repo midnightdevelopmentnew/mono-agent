@@ -28,7 +28,7 @@ export const HELP_GUIDES = {
       steps: [
         { text: 'Go to GitHub → Settings → Developer settings → OAuth Apps', url: 'https://github.com/settings/developers' },
         'Click New OAuth App',
-        'Fill in: Application name (e.g. "Monoes"), Homepage URL (any), Authorization callback URL: http://localhost:9876/callback',
+        'Fill in: Application name (e.g. "MonoAgent"), Homepage URL (any), Authorization callback URL: http://localhost:9876/callback',
         'Click Register application',
         'Copy the Client ID shown on the app page',
         'Click Generate a new client secret — copy it immediately (shown only once)',
@@ -42,7 +42,7 @@ export const HELP_GUIDES = {
         { text: 'Go to GitHub.com and click your profile photo → Settings', url: 'https://github.com/settings/profile' },
         'Scroll to Developer settings → Personal access tokens → Tokens (classic)',
         'Click Generate new token (classic)',
-        'Add a note (e.g. "Monoes"), set expiration, and check scopes: repo, read:user, user:email',
+        'Add a note (e.g. "MonoAgent"), set expiration, and check scopes: repo, read:user, user:email',
         'Click Generate token at the bottom — copy it immediately, it won\'t be shown again',
       ],
     },

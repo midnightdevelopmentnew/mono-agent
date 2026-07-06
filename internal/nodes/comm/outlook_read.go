@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // OutlookReadNode fetches emails from Outlook / Hotmail via IMAP.

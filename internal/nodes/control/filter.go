@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // FilterNode filters items by evaluating a boolean expression on each item.

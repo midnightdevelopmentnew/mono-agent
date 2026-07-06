@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // WaitNode pauses execution for a configurable number of seconds.

@@ -19,6 +19,7 @@ Desktop.ini
 
 # Go
 bin/
+cmd/monoagentcli/monoagentcli
 vendor/
 go.work
 go.work.sum
@@ -30,9 +31,10 @@ go.work.sum
 /bin/monoes
 
 # Wails
-wails-app/build/
+wails-app/build/bin/
 wails-app/frontend/dist/
 wails-app/frontend/node_modules/
+wails-app/wails-app
 
 # Node
 node_modules/
@@ -82,7 +84,6 @@ data/monoes.db
 
 # Temporary/Generated
 dist/
-build/
 coverage/
 .cache/
 tmp/

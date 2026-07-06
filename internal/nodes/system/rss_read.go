@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mmcdole/gofeed"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // RSSReadNode fetches and parses an RSS/Atom feed.

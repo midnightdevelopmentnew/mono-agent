@@ -1,6 +1,6 @@
 package extension
 
-import "github.com/monoes/mono-agent/internal/browser"
+import "monoagent/internal/browser"
 
 // ServerBridge adapts *Server to satisfy browser.ExtensionBridge, breaking the
 // import cycle between the browser and extension packages.

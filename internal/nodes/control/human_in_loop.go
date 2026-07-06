@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/monoes/mono-agent/internal/vault"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/vault"
+	"monoagent/internal/workflow"
 )
 
 // HumanInLoopNode pauses workflow execution and waits for a human to review

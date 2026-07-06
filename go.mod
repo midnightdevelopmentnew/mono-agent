@@ -1,4 +1,4 @@
-module github.com/monoes/mono-agent
+module monoagent
 
 go 1.25.0
 

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/browser"
+	"monoagent/internal/browser"
 	"github.com/rs/zerolog"
 )
 

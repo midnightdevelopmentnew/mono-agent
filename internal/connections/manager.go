@@ -299,7 +299,7 @@ func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID strin
 	if clientSecret != "" {
 		cfg.ClientSecret = clientSecret
 	}
-	envPrefix := "MONOES_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
+	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
 	if cfg.ClientID == "" {
 		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
 	}
@@ -375,8 +375,8 @@ func (m *Manager) connectOAuth(ctx context.Context, p PlatformDef, conn *Connect
 
 	cfg := *p.OAuth // copy
 
-	// Look up env vars MONOES_{UPPERCASE_PLATFORM}_CLIENT_ID and _CLIENT_SECRET
-	envPrefix := "MONOES_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
+	// Look up env vars MONOAGENT_{UPPERCASE_PLATFORM}_CLIENT_ID and _CLIENT_SECRET
+	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
 	if cfg.ClientID == "" {
 		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
 	}

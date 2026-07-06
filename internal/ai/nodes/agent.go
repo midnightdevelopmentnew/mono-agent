@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/ai"
+	"monoagent/internal/workflow"
 )
 
 // AgentNode executes a multi-step AI agent that works towards a goal.

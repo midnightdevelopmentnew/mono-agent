@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/monoes/mono-agent/data"
+	"monoagent/data"
 )
 
 // userActionsDir returns the path to ~/.monoagent/actions where user-installed
@@ -84,7 +84,7 @@ func (l *ActionLoader) Load(platform, actionType string) (*ActionDef, error) {
 	path := fmt.Sprintf("actions/%s/%s.json", normalPlatform, normalType)
 	fileData, err := data.ActionsFS.ReadFile(path)
 	if err != nil {
-		// Fall back to user-installed templates in ~/.monoes/actions/
+		// Fall back to user-installed templates in ~/.monoagent/actions/
 		userDir := userActionsDir()
 		if userDir != "" {
 			userPath := filepath.Join(userDir, normalPlatform, normalType+".json")
@@ -131,7 +131,7 @@ func (l *ActionLoader) ListAvailable() ([]string, error) {
 			}
 		}
 	}
-	// Merge user-installed templates from ~/.monoes/actions/
+	// Merge user-installed templates from ~/.monoagent/actions/
 	userDir := userActionsDir()
 	if userDir != "" {
 		userPlatformDirs, _ := os.ReadDir(userDir)

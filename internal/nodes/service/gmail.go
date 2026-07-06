@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // GmailNode implements the service.gmail node type.

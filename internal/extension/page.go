@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/browser"
+	"monoagent/internal/browser"
 )
 
 const defaultTimeout = 30 * time.Second

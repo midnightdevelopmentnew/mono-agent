@@ -9,7 +9,7 @@ dev:
 
 build:
 	@echo "→ Building monoagentcli..."
-	cd .. && go build -o wails-app/build/bin/monoagentcli ./cmd/monoes/
+	cd .. && go build -o wails-app/build/bin/monoagentcli ./cmd/monoagentcli/
 	@echo "→ Building Wails app..."
 	~/go/bin/wails build
 	@echo "→ Bundling monoagentcli into app..."

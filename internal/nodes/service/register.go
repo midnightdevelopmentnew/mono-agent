@@ -1,6 +1,6 @@
 package service
 
-import "github.com/monoes/mono-agent/internal/workflow"
+import "monoagent/internal/workflow"
 
 func RegisterAll(r *workflow.NodeTypeRegistry) {
 	RegisterGroupA(r)

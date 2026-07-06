@@ -7,7 +7,7 @@ build: build-cli build-app
 
 .PHONY: build-cli
 build-cli:
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli ./cmd/monoes
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli ./cmd/monoagentcli
 
 .PHONY: build-app
 build-app:
@@ -19,10 +19,10 @@ dev:
 
 .PHONY: build-all
 build-all: build-cli
-	GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-darwin-amd64 ./cmd/monoes
-	GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-darwin-arm64 ./cmd/monoes
-	GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-linux-amd64 ./cmd/monoes
-	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-windows-amd64.exe ./cmd/monoes
+	GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-darwin-amd64 ./cmd/monoagentcli
+	GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-darwin-arm64 ./cmd/monoagentcli
+	GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-linux-amd64 ./cmd/monoagentcli
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/monoagentcli-windows-amd64.exe ./cmd/monoagentcli
 
 .PHONY: test
 test:

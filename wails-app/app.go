@@ -20,11 +20,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/monoes/mono-agent/internal/ai"
-	aichat "github.com/monoes/mono-agent/internal/ai/chat"
-	"github.com/monoes/mono-agent/internal/connections"
-	"github.com/monoes/mono-agent/internal/vault"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/ai"
+	aichat "monoagent/internal/ai/chat"
+	"monoagent/internal/connections"
+	"monoagent/internal/vault"
+	"monoagent/internal/workflow"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	_ "modernc.org/sqlite"
 )
@@ -1283,7 +1283,7 @@ func findMonoAgentCLI() (string, error) {
 	if execDir, err := filepath.Abs(filepath.Dir(os.Args[0])); err == nil {
 		candidates = append(candidates,
 			filepath.Join(execDir, "monoagentcli"),
-			filepath.Join(execDir, "..", "..", "..", "cmd", "monoes", "monoagentcli"),
+			filepath.Join(execDir, "..", "..", "..", "cmd", "monoagentcli", "monoagentcli"),
 		)
 	}
 	for _, p := range candidates {
@@ -1777,7 +1777,7 @@ func (a *App) SetWorkflowActive(id string, active bool) error {
 // Workflow execution (subprocess)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// RunWorkflow spawns `monoes workflow run <id>` as a subprocess.
+// RunWorkflow spawns `monoagentcli workflow run <id>` as a subprocess.
 // Stdout/stderr stream to the UI. The subprocess can be killed via CancelWorkflow.
 func (a *App) RunWorkflow(id string) error {
 	cliBin, err := findMonoAgentCLI()
@@ -2858,7 +2858,7 @@ func (a *App) ConnectPlatformOAuth(platformID string) string {
 	return "started"
 }
 
-// LoginSocial spawns `monoes login <platform>` as a subprocess.
+// LoginSocial spawns `monoagentcli login <platform>` as a subprocess.
 // The CLI handles the browser, cookie capture, and session storage.
 // Progress events are streamed to the UI via stdout scanning.
 // Returns "started" immediately or "error: ..." if the binary is not found.

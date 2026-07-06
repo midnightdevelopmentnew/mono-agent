@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/monoes/mono-agent/internal/ai"
+	"monoagent/internal/ai"
 )
 
 // NodeTypeInfo describes a node type available in the system.

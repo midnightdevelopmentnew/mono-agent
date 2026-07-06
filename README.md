@@ -449,10 +449,10 @@ git clone https://github.com/monoes/mono-agent.git
 cd mono-agent
 
 # Build CLI
-go build -o monoes ./cmd/monoes
+go build -o monoagentcli ./cmd/monoagentcli
 
 # Or install globally
-go install ./cmd/monoes@latest
+go install ./cmd/monoagentcli@latest
 ```
 
 ### First Run
@@ -599,7 +599,7 @@ monoes workflow run --id my-image-workflow   # vault images are saved to active 
 ```
 mono-agent/
 │
-├── cmd/monoes/              # CLI entry point (Cobra, 70+ commands)
+├── cmd/monoagentcli/        # CLI entry point (Cobra, 70+ commands)
 │   ├── main.go
 │   ├── workflow.go          # workflow subcommands + engine builder
 │   ├── node.go              # node run + registry builder

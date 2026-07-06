@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/smtp"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // OutlookSendNode sends an email via Outlook / Hotmail SMTP.

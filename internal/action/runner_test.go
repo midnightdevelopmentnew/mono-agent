@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/monoes/mono-agent/internal/browser"
+	"monoagent/internal/browser"
 	"github.com/rs/zerolog"
 )
 

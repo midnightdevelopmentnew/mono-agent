@@ -1,6 +1,6 @@
 package image
 
-import "github.com/monoes/mono-agent/internal/workflow"
+import "monoagent/internal/workflow"
 
 // RegisterAll registers all Tier-1 image processing nodes into the given registry.
 func RegisterAll(r *workflow.NodeTypeRegistry) {

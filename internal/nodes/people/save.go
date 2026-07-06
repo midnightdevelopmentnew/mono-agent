@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/monoes/mono-agent/internal/bot"
-	_ "github.com/monoes/mono-agent/internal/bot/instagram"
-	_ "github.com/monoes/mono-agent/internal/bot/linkedin"
-	_ "github.com/monoes/mono-agent/internal/bot/tiktok"
-	_ "github.com/monoes/mono-agent/internal/bot/x"
-	"github.com/monoes/mono-agent/internal/util"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/bot"
+	_ "monoagent/internal/bot/instagram"
+	_ "monoagent/internal/bot/linkedin"
+	_ "monoagent/internal/bot/tiktok"
+	_ "monoagent/internal/bot/x"
+	"monoagent/internal/util"
+	"monoagent/internal/workflow"
 )
 
 // globalPeopleDB is the SQLite DB used by PeopleSaveNode. Set at startup.

@@ -15,7 +15,7 @@
     "optional": [
       { "name": "referenceImagePath", "type": "string", "description": "Local path to a reference image to upload before prompting Gemini (e.g. use this to ask for a similar image in a different style)" },
       { "name": "maxWaitSeconds", "type": "number", "default": 120, "min": 30, "max": 600, "description": "Max seconds to wait for image generation" },
-      { "name": "downloadDir", "type": "string", "default": "~/.monoes/downloads", "description": "Directory to save generated images" }
+      { "name": "downloadDir", "type": "string", "default": "~/.monoagent/downloads", "description": "Directory to save generated images" }
     ]
   },
   "outputs": {
@@ -174,7 +174,7 @@
       "id": "extract_and_download",
       "type": "call_bot_method",
       "methodName": "extract_and_download_images",
-      "args": ["{{downloadDir or ~/.monoes/downloads}}"],
+      "args": ["{{downloadDir or ~/.monoagent/downloads}}"],
       "variable_name": "downloadedImages",
       "timeout": 30,
       "onError": { "action": "mark_failed" }

@@ -1,6 +1,6 @@
 package system
 
-import "github.com/monoes/mono-agent/internal/workflow"
+import "monoagent/internal/workflow"
 
 // RegisterAll registers all system node types into the registry.
 func RegisterAll(r *workflow.NodeTypeRegistry) {

@@ -1,5 +1,5 @@
 // Package extension implements a WebSocket-based communication layer between
-// the Go monoes-agent and a Chrome Extension. The extension acts as a browser
+// the Go monoagentcli-agent and a Chrome Extension. The extension acts as a browser
 // bridge, executing DOM commands on real Chrome tabs that already have the
 // user's session cookies.
 package extension

@@ -80,7 +80,7 @@
         "credential_id": "REPLACE_WITH_GEMINI_SESSION_ID",
         "prompt": "{{ $json.image_prompt_resolved }}",
         "maxWaitSeconds": 120,
-        "downloadDir": "~/.monoes/downloads"
+        "downloadDir": "~/.monoagent/downloads"
       }
     },
     {

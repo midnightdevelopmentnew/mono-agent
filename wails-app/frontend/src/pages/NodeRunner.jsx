@@ -16,7 +16,7 @@ import ImagePickerModal from '../components/ImagePickerModal'
 // ── Wails bindings with mock fallback ────────────────────────────────────────
 const RunNode               = WailsApp.RunNode               ?? (async (req) => ({ outputs: [{ handle: 'main', items: [{ mock: true, node_type: req.node_type }] }], duration_ms: 42 }))
 const GetWorkflowNodeTypes  = WailsApp.GetWorkflowNodeTypes  ?? (async () => ({}))
-const _LS = 'monoes-wf-mock-v2'
+const _LS = 'monoagent-wf-mock-v2'
 const _ms = () => { try { return JSON.parse(localStorage.getItem(_LS) || '{}') } catch { return {} } }
 const _mp = s  => { try { localStorage.setItem(_LS, JSON.stringify(s)) } catch {} }
 const ListWorkflows    = WailsApp.ListWorkflows    ?? (async () => Object.values(_ms()))

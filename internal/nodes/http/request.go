@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/workflow"
 )
 
 // RequestNode performs HTTP requests.

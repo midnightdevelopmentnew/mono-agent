@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/connections"
+	"monoagent/internal/connections"
 )
 
 // ResourceItem is a single listable resource (spreadsheet, channel, etc.)
@@ -143,7 +143,7 @@ func (a *App) refreshOAuthToken(ctx context.Context, conn *connections.Connectio
 	}
 
 	cfg := *p.OAuth
-	envPrefix := "MONOES_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
+	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
 	if cfg.ClientID == "" {
 		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
 	}

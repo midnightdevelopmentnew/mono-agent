@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/monoes/mono-agent/internal/action"
-	"github.com/monoes/mono-agent/internal/browser"
-	"github.com/monoes/mono-agent/internal/connections"
-	"github.com/monoes/mono-agent/internal/workflow"
+	"monoagent/internal/action"
+	"monoagent/internal/browser"
+	"monoagent/internal/connections"
+	"monoagent/internal/workflow"
 	"github.com/rs/zerolog"
 )
 
@@ -171,7 +171,7 @@ func (b *BrowserNode) Execute(ctx context.Context, input workflow.NodeInput, con
 
 	// 5. Create ActionExecutor and call Execute.
 	logger := newNopLogger()
-	if os.Getenv("MONOES_DEBUG") != "" {
+	if os.Getenv("MONOAGENT_DEBUG") != "" {
 		logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 	}
 	executor := action.NewActionExecutor(

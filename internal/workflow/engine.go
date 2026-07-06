@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/connections"
-	"github.com/monoes/mono-agent/internal/vault"
+	"monoagent/internal/connections"
+	"monoagent/internal/vault"
 	"github.com/rs/zerolog"
 )
 

@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/monoes/mono-agent/internal/bot"
-	"github.com/monoes/mono-agent/internal/browser"
-	extpkg "github.com/monoes/mono-agent/internal/extension"
-	"github.com/monoes/mono-agent/internal/util"
+	"monoagent/internal/bot"
+	"monoagent/internal/browser"
+	extpkg "monoagent/internal/extension"
+	"monoagent/internal/util"
 )
 
 // xpathAttrPattern matches XPath expressions ending with /@attribute, used

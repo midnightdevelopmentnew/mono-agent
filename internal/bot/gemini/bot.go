@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/browser"
-	"github.com/monoes/mono-agent/internal/extension"
-	"github.com/monoes/mono-agent/internal/vault"
+	"monoagent/internal/browser"
+	"monoagent/internal/extension"
+	"monoagent/internal/vault"
 
-	botpkg "github.com/monoes/mono-agent/internal/bot"
+	botpkg "monoagent/internal/bot"
 )
 
 // GeminiBot implements botpkg.BotAdapter for Google Gemini.

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/monoes/mono-agent/internal/ai"
+	"monoagent/internal/ai"
 	_ "modernc.org/sqlite"
 )
 
