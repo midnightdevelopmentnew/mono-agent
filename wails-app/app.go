@@ -23,6 +23,7 @@ import (
 	"monoagent/internal/ai"
 	aichat "monoagent/internal/ai/chat"
 	"monoagent/internal/connections"
+	"monoagent/internal/storage"
 	"monoagent/internal/vault"
 	"monoagent/internal/workflow"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -849,6 +850,38 @@ func (a *App) GetPersonInteractions(id string) []PersonInteraction {
 		}
 	}
 	return interactions
+}
+
+// GetPersonMessages returns a person's message/interaction history (from
+// Outlook, social platforms, manual notes, ...), delegating to the same
+// storage.PersonMessage repo used by `monoagentcli people messages`.
+func (a *App) GetPersonMessages(personID string) []*storage.PersonMessage {
+	if a.db == nil {
+		return nil
+	}
+	messages, err := (&storage.Database{DB: a.db}).ListPersonMessages(personID, "", a.activeProfileID, 0, 0)
+	if err != nil {
+		return nil
+	}
+	return messages
+}
+
+// AddPersonMessage records a message/interaction for a person, delegating to
+// the same storage.PersonMessage repo used by `monoagentcli people messages add`.
+func (a *App) AddPersonMessage(personID, source, externalID, direction, sender, subject, body string) error {
+	if a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	msg := &storage.PersonMessage{
+		PersonID:   personID,
+		Source:     source,
+		ExternalID: externalID,
+		Direction:  direction,
+		Sender:     sender,
+		Subject:    subject,
+		Body:       body,
+	}
+	return (&storage.Database{DB: a.db}).UpsertPersonMessage(msg, a.activeProfileID)
 }
 
 // GetPersonPosts returns all scraped posts for a person, with we_liked/we_commented flags.

@@ -545,6 +545,9 @@ monoes connect remove --id <cred-id>        # Remove credential
 monoes search --platform instagram --keyword "coffee lovers"
 monoes people list                          # List saved contacts
 monoes people import --file contacts.csv    # Import from CSV
+monoes people messages add <id> --source outlook --subject "Hi" --body "..."   # Log a message/interaction
+monoes people messages list <id>            # Show a person's message history
+monoes people messages import <id> --file thread.json --source gmail          # Bulk-import history
 monoes list create --name "Leads Q1"        # Create a list
 monoes list add-item --list <id> --url https://instagram.com/user
 monoes export --platform instagram --format csv

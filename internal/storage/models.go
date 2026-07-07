@@ -86,6 +86,23 @@ type Person struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
+// PersonMessage represents a row in the person_messages table: one message
+// or interaction ingested from an external source (Outlook, social platforms,
+// manual notes, ...) and attached to a person's history.
+type PersonMessage struct {
+	ID         string    `json:"id"`
+	PersonID   string    `json:"person_id"`
+	Source     string    `json:"source"`
+	ExternalID string    `json:"external_id,omitempty"`
+	Direction  string    `json:"direction"`
+	Sender     string    `json:"sender,omitempty"`
+	Subject    string    `json:"subject,omitempty"`
+	Body       string    `json:"body,omitempty"`
+	Metadata   string    `json:"metadata,omitempty"`
+	SentAt     time.Time `json:"sent_at,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 // SocialList represents a row in the social_lists table.
 type SocialList struct {
 	ID        string    `json:"id"`

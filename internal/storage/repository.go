@@ -711,6 +711,130 @@ func (d *Database) BatchUpsertPeople(people []*Person) error {
 }
 
 // ---------------------------------------------------------------------------
+// Person Messages
+// ---------------------------------------------------------------------------
+
+// UpsertPersonMessage inserts a message/interaction for a person, or updates
+// it if the same (person_id, source, external_id) already exists — making
+// re-imports from the same source idempotent. When external_id is not
+// supplied (e.g. manually logged notes), it defaults to the message's own
+// generated ID so unrelated messages never collide on the unique constraint.
+// profileID scopes the write to the person's profile; the message is
+// rejected if personID does not belong to that profile.
+func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) error {
+	if profileID == "" {
+		profileID = "default"
+	}
+	if msg.ID == "" {
+		msg.ID = NewID()
+	}
+	if msg.Direction == "" {
+		msg.Direction = "inbound"
+	}
+	if msg.ExternalID == "" {
+		msg.ExternalID = msg.ID
+	}
+
+	var exists int
+	err := d.DB.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, msg.PersonID, profileID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("person %s not found", msg.PersonID)
+	}
+	if err != nil {
+		return fmt.Errorf("checking person %s: %w", msg.PersonID, err)
+	}
+
+	_, err = d.DB.Exec(`
+		INSERT INTO person_messages (
+			id, person_id, source, external_id, direction, sender, subject,
+			body, metadata, sent_at, profile_id, created_at
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(person_id, source, external_id)
+		DO UPDATE SET
+			direction = excluded.direction,
+			sender    = excluded.sender,
+			subject   = excluded.subject,
+			body      = excluded.body,
+			metadata  = excluded.metadata,
+			sent_at   = excluded.sent_at`,
+		msg.ID, msg.PersonID, msg.Source, msg.ExternalID, msg.Direction,
+		nullStr(msg.Sender), nullStr(msg.Subject), nullStr(msg.Body),
+		nullStr(msg.Metadata), nullTime(msg.SentAt), profileID, time.Now().UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("upserting message for person %s: %w", msg.PersonID, err)
+	}
+	return nil
+}
+
+// ListPersonMessages returns messages for a person within the given profile,
+// optionally filtered by source, newest first. Pass an empty source to skip
+// that filter.
+func (d *Database) ListPersonMessages(personID, source, profileID string, limit, offset int) ([]*PersonMessage, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := `
+		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
+		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
+		       COALESCE(pm.metadata,''), pm.sent_at, pm.created_at
+		FROM person_messages pm
+		JOIN people p ON p.id = pm.person_id
+		WHERE pm.person_id = ? AND COALESCE(p.profile_id,'default') = ?`
+	args := []interface{}{personID, profileID}
+
+	if source != "" {
+		query += " AND pm.source = ?"
+		args = append(args, source)
+	}
+	query += " ORDER BY COALESCE(pm.sent_at, pm.created_at) DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := d.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing messages for person %s: %w", personID, err)
+	}
+	defer rows.Close()
+
+	var messages []*PersonMessage
+	for rows.Next() {
+		m := &PersonMessage{}
+		var sentAt sql.NullTime
+		if err := rows.Scan(
+			&m.ID, &m.PersonID, &m.Source, &m.ExternalID, &m.Direction,
+			&m.Sender, &m.Subject, &m.Body, &m.Metadata, &sentAt, &m.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning person message row: %w", err)
+		}
+		if sentAt.Valid {
+			m.SentAt = sentAt.Time
+		}
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
+}
+
+// DeletePersonMessage removes a single message by ID.
+func (d *Database) DeletePersonMessage(id string) error {
+	result, err := d.DB.Exec("DELETE FROM person_messages WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("deleting person message %s: %w", id, err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("message %s not found", id)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Social Lists
 // ---------------------------------------------------------------------------
 
@@ -1202,6 +1326,15 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// nullTime converts a zero time.Time to a sql.NullTime with Valid=false,
+// otherwise returns a valid NullTime.
+func nullTime(t time.Time) sql.NullTime {
+	if t.IsZero() {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t, Valid: true}
 }
 
 // marshalParams encodes a params map to a JSON string for storage.

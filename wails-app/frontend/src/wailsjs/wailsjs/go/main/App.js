@@ -6,6 +6,10 @@ export function AddActionTarget(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddActionTarget'](arg1, arg2, arg3);
 }
 
+export function AddPersonMessage(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['AddPersonMessage'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
 export function AddPersonTag(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddPersonTag'](arg1, arg2, arg3);
 }
@@ -164,6 +168,10 @@ export function GetPersonDetail(arg1) {
 
 export function GetPersonInteractions(arg1) {
   return window['go']['main']['App']['GetPersonInteractions'](arg1);
+}
+
+export function GetPersonMessages(arg1) {
+  return window['go']['main']['App']['GetPersonMessages'](arg1);
 }
 
 export function GetPersonPosts(arg1) {
