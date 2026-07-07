@@ -59,11 +59,15 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	db, err := sql.Open("sqlite", a.dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)")
+	sdb, err := storage.NewDatabase(a.dbPath)
 	if err != nil {
 		runtime.LogErrorf(ctx, "DB open error: %v", err)
 		return
 	}
+	if err := sdb.ApplyMigrations(); err != nil {
+		runtime.LogErrorf(ctx, "DB migration error: %v", err)
+	}
+	db := sdb.DB
 	a.db = db
 
 	// Ensure vault directory exists.
@@ -115,175 +119,6 @@ func (a *App) startup(ctx context.Context) {
 		}
 		cs.SetCanvasNodeTypes(allTypes)
 		a.chatService = cs
-	}
-
-	// Ensure schema is up-to-date with any columns added by CLI migrations.
-	safeMigrations := []string{
-		`ALTER TABLE people ADD COLUMN IF NOT EXISTS profile_url TEXT`,
-		`CREATE TABLE IF NOT EXISTS tags (
-			id    TEXT PRIMARY KEY,
-			name  TEXT NOT NULL UNIQUE COLLATE NOCASE,
-			color TEXT NOT NULL DEFAULT '#00b4d8'
-		)`,
-		`CREATE TABLE IF NOT EXISTS people_tags (
-			person_id TEXT NOT NULL REFERENCES people(id) ON DELETE CASCADE,
-			tag_id    TEXT NOT NULL REFERENCES tags(id)   ON DELETE CASCADE,
-			PRIMARY KEY (person_id, tag_id)
-		)`,
-		`ALTER TABLE actions ADD COLUMN IF NOT EXISTS params TEXT NOT NULL DEFAULT '{}'`,
-		`CREATE TABLE IF NOT EXISTS workflows (
-			id          TEXT PRIMARY KEY,
-			name        TEXT NOT NULL DEFAULT '',
-			description TEXT NOT NULL DEFAULT '',
-			is_active   INTEGER NOT NULL DEFAULT 0,
-			version     INTEGER NOT NULL DEFAULT 1,
-			created_at  TEXT NOT NULL DEFAULT '',
-			updated_at  TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE TABLE IF NOT EXISTS workflow_nodes (
-			id          TEXT PRIMARY KEY,
-			workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-			node_type   TEXT NOT NULL DEFAULT '',
-			name        TEXT NOT NULL DEFAULT '',
-			config      TEXT NOT NULL DEFAULT '{}',
-			position_x  REAL NOT NULL DEFAULT 0,
-			position_y  REAL NOT NULL DEFAULT 0,
-			disabled    INTEGER NOT NULL DEFAULT 0,
-			created_at  TEXT NOT NULL DEFAULT '',
-			updated_at  TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE TABLE IF NOT EXISTS workflow_connections (
-			id             TEXT PRIMARY KEY,
-			workflow_id    TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-			source_node_id TEXT NOT NULL DEFAULT '',
-			source_handle  TEXT NOT NULL DEFAULT '',
-			target_node_id TEXT NOT NULL DEFAULT '',
-			target_handle  TEXT NOT NULL DEFAULT '',
-			position       INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE TABLE IF NOT EXISTS posts (
-			id            TEXT PRIMARY KEY,
-			person_id     TEXT REFERENCES people(id),
-			platform      TEXT NOT NULL,
-			shortcode     TEXT NOT NULL,
-			url           TEXT NOT NULL,
-			thumbnail_url TEXT,
-			like_count    INTEGER,
-			comment_count INTEGER,
-			caption       TEXT,
-			posted_at     TEXT,
-			scraped_at    TEXT NOT NULL,
-			UNIQUE(platform, shortcode)
-		)`,
-		`CREATE TABLE IF NOT EXISTS post_comments (
-			id          TEXT PRIMARY KEY,
-			post_id     TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-			author      TEXT NOT NULL,
-			text        TEXT,
-			timestamp   TEXT,
-			likes_count INTEGER DEFAULT 0,
-			reply_count INTEGER DEFAULT 0,
-			scraped_at  TEXT NOT NULL,
-			UNIQUE(post_id, author, timestamp)
-		)`,
-		`CREATE TABLE IF NOT EXISTS workflow_executions (
-			id              TEXT PRIMARY KEY,
-			workflow_id     TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
-			status          TEXT NOT NULL DEFAULT 'QUEUED',
-			trigger_type    TEXT NOT NULL DEFAULT 'manual',
-			trigger_data    TEXT NOT NULL DEFAULT '{}',
-			started_at      TIMESTAMP,
-			finished_at     TIMESTAMP,
-			error_message   TEXT,
-			created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS workflow_execution_nodes (
-			id              TEXT PRIMARY KEY,
-			execution_id    TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,
-			node_id         TEXT NOT NULL,
-			node_name       TEXT NOT NULL,
-			status          TEXT NOT NULL DEFAULT 'PENDING',
-			input_items     TEXT NOT NULL DEFAULT '[]',
-			output_items    TEXT NOT NULL DEFAULT '[]',
-			error_message   TEXT,
-			started_at      TIMESTAMP,
-			finished_at     TIMESTAMP,
-			retry_count     INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE TABLE IF NOT EXISTS credentials (
-			id          TEXT PRIMARY KEY,
-			name        TEXT NOT NULL,
-			type        TEXT NOT NULL,
-			data        TEXT NOT NULL DEFAULT '{}',
-			created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS run_logs (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    source     TEXT NOT NULL DEFAULT 'cli',
-    level      TEXT NOT NULL DEFAULT 'INFO',
-    message    TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
-)`,
-		`CREATE TABLE IF NOT EXISTS vault_images (
-    id           TEXT PRIMARY KEY,
-    seq          INTEGER NOT NULL UNIQUE,
-    path         TEXT NOT NULL,
-    filename     TEXT NOT NULL,
-    size_bytes   INTEGER NOT NULL DEFAULT 0,
-    source       TEXT NOT NULL DEFAULT 'upload',
-    workflow_id  TEXT,
-    execution_id TEXT,
-    label        TEXT,
-    created_at   TIMESTAMP NOT NULL DEFAULT (datetime('now'))
-)`,
-		`CREATE INDEX IF NOT EXISTS idx_vault_images_seq ON vault_images(seq DESC)`,
-		`CREATE TABLE IF NOT EXISTS hil_pending (
-    id            TEXT PRIMARY KEY,
-    execution_id  TEXT NOT NULL,
-    workflow_id   TEXT NOT NULL,
-    node_id       TEXT NOT NULL,
-    node_name     TEXT NOT NULL,
-    status        TEXT NOT NULL DEFAULT 'pending',
-    readonly_data TEXT NOT NULL DEFAULT '{}',
-    editable_data TEXT NOT NULL DEFAULT '{}',
-    edited_data   TEXT NOT NULL DEFAULT '{}',
-    node_config   TEXT NOT NULL DEFAULT '{}',
-    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)`,
-		`CREATE INDEX IF NOT EXISTS idx_hil_pending_status    ON hil_pending (status)`,
-		`CREATE INDEX IF NOT EXISTS idx_hil_pending_execution ON hil_pending (execution_id)`,
-		// Profiles
-		`CREATE TABLE IF NOT EXISTS profiles (
-    id         TEXT PRIMARY KEY,
-    name       TEXT NOT NULL UNIQUE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-)`,
-		`INSERT OR IGNORE INTO profiles (id, name) VALUES ('default', 'Default')`,
-		`INSERT OR IGNORE INTO settings (key, value) VALUES ('active_profile_id', 'default')`,
-		`ALTER TABLE people              ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE crawler_sessions    ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE actions             ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE social_lists        ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE threads             ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE workflows           ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE connections         ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE credentials         ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE vault_images        ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE hil_pending         ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`ALTER TABLE tags                ADD COLUMN IF NOT EXISTS profile_id TEXT NOT NULL DEFAULT 'default'`,
-		`CREATE INDEX IF NOT EXISTS idx_workflows_profile           ON workflows(profile_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_workflow_executions_profile ON workflow_executions(profile_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_credentials_profile         ON credentials(profile_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_vault_images_profile        ON vault_images(profile_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_hil_pending_profile         ON hil_pending(profile_id)`,
-	}
-	for _, q := range safeMigrations {
-		if _, err := db.Exec(q); err != nil {
-			a.emitLog("SYSTEM", "WARN", "safe migration failed: "+err.Error())
-		}
 	}
 
 	// Load the active profile from settings; default to 'default' if not set.

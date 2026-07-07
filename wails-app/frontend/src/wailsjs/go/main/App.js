@@ -6,24 +6,24 @@ export function AddActionTarget(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddActionTarget'](arg1, arg2, arg3);
 }
 
-export function CreateProfile(arg1) {
-  return window['go']['main']['App']['CreateProfile'](arg1);
-}
-
-export function GetActiveProfile() {
-  return window['go']['main']['App']['GetActiveProfile']();
-}
-
-export function GetProfiles() {
-  return window['go']['main']['App']['GetProfiles']();
-}
-
-export function SwitchProfile(arg1) {
-  return window['go']['main']['App']['SwitchProfile'](arg1);
+export function AddPersonMessage(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['AddPersonMessage'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function AddPersonTag(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddPersonTag'](arg1, arg2, arg3);
+}
+
+export function AddVaultImage(arg1, arg2) {
+  return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
+}
+
+export function AppSelfUpdate() {
+  return window['go']['main']['App']['AppSelfUpdate']();
+}
+
+export function ApproveHIL(arg1, arg2) {
+  return window['go']['main']['App']['ApproveHIL'](arg1, arg2);
 }
 
 export function CancelWorkflow(arg1) {
@@ -50,6 +50,10 @@ export function CreateAction(arg1) {
   return window['go']['main']['App']['CreateAction'](arg1);
 }
 
+export function CreateProfile(arg1) {
+  return window['go']['main']['App']['CreateProfile'](arg1);
+}
+
 export function CreateResource(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateResource'](arg1, arg2, arg3, arg4);
 }
@@ -68,6 +72,10 @@ export function DeleteCredential(arg1) {
 
 export function DeleteSession(arg1) {
   return window['go']['main']['App']['DeleteSession'](arg1);
+}
+
+export function DeleteVaultImage(arg1) {
+  return window['go']['main']['App']['DeleteVaultImage'](arg1);
 }
 
 export function DeleteWorkflow(arg1) {
@@ -102,6 +110,10 @@ export function GetActions(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetActions'](arg1, arg2, arg3);
 }
 
+export function GetActiveProfile() {
+  return window['go']['main']['App']['GetActiveProfile']();
+}
+
 export function GetAllTags() {
   return window['go']['main']['App']['GetAllTags']();
 }
@@ -124,6 +136,10 @@ export function GetDashboardStats() {
 
 export function GetExecutionDetail(arg1) {
   return window['go']['main']['App']['GetExecutionDetail'](arg1);
+}
+
+export function GetHILItems() {
+  return window['go']['main']['App']['GetHILItems']();
 }
 
 export function GetLogs() {
@@ -154,6 +170,10 @@ export function GetPersonInteractions(arg1) {
   return window['go']['main']['App']['GetPersonInteractions'](arg1);
 }
 
+export function GetPersonMessages(arg1) {
+  return window['go']['main']['App']['GetPersonMessages'](arg1);
+}
+
 export function GetPersonPosts(arg1) {
   return window['go']['main']['App']['GetPersonPosts'](arg1);
 }
@@ -168,6 +188,10 @@ export function GetPostComments(arg1) {
 
 export function GetPostDetail(arg1) {
   return window['go']['main']['App']['GetPostDetail'](arg1);
+}
+
+export function GetProfiles() {
+  return window['go']['main']['App']['GetProfiles']();
 }
 
 export function GetRecentExecutions(arg1) {
@@ -188,6 +212,22 @@ export function GetSocialLists() {
 
 export function GetTemplates() {
   return window['go']['main']['App']['GetTemplates']();
+}
+
+export function GetVaultImage(arg1) {
+  return window['go']['main']['App']['GetVaultImage'](arg1);
+}
+
+export function GetVaultImageData(arg1) {
+  return window['go']['main']['App']['GetVaultImageData'](arg1);
+}
+
+export function GetVaultImages(arg1) {
+  return window['go']['main']['App']['GetVaultImages'](arg1);
+}
+
+export function GetVaultStats() {
+  return window['go']['main']['App']['GetVaultStats']();
 }
 
 export function GetVersion() {
@@ -246,6 +286,14 @@ export function OpenURL(arg1) {
   return window['go']['main']['App']['OpenURL'](arg1);
 }
 
+export function OpenVaultFilePicker() {
+  return window['go']['main']['App']['OpenVaultFilePicker']();
+}
+
+export function RejectHIL(arg1) {
+  return window['go']['main']['App']['RejectHIL'](arg1);
+}
+
 export function RemoveConnection(arg1) {
   return window['go']['main']['App']['RemoveConnection'](arg1);
 }
@@ -274,16 +322,20 @@ export function SaveCredential(arg1) {
   return window['go']['main']['App']['SaveCredential'](arg1);
 }
 
+export function SaveVaultImageToFile(arg1, arg2) {
+  return window['go']['main']['App']['SaveVaultImageToFile'](arg1, arg2);
+}
+
 export function SaveWorkflow(arg1) {
   return window['go']['main']['App']['SaveWorkflow'](arg1);
 }
 
-export function SelfUpdate() {
-  return window['go']['main']['App']['SelfUpdate']();
+export function SearchVaultImages(arg1) {
+  return window['go']['main']['App']['SearchVaultImages'](arg1);
 }
 
-export function AppSelfUpdate() {
-  return window['go']['main']['App']['AppSelfUpdate']();
+export function SelfUpdate() {
+  return window['go']['main']['App']['SelfUpdate']();
 }
 
 export function SetOAuthCredentials(arg1, arg2, arg3) {
@@ -296,6 +348,10 @@ export function SetWorkflowActive(arg1, arg2) {
 
 export function StreamAIChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['StreamAIChat'](arg1, arg2, arg3, arg4);
+}
+
+export function SwitchProfile(arg1) {
+  return window['go']['main']['App']['SwitchProfile'](arg1);
 }
 
 export function TestAIProvider(arg1) {
@@ -318,54 +374,6 @@ export function UpdateActionState(arg1, arg2) {
   return window['go']['main']['App']['UpdateActionState'](arg1, arg2);
 }
 
-export function GetVaultImages(arg1) {
-  return window['go']['main']['App']['GetVaultImages'](arg1);
-}
-
-export function GetVaultImageData(arg1) {
-  return window['go']['main']['App']['GetVaultImageData'](arg1);
-}
-
-export function GetVaultImage(arg1) {
-  return window['go']['main']['App']['GetVaultImage'](arg1);
-}
-
-export function AddVaultImage(arg1, arg2) {
-  return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
-}
-
-export function DeleteVaultImage(arg1) {
-  return window['go']['main']['App']['DeleteVaultImage'](arg1);
-}
-
-export function SearchVaultImages(arg1) {
-  return window['go']['main']['App']['SearchVaultImages'](arg1);
-}
-
-export function GetVaultStats() {
-  return window['go']['main']['App']['GetVaultStats']();
-}
-
-export function OpenVaultFilePicker() {
-  return window['go']['main']['App']['OpenVaultFilePicker']();
-}
-
-export function SaveVaultImageToFile(arg1, arg2) {
-  return window['go']['main']['App']['SaveVaultImageToFile'](arg1, arg2);
-}
-
 export function UpdateVaultImageLabel(arg1, arg2) {
   return window['go']['main']['App']['UpdateVaultImageLabel'](arg1, arg2);
-}
-
-export function GetHILItems() {
-  return window['go']['main']['App']['GetHILItems']();
-}
-
-export function ApproveHIL(arg1, arg2) {
-  return window['go']['main']['App']['ApproveHIL'](arg1, arg2);
-}
-
-export function RejectHIL(arg1) {
-  return window['go']['main']['App']['RejectHIL'](arg1);
 }
