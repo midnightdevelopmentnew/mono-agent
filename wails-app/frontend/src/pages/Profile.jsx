@@ -6,6 +6,7 @@ import {
   MessageCircle, ChevronDown, ChevronRight
 } from 'lucide-react'
 import { api, PLATFORM_COLORS, STATE_COLORS } from '../services/api.js'
+import MessageDetailModal from '../components/MessageDetailModal.jsx'
 
 // Map action types to icons + labels
 const ACTION_META = {
@@ -250,10 +251,11 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
   )
 }
 
-function MessagesSection({ personId }) {
+function MessagesSection({ personId, personLabel }) {
   const [messages, setMessages] = useState([])
   const [open, setOpen]         = useState(false)
   const [loading, setLoading]   = useState(true)
+  const [openMessage, setOpenMessage] = useState(null)
 
   useEffect(() => {
     api.getPersonMessages(personId).then(data => {
@@ -301,9 +303,15 @@ function MessagesSection({ personId }) {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {messages.map(msg => (
-                <div key={msg.id} style={{
+                <div
+                  key={msg.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setOpenMessage(msg)}
+                  onKeyDown={e => { if (e.key === 'Enter') setOpenMessage(msg) }}
+                  style={{
                   display: 'flex', flexDirection: 'column', gap: 4,
-                  padding: '8px 10px', borderRadius: 6,
+                  padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
                   background: 'var(--elevated)',
                   border: '1px solid var(--border)',
                 }}>
@@ -339,7 +347,7 @@ function MessagesSection({ personId }) {
                       overflow: 'hidden', textOverflow: 'ellipsis',
                       display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                     }}>
-                      {msg.body}
+                      {stripHTML(msg.body)}
                     </div>
                   )}
                 </div>
@@ -348,8 +356,22 @@ function MessagesSection({ personId }) {
           )}
         </div>
       )}
+
+      {openMessage && (
+        <MessageDetailModal
+          message={openMessage}
+          personLabel={personLabel}
+          onClose={() => setOpenMessage(null)}
+        />
+      )}
     </div>
   )
+}
+
+// Strips HTML tags for the plain-text preview snippet; full HTML is
+// rendered properly in MessageDetailModal via a sandboxed iframe.
+function stripHTML(body) {
+  return body.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
@@ -543,7 +565,7 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
         />
 
         {/* ── Messages section ── */}
-        <MessagesSection personId={id} />
+        <MessagesSection personId={id} personLabel={person.full_name || person.username} />
 
         {/* ── Interaction history ── */}
         <div className="profile-section">

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, Mail } from 'lucide-react'
 import { api } from '../services/api.js'
+import MessageDetailModal from '../components/MessageDetailModal.jsx'
 
 export default function Communications({ onProfile }) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [sourceFilter, setSourceFilter] = useState('')
+  const [openMessage, setOpenMessage] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -77,9 +79,12 @@ export default function Communications({ onProfile }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {filtered.map(msg => (
-              <button
+              <div
                 key={msg.id}
-                onClick={() => onProfile?.(msg.person_id)}
+                role="button"
+                tabIndex={0}
+                onClick={() => setOpenMessage(msg)}
+                onKeyDown={e => { if (e.key === 'Enter') setOpenMessage(msg) }}
                 style={{
                   display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left',
                   padding: '10px 12px', borderRadius: 6, cursor: 'pointer',
@@ -97,12 +102,16 @@ export default function Communications({ onProfile }) {
                   }}>
                     {msg.source}
                   </span>
-                  <span style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 11.5,
-                    color: 'var(--text)', fontWeight: 600, flexShrink: 0,
-                  }}>
+                  <button
+                    onClick={e => { e.stopPropagation(); onProfile?.(msg.person_id) }}
+                    style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                      color: 'var(--text)', fontWeight: 600, flexShrink: 0,
+                      background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                    }}
+                  >
                     {msg.person_full_name || msg.person_platform_username}
-                  </span>
+                  </button>
                   <span style={{
                     fontFamily: 'var(--font-mono)', fontSize: 11,
                     color: 'var(--text-muted)',
@@ -125,14 +134,28 @@ export default function Communications({ onProfile }) {
                     overflow: 'hidden', textOverflow: 'ellipsis',
                     display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                   }}>
-                    {msg.body}
+                    {stripHTML(msg.body)}
                   </div>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}
       </div>
+
+      {openMessage && (
+        <MessageDetailModal
+          message={openMessage}
+          personLabel={openMessage.person_full_name || openMessage.person_platform_username}
+          onClose={() => setOpenMessage(null)}
+        />
+      )}
     </>
   )
+}
+
+// Strips HTML tags for the plain-text preview snippet; full HTML is
+// rendered properly in MessageDetailModal via a sandboxed iframe.
+function stripHTML(body) {
+  return body.replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
