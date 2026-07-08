@@ -70,7 +70,7 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 		if mailbox == "" {
 			mailbox = "inbox"
 		}
-		url := fmt.Sprintf("%s/mailFolders/%s/messages?$top=%d&$select=id,subject,from,receivedDateTime,bodyPreview,isRead", outlookGraphBaseURL, mailbox, maxResults)
+		url := fmt.Sprintf("%s/mailFolders/%s/messages?$top=%d&$select=id,subject,from,receivedDateTime,body,bodyPreview,isRead", outlookGraphBaseURL, mailbox, maxResults)
 		if unreadOnly, _ := config["unread_only"].(bool); unreadOnly {
 			url += "&$filter=" + gmailURLEncode("isRead eq false")
 		}

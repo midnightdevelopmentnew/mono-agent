@@ -70,6 +70,11 @@ func (n *SyncOutlookMessageNode) Execute(
 
 		subject, _ := data["subject"].(string)
 		body, _ := data["bodyPreview"].(string)
+		if bodyObj, ok := data["body"].(map[string]interface{}); ok {
+			if full, ok := bodyObj["content"].(string); ok && full != "" {
+				body = full
+			}
+		}
 		messageID, _ := data["id"].(string)
 
 		msg := &storage.PersonMessage{
