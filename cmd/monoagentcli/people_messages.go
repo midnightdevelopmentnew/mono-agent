@@ -23,7 +23,77 @@ func newPeopleMessagesCmd(cfg *globalConfig) *cobra.Command {
 		newPeopleMessagesAddCmd(cfg),
 		newPeopleMessagesListCmd(cfg),
 		newPeopleMessagesImportCmd(cfg),
+		newPeopleMessagesAllCmd(cfg),
 	)
+
+	return cmd
+}
+
+func newPeopleMessagesAllCmd(cfg *globalConfig) *cobra.Command {
+	var (
+		source string
+		limit  int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "all",
+		Short: "List synced messages/interactions across every person (a unified communications feed)",
+		Example: `  monoagentcli people messages all
+  monoagentcli people messages all --source outlook --limit 50 --json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+
+			messages, err := db.ListAllPersonMessages(cfg.ProfileID, source, limit, 0)
+			if err != nil {
+				return fmt.Errorf("listing messages: %w", err)
+			}
+
+			if cfg.JSONOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(messages)
+			}
+
+			if len(messages) == 0 {
+				fmt.Println("No messages found.")
+				return nil
+			}
+
+			table := tablewriter.NewWriter(os.Stdout)
+			table.SetHeader([]string{"ID", "From", "Source", "Direction", "Subject", "Sent At"})
+			table.SetBorder(false)
+			table.SetAutoWrapText(false)
+
+			for _, m := range messages {
+				shortID := m.ID
+				if len(shortID) > 8 {
+					shortID = shortID[:8]
+				}
+				from := m.PersonFullName
+				if from == "" {
+					from = m.PersonPlatformUsername
+				}
+				sentAt := ""
+				if !m.SentAt.IsZero() {
+					sentAt = m.SentAt.Format("2006-01-02 15:04:05")
+				}
+				table.Append([]string{
+					shortID, truncateStr(from, 24), m.Source, m.Direction,
+					truncateStr(m.Subject, 40), sentAt,
+				})
+			}
+			table.Render()
+			fmt.Fprintf(os.Stderr, "\nTotal: %d message(s)\n", len(messages))
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&source, "source", "", "Filter by source")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 100, "Maximum number of results")
 
 	return cmd
 }

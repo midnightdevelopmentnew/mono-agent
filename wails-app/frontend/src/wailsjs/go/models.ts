@@ -1033,6 +1033,64 @@ export namespace storage {
 		    return a;
 		}
 	}
+	export class PersonMessageWithPerson {
+	    id: string;
+	    person_id: string;
+	    source: string;
+	    external_id?: string;
+	    direction: string;
+	    sender?: string;
+	    subject?: string;
+	    body?: string;
+	    metadata?: string;
+	    // Go type: time
+	    sent_at?: any;
+	    // Go type: time
+	    created_at: any;
+	    person_full_name?: string;
+	    person_platform_username: string;
+	    person_platform: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PersonMessageWithPerson(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.person_id = source["person_id"];
+	        this.source = source["source"];
+	        this.external_id = source["external_id"];
+	        this.direction = source["direction"];
+	        this.sender = source["sender"];
+	        this.subject = source["subject"];
+	        this.body = source["body"];
+	        this.metadata = source["metadata"];
+	        this.sent_at = this.convertValues(source["sent_at"], null);
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.person_full_name = source["person_full_name"];
+	        this.person_platform_username = source["person_platform_username"];
+	        this.person_platform = source["person_platform"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 

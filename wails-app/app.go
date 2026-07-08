@@ -701,6 +701,20 @@ func (a *App) GetPersonMessages(personID string) []*storage.PersonMessage {
 	return messages
 }
 
+// GetAllPersonMessages returns synced messages across every person in the
+// active profile, newest first — a unified communications feed, delegating
+// to the same repo used by `monoagentcli people messages all`.
+func (a *App) GetAllPersonMessages(limit int) []*storage.PersonMessageWithPerson {
+	if a.db == nil {
+		return nil
+	}
+	messages, err := (&storage.Database{DB: a.db}).ListAllPersonMessages(a.activeProfileID, "", limit, 0)
+	if err != nil {
+		return nil
+	}
+	return messages
+}
+
 // AddPersonMessage records a message/interaction for a person, delegating to
 // the same storage.PersonMessage repo used by `monoagentcli people messages add`.
 func (a *App) AddPersonMessage(personID, source, externalID, direction, sender, subject, body string) error {

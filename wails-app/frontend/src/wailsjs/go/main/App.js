@@ -114,6 +114,10 @@ export function GetActiveProfile() {
   return window['go']['main']['App']['GetActiveProfile']();
 }
 
+export function GetAllPersonMessages(arg1) {
+  return window['go']['main']['App']['GetAllPersonMessages'](arg1);
+}
+
 export function GetAllTags() {
   return window['go']['main']['App']['GetAllTags']();
 }

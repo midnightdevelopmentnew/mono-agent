@@ -862,6 +862,71 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 	return messages, rows.Err()
 }
 
+// PersonMessageWithPerson pairs a message with the person it belongs to, for
+// a unified cross-person view (e.g. "show me everything synced").
+type PersonMessageWithPerson struct {
+	PersonMessage
+	PersonFullName         string `json:"person_full_name,omitempty"`
+	PersonPlatformUsername string `json:"person_platform_username"`
+	PersonPlatform         string `json:"person_platform"`
+}
+
+// ListAllPersonMessages returns messages across every person in the given
+// profile, newest first, optionally filtered by source. Pass an empty
+// source to skip that filter.
+func (d *Database) ListAllPersonMessages(profileID, source string, limit, offset int) ([]*PersonMessageWithPerson, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := `
+		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
+		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
+		       COALESCE(pm.metadata,''), pm.sent_at, pm.created_at,
+		       COALESCE(p.full_name,''), p.platform_username, p.platform
+		FROM person_messages pm
+		JOIN people p ON p.id = pm.person_id
+		WHERE COALESCE(p.profile_id,'default') = ?`
+	args := []interface{}{profileID}
+
+	if source != "" {
+		query += " AND pm.source = ?"
+		args = append(args, source)
+	}
+	query += " ORDER BY COALESCE(pm.sent_at, pm.created_at) DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := d.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing all person messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []*PersonMessageWithPerson
+	for rows.Next() {
+		m := &PersonMessageWithPerson{}
+		var sentAt sql.NullTime
+		if err := rows.Scan(
+			&m.ID, &m.PersonID, &m.Source, &m.ExternalID, &m.Direction,
+			&m.Sender, &m.Subject, &m.Body, &m.Metadata, &sentAt, &m.CreatedAt,
+			&m.PersonFullName, &m.PersonPlatformUsername, &m.PersonPlatform,
+		); err != nil {
+			return nil, fmt.Errorf("scanning person message row: %w", err)
+		}
+		if sentAt.Valid {
+			m.SentAt = sentAt.Time
+		}
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
+}
+
 // DeletePersonMessage removes a single message by ID.
 func (d *Database) DeletePersonMessage(id string) error {
 	result, err := d.DB.Exec("DELETE FROM person_messages WHERE id = ?", id)

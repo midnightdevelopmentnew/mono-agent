@@ -6,6 +6,7 @@ import People from './pages/People.jsx'
 import Profile from './pages/Profile.jsx'
 import PostDetail from './pages/PostDetail.jsx'
 import Connections from './pages/Connections.jsx'
+import Communications from './pages/Communications.jsx'
 import AIProviders from './pages/AIProviders.jsx'
 import Logs from './pages/Logs.jsx'
 import NodeRunner from './pages/NodeRunner.jsx'
@@ -101,6 +102,7 @@ export default function App() {
     noderunner: <NodeRunner onNavigate={navigate} navData={navData} />,
     hil: <HumanInLoop />,
     people:    <People key={peopleRefreshKey} onProfile={openProfile} />,
+    communications: <Communications onProfile={openProfile} />,
     profile:   <Profile id={profileId} onBack={closeProfile} onOpenURL={api.openURL} onOpenPost={openPost} />,
     postDetail: <PostDetail id={postId} onBack={closePost} onOpenURL={api.openURL} />,
     connections: <Connections onRefresh={refreshStats} />,
