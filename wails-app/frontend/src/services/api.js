@@ -35,6 +35,7 @@ export const api = {
   getPersonDetail:      (id) => GoApp.GetPersonDetail(id).catch(nullOnError),
   getPersonInteractions:(id) => GoApp.GetPersonInteractions(id).catch(() => []),
   getPersonPosts:   (personId) => GoApp.GetPersonPosts(personId).catch(() => []),
+  getPersonMessages:(personId) => GoApp.GetPersonMessages(personId).catch(() => []),
   getPostDetail:    (postId)   => GoApp.GetPostDetail(postId).catch(() => null),
   getPostComments:  (postId)   => GoApp.GetPostComments(postId).catch(() => []),
   getAllTags:            ()  => GoApp.GetAllTags().catch(() => []),

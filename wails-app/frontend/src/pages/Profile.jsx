@@ -250,6 +250,108 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
   )
 }
 
+function MessagesSection({ personId }) {
+  const [messages, setMessages] = useState([])
+  const [open, setOpen]         = useState(false)
+  const [loading, setLoading]   = useState(true)
+
+  useEffect(() => {
+    api.getPersonMessages(personId).then(data => {
+      const rows = data || []
+      setMessages(rows)
+      if (rows.length > 0) setOpen(true)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [personId])
+
+  return (
+    <div className="profile-section">
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'none', border: 'none', cursor: 'pointer',
+          width: '100%', padding: 0, textAlign: 'left',
+        }}
+      >
+        {open
+          ? <ChevronDown size={13} style={{ color: 'var(--text-muted)' }} />
+          : <ChevronRight size={13} style={{ color: 'var(--text-muted)' }} />
+        }
+        <span className="profile-section-title" style={{ margin: 0 }}>
+          Messages
+          <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
+            {loading ? '…' : messages.length}
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          {loading ? (
+            <div style={{ padding: '12px 0', textAlign: 'center' }}>
+              <div className="spinner" style={{ width: 14, height: 14, margin: '0 auto' }} />
+            </div>
+          ) : messages.length === 0 ? (
+            <div style={{
+              padding: '16px 0', textAlign: 'center',
+              color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11,
+            }}>
+              No messages synced yet
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {messages.map(msg => (
+                <div key={msg.id} style={{
+                  display: 'flex', flexDirection: 'column', gap: 4,
+                  padding: '8px 10px', borderRadius: 6,
+                  background: 'var(--elevated)',
+                  border: '1px solid var(--border)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      padding: '1px 6px', borderRadius: 4,
+                      background: 'rgba(0,180,216,0.12)',
+                      border: '1px solid rgba(0,180,216,0.3)',
+                      color: '#00b4d8', fontSize: 9,
+                      fontFamily: 'var(--font-mono)', flexShrink: 0,
+                    }}>
+                      {msg.source}
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 11,
+                      color: 'var(--text)', fontWeight: 500,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {msg.subject || '(no subject)'}
+                    </span>
+                    <span style={{
+                      marginLeft: 'auto', flexShrink: 0,
+                      fontFamily: 'var(--font-mono)', fontSize: 10,
+                      color: 'var(--text-muted)',
+                    }}>
+                      {msg.sent_at ? msg.sent_at.slice(0, 16).replace('T', ' ') : ''}
+                    </span>
+                  </div>
+                  {msg.body && (
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 10.5,
+                      color: 'var(--text-muted)',
+                      overflow: 'hidden', textOverflow: 'ellipsis',
+                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    }}>
+                      {msg.body}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
   const [person, setPerson] = useState(null)
   const [interactions, setInteractions] = useState([])
@@ -439,6 +541,9 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
           onOpenPost={onOpenPost}
           onOpenURL={onOpenURL}
         />
+
+        {/* ── Messages section ── */}
+        <MessagesSection personId={id} />
 
         {/* ── Interaction history ── */}
         <div className="profile-section">
