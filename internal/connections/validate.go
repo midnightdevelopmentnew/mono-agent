@@ -36,6 +36,11 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateTelegram(ctx, c)
 	case "google_sheets", "google_drive", "gmail":
 		return validateGoogle(ctx, c)
+	case "outlook":
+		if c.Method == MethodOAuth {
+			return validateOutlookOAuth(ctx, c)
+		}
+		return "", nil
 	case "hubspot":
 		return validateHubSpot(ctx, c)
 	case "salesforce":
@@ -511,6 +516,28 @@ func validateGoogle(ctx context.Context, c *Connection) (string, error) {
 		return r.User.DisplayName, nil
 	}
 	return "", nil
+}
+
+// validateOutlookOAuth validates an Outlook OAuth connection via Microsoft Graph.
+func validateOutlookOAuth(ctx context.Context, c *Connection) (string, error) {
+	token := getStr(c.Data, "access_token")
+	if token == "" {
+		return "", fmt.Errorf("validateOutlookOAuth: missing access_token")
+	}
+	// Use a Mail-scoped endpoint rather than /me: /me requires a User.Read
+	// scope this app never requests (only Mail.ReadWrite/Mail.Send/
+	// offline_access), so it 401s even with a perfectly valid token.
+	body, status, err := doGET(ctx, "https://graph.microsoft.com/v1.0/me/mailFolders/inbox?$select=unreadItemCount", "Bearer "+token)
+	if err != nil {
+		return "", fmt.Errorf("validateOutlookOAuth: %w", err)
+	}
+	if status == 401 {
+		return "", fmt.Errorf("validateOutlookOAuth: token expired or invalid (HTTP 401)")
+	}
+	if status != 200 {
+		return "", fmt.Errorf("validateOutlookOAuth: unexpected status %d: %s", status, string(body))
+	}
+	return "outlook account", nil
 }
 
 // validateHubSpot validates a HubSpot OAuth connection.

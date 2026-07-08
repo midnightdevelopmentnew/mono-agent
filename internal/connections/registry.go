@@ -523,12 +523,13 @@ var Registry = map[string]PlatformDef{
 		Name:       "Outlook / Hotmail",
 		Category:   "communication",
 		ConnectVia: "API",
-		// OAuth is intentionally not offered here: comm.outlook_send/outlook_read
-		// talk to Outlook over raw SMTP/IMAP, which requires an XOAUTH2 SASL
-		// exchange to use an OAuth access token. That isn't implemented yet, so
-		// offering MethodOAuth would silently produce a credential the nodes
-		// can't actually use. Add it back once XOAUTH2 support lands.
-		Methods: []AuthMethod{MethodAppPass},
+		// MethodAppPass drives comm.outlook_send/outlook_read (raw IMAP/SMTP) —
+		// Microsoft has deprecated Basic Auth for these on outlook.com/hotmail.com
+		// accounts, so this method largely no longer works there; it's kept for
+		// any IMAP/SMTP server that still accepts it.
+		// MethodOAuth drives service.outlook_mail (Microsoft Graph REST API),
+		// which needs no XOAUTH2/IMAP support — it's the working path today.
+		Methods: []AuthMethod{MethodOAuth, MethodAppPass},
 		Fields: map[AuthMethod][]CredentialField{
 			MethodAppPass: {
 				{
@@ -547,6 +548,17 @@ var Registry = map[string]PlatformDef{
 					HelpText: "Generate an app password in your Microsoft account security settings",
 				},
 			},
+		},
+		OAuth: &OAuthConfig{
+			// /consumers/ (not /common/): this app targets personal
+			// Outlook.com/Hotmail accounts only. /common/ requires the Azure
+			// app to be registered for "All" account types (work/school +
+			// personal); Microsoft rejects it otherwise with "userAudience"
+			// invalid_request.
+			AuthURL:      "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
+			TokenURL:     "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+			Scopes:       []string{"https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send", "offline_access"},
+			CallbackPort: 9876,
 		},
 		IconEmoji: "📨",
 	},

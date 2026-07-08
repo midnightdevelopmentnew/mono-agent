@@ -2209,6 +2209,7 @@ func (a *App) GetWorkflowNodeTypes() map[string]interface{} {
 			mkNode("service.hubspot", "HubSpot", "service", "Manage HubSpot CRM contacts and deals"),
 			mkNode("service.google_sheets", "Google Sheets", "service", "Read/write Google Sheets"),
 			mkNode("service.gmail", "Gmail", "service", "Send and read Gmail messages"),
+			mkNode("service.outlook_mail", "Outlook", "service", "Send and read Outlook/Hotmail messages via Microsoft Graph"),
 			mkNode("service.google_drive", "Google Drive", "service", "Manage Google Drive files"),
 			mkNode("service.huggingface", "HuggingFace", "service", "Generate images or text via HuggingFace Inference API"),
 			mkNode("service.openrouter", "OpenRouter", "service", "Generate text or images via OpenRouter AI API"),

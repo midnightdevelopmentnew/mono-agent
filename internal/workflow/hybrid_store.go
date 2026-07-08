@@ -116,12 +116,67 @@ func (h *HybridWorkflowStore) SetWorkflowActive(ctx context.Context, id string, 
 // Node / Connection save — SQLite only (executions need them there)
 // ---------------------------------------------------------------------------
 
+// ensureSQLWorkflow guarantees a minimal metadata row exists in SQLite for
+// workflowID, mirroring it from the file store if necessary. Nodes,
+// connections, and executions all have hard FK references to workflows(id)
+// in SQLite even when the workflow's canonical definition lives only in the
+// file store (e.g. created via the CLI's `workflow create`).
+func (h *HybridWorkflowStore) ensureSQLWorkflow(ctx context.Context, workflowID string) {
+	existing, err := h.sql.GetWorkflow(ctx, workflowID)
+	if err != nil || existing != nil {
+		return
+	}
+	if h.files == nil {
+		return
+	}
+	wf, ferr := h.files.GetWorkflow(ctx, workflowID)
+	if ferr != nil || wf == nil {
+		return
+	}
+	// Insert a minimal stub row — only metadata, no nodes/connections.
+	stub := *wf
+	stub.Nodes = nil
+	stub.Connections = nil
+	_ = h.sql.CreateWorkflow(ctx, &stub)
+}
+
+// syncFileNodes mirrors the current SQL-stored nodes/connections for
+// workflowID back onto the file-store copy. GetWorkflow prefers the file
+// store, so without this, nodes/connections written via SaveWorkflowNodes/
+// SaveWorkflowConnections would be invisible to every read path.
+func (h *HybridWorkflowStore) syncFileNodes(ctx context.Context, workflowID string) {
+	if h.files == nil {
+		return
+	}
+	wf, err := h.files.GetWorkflow(ctx, workflowID)
+	if err != nil || wf == nil {
+		return
+	}
+	sqlWF, err := h.sql.GetWorkflow(ctx, workflowID)
+	if err != nil || sqlWF == nil {
+		return
+	}
+	wf.Nodes = sqlWF.Nodes
+	wf.Connections = sqlWF.Connections
+	_ = h.files.SaveWorkflow(ctx, wf)
+}
+
 func (h *HybridWorkflowStore) SaveWorkflowNodes(ctx context.Context, workflowID string, nodes []WorkflowNode) error {
-	return h.sql.SaveWorkflowNodes(ctx, workflowID, nodes)
+	h.ensureSQLWorkflow(ctx, workflowID)
+	if err := h.sql.SaveWorkflowNodes(ctx, workflowID, nodes); err != nil {
+		return err
+	}
+	h.syncFileNodes(ctx, workflowID)
+	return nil
 }
 
 func (h *HybridWorkflowStore) SaveWorkflowConnections(ctx context.Context, workflowID string, conns []WorkflowConnection) error {
-	return h.sql.SaveWorkflowConnections(ctx, workflowID, conns)
+	h.ensureSQLWorkflow(ctx, workflowID)
+	if err := h.sql.SaveWorkflowConnections(ctx, workflowID, conns); err != nil {
+		return err
+	}
+	h.syncFileNodes(ctx, workflowID)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -129,19 +184,7 @@ func (h *HybridWorkflowStore) SaveWorkflowConnections(ctx context.Context, workf
 // ---------------------------------------------------------------------------
 
 func (h *HybridWorkflowStore) CreateExecution(ctx context.Context, e *WorkflowExecution) error {
-	// Ensure the workflow row exists in SQLite (FK constraint).
-	// If the workflow lives only in the file store, mirror it to SQLite first.
-	if existing, err := h.sql.GetWorkflow(ctx, e.WorkflowID); err == nil && existing == nil {
-		if h.files != nil {
-			if wf, ferr := h.files.GetWorkflow(ctx, e.WorkflowID); ferr == nil && wf != nil {
-				// Insert a minimal stub row — only metadata, no nodes/connections.
-				stub := *wf
-				stub.Nodes = nil
-				stub.Connections = nil
-				_ = h.sql.CreateWorkflow(ctx, &stub)
-			}
-		}
-	}
+	h.ensureSQLWorkflow(ctx, e.WorkflowID)
 	return h.sql.CreateExecution(ctx, e)
 }
 
