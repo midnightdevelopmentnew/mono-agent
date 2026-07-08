@@ -1,0 +1,6 @@
+{
+  "credential_platform": null,
+  "fields": [
+    { "key": "source", "label": "Source Label", "type": "text", "required": false, "default": "outlook", "help": "Stored as the message's source, e.g. outlook, gmail" }
+  ]
+}

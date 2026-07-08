@@ -29,6 +29,7 @@ func SetGlobalPeopleDB(db *sql.DB) {
 func RegisterAll(r *workflow.NodeTypeRegistry, db *sql.DB) {
 	SetGlobalPeopleDB(db)
 	r.Register("people.save", func() workflow.NodeExecutor { return &PeopleSaveNode{} })
+	r.Register("people.sync_outlook_message", func() workflow.NodeExecutor { return &SyncOutlookMessageNode{} })
 }
 
 // PeopleSaveNode upserts input items into the people SQLite table.

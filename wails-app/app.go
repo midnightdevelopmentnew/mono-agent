@@ -2288,6 +2288,7 @@ func (a *App) GetWorkflowNodeTypes() map[string]interface{} {
 		},
 		"people": []nodeDesc{
 			mkNode("people.save", "Save to People", "people", "Upsert items into the People tab"),
+			mkNode("people.sync_outlook_message", "Sync Email to People", "people", "Upsert the sender as a person and save the message to their history"),
 		},
 	}
 }

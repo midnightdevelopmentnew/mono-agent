@@ -563,6 +563,47 @@ func (d *Database) GetPerson(id string) (*Person, error) {
 	return p, nil
 }
 
+// GetPersonByUsername retrieves a single person by (platform_username,
+// platform), the same unique key UpsertPerson conflicts on. Returns nil when
+// not found.
+func (d *Database) GetPersonByUsername(platformUsername, platform string) (*Person, error) {
+	p := &Person{}
+	var fullName, imageURL, contactDetails, website, followerCount sql.NullString
+	var introduction, category, jobTitle sql.NullString
+	var isVerified int
+
+	err := d.DB.QueryRow(`
+		SELECT id, platform_username, platform, full_name, image_url,
+		       contact_details, website, content_count, follower_count,
+		       following_count, introduction, is_verified, category, job_title,
+		       created_at, updated_at
+		FROM people WHERE platform_username = ? AND platform = ?`, platformUsername, platform,
+	).Scan(
+		&p.ID, &p.PlatformUsername, &p.Platform, &fullName, &imageURL,
+		&contactDetails, &website, &p.ContentCount, &followerCount,
+		&p.FollowingCount, &introduction, &isVerified, &category, &jobTitle,
+		&p.CreatedAt, &p.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting person %s/%s: %w", platform, platformUsername, err)
+	}
+
+	p.FullName = fullName.String
+	p.ImageURL = imageURL.String
+	p.ContactDetails = contactDetails.String
+	p.Website = website.String
+	p.FollowerCount = followerCount.String
+	p.Introduction = introduction.String
+	p.IsVerified = isVerified != 0
+	p.Category = category.String
+	p.JobTitle = jobTitle.String
+
+	return p, nil
+}
+
 // ListPeople returns people optionally filtered by platform and a search term
 // (matched against platform_username and full_name). Pass empty strings to skip
 // filters. limit <= 0 defaults to 100.
