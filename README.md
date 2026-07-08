@@ -564,6 +564,12 @@ monoes schedule list
 monoes schedule remove --id <id>
 ```
 
+Workflow triggers (`trigger.schedule`, `trigger.webhook`) are separate from action schedules above — `workflow activate` only registers a workflow's triggers for as long as that one command keeps running. To have activated workflows actually fire over time (e.g. an hourly sync), run the daemon as a persistent background process:
+
+```bash
+monoagentcli daemon   # restores every active workflow's triggers across all profiles, blocks until Ctrl+C
+```
+
 </details>
 
 <details>

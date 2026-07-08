@@ -68,6 +68,7 @@ func newRootCmd() *cobra.Command {
 		newVersionCmd(),
 		newUpdateCmd(),
 		newWorkflowCmd(cfg),
+		newDaemonCmd(cfg),
 		newNodeCmd(cfg),
 		newConnectCmd(cfg),
 		newRefCmd(),

@@ -27,9 +27,10 @@ type WorkflowEngine struct {
 	mu             sync.RWMutex
 	ctx            context.Context
 	cancel         context.CancelFunc
-	pruneInterval  time.Duration
-	maxExecHistory int
-	profileID      string
+	pruneInterval    time.Duration
+	maxExecHistory   int
+	profileID        string
+	allowAllProfiles bool
 }
 
 // EngineConfig holds WorkflowEngine configuration.
@@ -40,6 +41,12 @@ type EngineConfig struct {
 	PruneInterval  time.Duration // default 1h
 	MaxExecHistory int           // default 500
 	ProfileID      string        // active profile for vault image registration
+	// AllowAllProfiles disables the single-profile guard in
+	// checkWorkflowProfile, letting this engine activate/run workflows
+	// belonging to any profile. Intended for a long-running daemon process
+	// that keeps every active workflow's triggers alive regardless of which
+	// profile is selected in the UI.
+	AllowAllProfiles bool
 }
 
 // NewWorkflowEngine creates a fully wired engine. Call Start() to begin processing.
@@ -55,15 +62,16 @@ func NewWorkflowEngineWithStore(store WorkflowStore, db *sql.DB, scheduler Sched
 		profileID = "default"
 	}
 	e := &WorkflowEngine{
-		store:          store,
-		connStore:      connStore,
-		registry:       registry,
-		webhookServer:  webhookServer,
-		expr:           NewExpressionEngine(),
-		logger:         logger,
-		pruneInterval:  cfg.PruneInterval,
-		maxExecHistory: cfg.MaxExecHistory,
-		profileID:      profileID,
+		store:            store,
+		connStore:        connStore,
+		registry:         registry,
+		webhookServer:    webhookServer,
+		expr:             NewExpressionEngine(),
+		logger:           logger,
+		pruneInterval:    cfg.PruneInterval,
+		maxExecHistory:   cfg.MaxExecHistory,
+		profileID:        profileID,
+		allowAllProfiles: cfg.AllowAllProfiles,
 	}
 	e.triggerMgr = NewTriggerManager(store, webhookServer, scheduler,
 		func(workflowID string, nodeID string, items []Item) { e.handleTrigger(workflowID, nodeID, items) },
@@ -478,9 +486,47 @@ func (e *WorkflowEngine) SaveWorkflow(ctx context.Context, w *Workflow) error {
 // than the engine's active profile, preventing cross-profile access to a
 // workflow whose ID was guessed or leaked from another profile.
 func (e *WorkflowEngine) checkWorkflowProfile(wf *Workflow) error {
+	if e.allowAllProfiles {
+		return nil
+	}
 	if wf.ProfileID != "" && wf.ProfileID != e.profileID {
 		return fmt.Errorf("workflow belongs to a different profile")
 	}
+	return nil
+}
+
+// RestoreActiveWorkflows re-activates every workflow across all profiles
+// that is marked active in the store, registering their triggers with this
+// engine. Intended to be called once after Start() by a long-running daemon
+// process, so scheduled/webhook triggers survive process restarts. Requires
+// AllowAllProfiles (set via EngineConfig) since it spans every profile.
+func (e *WorkflowEngine) RestoreActiveWorkflows(ctx context.Context) error {
+	if !e.allowAllProfiles {
+		return fmt.Errorf("engine: RestoreActiveWorkflows requires AllowAllProfiles")
+	}
+	workflows, err := e.store.ListWorkflows(ctx, "")
+	if err != nil {
+		return fmt.Errorf("engine: restore active workflows: list: %w", err)
+	}
+	var restored, failed int
+	for _, wf := range workflows {
+		if !wf.IsActive {
+			continue
+		}
+		full, err := e.store.GetWorkflow(ctx, wf.ID)
+		if err != nil || full == nil {
+			failed++
+			e.logger.Warn().Str("workflow_id", wf.ID).Err(err).Msg("engine: restore: failed to load workflow")
+			continue
+		}
+		if err := e.triggerMgr.ActivateWorkflow(ctx, full); err != nil {
+			failed++
+			e.logger.Warn().Str("workflow_id", wf.ID).Err(err).Msg("engine: restore: failed to activate triggers")
+			continue
+		}
+		restored++
+	}
+	e.logger.Info().Int("restored", restored).Int("failed", failed).Msg("engine: restored active workflows")
 	return nil
 }
 

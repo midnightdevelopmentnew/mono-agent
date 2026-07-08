@@ -42,7 +42,7 @@ func newHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 
 // buildEngine constructs a fully wired WorkflowEngine suitable for CLI use.
 // It creates its own scheduler (no action executor or store needed for workflow triggers).
-func buildEngine(cfg *globalConfig) (*workflow.WorkflowEngine, error) {
+func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEngine, error) {
 	db, err := initDB(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -90,11 +90,12 @@ func buildEngine(cfg *globalConfig) (*workflow.WorkflowEngine, error) {
 	sched.Start()
 
 	engCfg := workflow.EngineConfig{
-		MaxConcurrent:  5,
-		QueueCapacity:  1000,
-		PruneInterval:  time.Hour,
-		MaxExecHistory: 500,
-		ProfileID:      cfg.ProfileID,
+		MaxConcurrent:    5,
+		QueueCapacity:    1000,
+		PruneInterval:    time.Hour,
+		MaxExecHistory:   500,
+		ProfileID:        cfg.ProfileID,
+		AllowAllProfiles: allowAllProfiles,
 	}
 
 	hybridStore := newHybridStore(db)
@@ -216,7 +217,7 @@ func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := args[0]
 
-			engine, err := buildEngine(cfg)
+			engine, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
@@ -276,7 +277,7 @@ func newWorkflowActivateCmd(cfg *globalConfig) *cobra.Command {
 		Short: "Activate a workflow and start its triggers",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			engine, err := buildEngine(cfg)
+			engine, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
@@ -304,7 +305,7 @@ func newWorkflowDeactivateCmd(cfg *globalConfig) *cobra.Command {
 		Short: "Deactivate a workflow and stop its triggers",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			engine, err := buildEngine(cfg)
+			engine, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
@@ -347,7 +348,7 @@ func newWorkflowDeleteCmd(cfg *globalConfig) *cobra.Command {
 				}
 			}
 
-			engine, err := buildEngine(cfg)
+			engine, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
