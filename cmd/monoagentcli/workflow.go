@@ -108,7 +108,10 @@ func newWorkflowCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workflow",
 		Short: "Manage and run workflows",
-		Long:  "Create, list, run, activate, deactivate, delete, and inspect executions of workflows.",
+		Long: "Create, list, run, activate, deactivate, delete, and inspect executions of workflows.\n\n" +
+			"For scheduled (trigger.schedule) or webhook (trigger.webhook) workflows to fire on their " +
+			"own over time, `monoagentcli daemon` must be running continuously — `workflow activate` " +
+			"alone only registers triggers for as long as that one command is running.",
 	}
 
 	cmd.AddCommand(
@@ -275,7 +278,11 @@ func newWorkflowActivateCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "activate <id>",
 		Short: "Activate a workflow and start its triggers",
-		Args:  cobra.ExactArgs(1),
+		Long: "Activate a workflow and start its triggers.\n\n" +
+			"IMPORTANT: activation only registers triggers for the lifetime of this command. " +
+			"For a trigger.schedule or trigger.webhook to actually fire later, `monoagentcli daemon` " +
+			"must be running continuously (it restores every active workflow's triggers on startup).",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			engine, err := buildEngine(cfg, false)
 			if err != nil {
@@ -293,6 +300,7 @@ func newWorkflowActivateCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			fmt.Fprintf(os.Stdout, "Workflow %s activated.\n", args[0])
+			fmt.Fprintln(os.Stdout, "Note: run `monoagentcli daemon` (kept running continuously) for this workflow's triggers to actually fire — activation alone only registers them for this command's lifetime.")
 			return nil
 		},
 	}
