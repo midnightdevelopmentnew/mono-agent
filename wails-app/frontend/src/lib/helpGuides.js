@@ -269,6 +269,34 @@ export const HELP_GUIDES = {
     },
   },
 
+  outlook: {
+    oauth: {
+      title: 'Register an Azure App for Outlook OAuth',
+      getKeyURL: 'https://portal.azure.com',
+      steps: [
+        { text: 'Go to portal.azure.com → Microsoft Entra ID → App registrations → New registration', url: 'https://portal.azure.com' },
+        'Name it anything (e.g. "MonoAgent Outlook")',
+        'Under Supported account types, choose "Personal Microsoft accounts only" (or "...and personal Microsoft accounts" if you also need work/school accounts)',
+        'Under Redirect URI, set platform to "Public client/native (mobile & desktop)" and value to: http://localhost:9876/callback',
+        'Click Register, then copy the "Application (client) ID" from the Overview page',
+        'Go to API permissions → Add a permission → Microsoft Graph → Delegated permissions → add Mail.ReadWrite, Mail.Send, offline_access',
+        'Paste the Client ID here — leave Client Secret blank (this is a public/native app, no secret needed)',
+      ],
+    },
+    apppassword: {
+      title: 'Generate an Outlook App Password',
+      getKeyURL: 'https://account.microsoft.com/security',
+      steps: [
+        'Note: Microsoft has deprecated Basic Auth for IMAP on outlook.com/hotmail.com accounts — this method will likely fail even with correct credentials. Use the oauth tab instead for those accounts.',
+        'App passwords require Two-Step Verification enabled on your Microsoft account first',
+        { text: 'Go to account.microsoft.com/security → Advanced security options → App passwords', url: 'https://account.microsoft.com/security' },
+        'Click Create a new app password',
+        'Copy the generated password',
+        'Use this app password in the App Password field, along with your full Outlook/Hotmail address',
+      ],
+    },
+  },
+
   slack: {
     oauth: {
       title: 'Create a Slack OAuth App',
