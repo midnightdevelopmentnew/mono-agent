@@ -49,10 +49,13 @@ func newConnectCmd(cfg *globalConfig) *cobra.Command {
 }
 
 // newConnectSetOAuthClientCmd persistently stores an OAuth app's client_id
-// (and optional client_secret) for a platform, so silent token refresh
-// works for any process (including a long-running `monoagentcli daemon`)
-// without needing a MONOAGENT_<PLATFORM>_CLIENT_ID env var set in that
-// process's environment.
+// (and optional client_secret) for a platform, scoped to the active profile,
+// so silent token refresh works for any process (including a long-running
+// `monoagentcli daemon`) without needing a MONOAGENT_<PLATFORM>_CLIENT_ID env
+// var set in that process's environment. Scoped per profile because two
+// connections for the same platform under different profiles may need
+// different Azure/OAuth app registrations (e.g. a personal account plus a
+// separate work/school account).
 func newConnectSetOAuthClientCmd(cfg *globalConfig) *cobra.Command {
 	var clientSecret string
 
@@ -60,11 +63,12 @@ func newConnectSetOAuthClientCmd(cfg *globalConfig) *cobra.Command {
 		Use:   "set-oauth-client <platform> --client-id <id>",
 		Short: "Persistently store an OAuth app's client ID/secret for a platform (enables silent token refresh)",
 		Long: "Stores the OAuth client_id/client_secret used to obtain and silently refresh tokens for a " +
-			"platform. Without this, an OAuth connection's access token expires (typically ~1h) and can only " +
-			"be renewed by re-running the full interactive `connect`/`connect refresh` flow. client_secret " +
-			"may be omitted for public-client apps (e.g. a desktop/native Azure app registration using PKCE).",
+			"platform, scoped to the active/selected profile (--profile). Without this, an OAuth connection's " +
+			"access token expires (typically ~1h) and can only be renewed by re-running the full interactive " +
+			"`connect`/`connect refresh` flow. client_secret may be omitted for public-client apps (e.g. a " +
+			"desktop/native Azure app registration using PKCE).",
 		Example: `  monoagentcli connect set-oauth-client outlook --client-id a8c1df90-1c79-4bc0-813a-f96b6b93a256
-  monoagentcli connect set-oauth-client github --client-id abc123 --client-secret xyz789`,
+  monoagentcli connect set-oauth-client outlook --profile work --client-id 8741fd7b-8bbc-41da-81f8-3370e393169a`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientID, _ := cmd.Flags().GetString("client-id")
@@ -78,25 +82,16 @@ func newConnectSetOAuthClientCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			if _, err := db.DB.Exec(`CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
-				platform      TEXT PRIMARY KEY,
-				client_id     TEXT NOT NULL,
-				client_secret TEXT NOT NULL,
-				updated_at    TEXT NOT NULL
-			)`); err != nil {
-				return fmt.Errorf("ensuring platform_oauth_credentials table: %w", err)
-			}
-
 			_, err = db.DB.Exec(
-				`INSERT OR REPLACE INTO platform_oauth_credentials (platform, client_id, client_secret, updated_at)
-				 VALUES (?, ?, ?, ?)`,
-				args[0], clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
+				`INSERT OR REPLACE INTO platform_oauth_credentials (platform, profile_id, client_id, client_secret, updated_at)
+				 VALUES (?, ?, ?, ?, ?)`,
+				args[0], cfg.ProfileID, clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
 			)
 			if err != nil {
 				return fmt.Errorf("saving OAuth client credentials: %w", err)
 			}
 
-			fmt.Fprintf(os.Stdout, "Saved OAuth client credentials for %s.\n", args[0])
+			fmt.Fprintf(os.Stdout, "Saved OAuth client credentials for %s (profile: %s).\n", args[0], cfg.ProfileID)
 			return nil
 		},
 	}

@@ -82,6 +82,7 @@ type Person struct {
 	IsVerified       bool      `json:"is_verified"`
 	Category         string    `json:"category,omitempty"`
 	JobTitle         string    `json:"job_title,omitempty"`
+	ProfileID        string    `json:"profile_id,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }

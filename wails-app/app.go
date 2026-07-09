@@ -2671,27 +2671,19 @@ func (a *App) GetConnectionsForPlatform(platformID string) []connections.Connect
 	return a.ListConnections(platformID)
 }
 
-// ensureOAuthCredsTable creates the platform_oauth_credentials table if it doesn't exist.
-func (a *App) ensureOAuthCredsTable() error {
-	_, err := a.db.Exec(`CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
-		platform      TEXT PRIMARY KEY,
-		client_id     TEXT NOT NULL,
-		client_secret TEXT NOT NULL,
-		updated_at    TEXT NOT NULL
-	)`)
-	return err
-}
-
-// GetOAuthCredentials returns the stored OAuth client_id and client_secret for a platform as JSON.
-// Returns JSON {"clientID":"...","clientSecret":"..."} or "" if not set.
+// GetOAuthCredentials returns the stored OAuth client_id and client_secret for
+// a platform, scoped to the active profile, as JSON. Returns JSON
+// {"clientID":"...","clientSecret":"..."} or "" if not set. Credentials are
+// per-profile because two connections for the same platform under different
+// profiles may need different Azure/OAuth app registrations.
 func (a *App) GetOAuthCredentials(platformID string) string {
 	if a.db == nil {
 		return ""
 	}
-	_ = a.ensureOAuthCredsTable()
 	var clientID, clientSecret string
 	err := a.db.QueryRow(
-		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ?`, platformID,
+		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
+		platformID, a.activeProfileID,
 	).Scan(&clientID, &clientSecret)
 	if err != nil {
 		return ""
@@ -2700,9 +2692,10 @@ func (a *App) GetOAuthCredentials(platformID string) string {
 	return string(b)
 }
 
-// SetOAuthCredentials saves OAuth client_id and client_secret for a platform.
-// clientSecret may be empty for public-client OAuth apps (e.g. those using
-// PKCE, like a desktop app registration with no client secret).
+// SetOAuthCredentials saves OAuth client_id and client_secret for a platform,
+// scoped to the active profile. clientSecret may be empty for public-client
+// OAuth apps (e.g. those using PKCE, like a desktop app registration with no
+// client secret).
 func (a *App) SetOAuthCredentials(platformID, clientID, clientSecret string) string {
 	if a.db == nil {
 		return "error: db not available"
@@ -2710,11 +2703,10 @@ func (a *App) SetOAuthCredentials(platformID, clientID, clientSecret string) str
 	if clientID == "" {
 		return "error: clientID is required"
 	}
-	_ = a.ensureOAuthCredsTable()
 	_, err := a.db.Exec(
-		`INSERT OR REPLACE INTO platform_oauth_credentials (platform, client_id, client_secret, updated_at)
-		 VALUES (?, ?, ?, ?)`,
-		platformID, clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
+		`INSERT OR REPLACE INTO platform_oauth_credentials (platform, profile_id, client_id, client_secret, updated_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		platformID, a.activeProfileID, clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)

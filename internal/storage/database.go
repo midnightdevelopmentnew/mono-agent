@@ -36,6 +36,17 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
+	// SQLite only supports one writer at a time. database/sql pools multiple
+	// connections by default, and any pragma set via db.Exec below only
+	// applies to whichever connection happened to run it — concurrent
+	// callers (e.g. two profiles' hourly sync triggers firing at once) can
+	// get routed to a fresh, unconfigured connection with no busy_timeout,
+	// producing an immediate SQLITE_BUSY instead of waiting for the lock.
+	// Capping the pool at one connection forces all access through the
+	// single connection that has the pragmas below, and serializes
+	// concurrent writers via Go's connection queueing instead of racing.
+	db.SetMaxOpenConns(1)
+
 	// Verify the connection is usable.
 	if err := db.Ping(); err != nil {
 		db.Close()

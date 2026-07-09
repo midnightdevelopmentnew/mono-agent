@@ -97,3 +97,19 @@ coverage.out
 .vercel
 .serverless
 .worktrees/
+
+# Monomind runtime state
+.monomind/sessions/
+.monomind/data/
+.monomind/metrics/
+.monomind/knowledge/
+.monomind/*.json
+.monomind/*.jsonl
+**/.monomind/sessions/
+**/.monomind/*.json
+data/sessions/
+data/mastermind-*.json
+data/mastermind-*.jsonl
+**/.claude-flow/
+.hive-mind/
+.swarm/

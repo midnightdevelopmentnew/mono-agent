@@ -176,26 +176,16 @@ func exchangeCode(cfg OAuthConfig, code, redirectURI, codeVerifier string) (*OAu
 		form.Set("code_verifier", codeVerifier)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("build token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
+	body, status, err := postTokenRequestWithAudienceFallback(cfg.TokenURL, form)
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("token endpoint returned status %d: %s", resp.StatusCode, string(body))
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("token endpoint returned status %d: %s", status, string(body))
 	}
 
 	var result OAuthResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decode token response: %w", err)
 	}
 
@@ -204,6 +194,60 @@ func exchangeCode(cfg OAuthConfig, code, redirectURI, codeVerifier string) (*OAu
 	}
 
 	return &result, nil
+}
+
+// postTokenRequestWithAudienceFallback POSTs a token request and, if
+// Microsoft rejects it with AADSTS9002331/9002332 ("this app is
+// personal-account-only, use /consumers" or its organizational-only
+// counterpart), retries once against the corresponding tenant segment.
+// This lets a single hardcoded /common/ TokenURL work for both
+// personal-only and org-only Azure app registrations without per-connection
+// configuration — different connections for the same platform may use
+// different Azure apps with different audience settings.
+func postTokenRequestWithAudienceFallback(tokenURL string, form url.Values) ([]byte, int, error) {
+	body, status, err := postForm(tokenURL, form)
+	if err != nil {
+		return nil, 0, err
+	}
+	if status == http.StatusOK || !strings.Contains(tokenURL, "/common/") {
+		return body, status, nil
+	}
+	var errResp struct {
+		ErrorCodes []int `json:"error_codes"`
+	}
+	_ = json.Unmarshal(body, &errResp)
+	for _, code := range errResp.ErrorCodes {
+		if code == 9002331 || code == 9002332 {
+			altSegment := "/consumers/"
+			if code == 9002332 {
+				altSegment = "/organizations/"
+			}
+			altURL := strings.Replace(tokenURL, "/common/", altSegment, 1)
+			return postForm(altURL, form)
+		}
+	}
+	return body, status, nil
+}
+
+func postForm(tokenURL string, form url.Values) ([]byte, int, error) {
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, 0, fmt.Errorf("build token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("reading response: %w", err)
+	}
+	return body, resp.StatusCode, nil
 }
 
 // randomState generates a cryptographically random base64 state string (16 bytes).

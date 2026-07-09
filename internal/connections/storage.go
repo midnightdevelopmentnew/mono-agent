@@ -170,12 +170,18 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 	}
 
 	cfg := *p.OAuth
-	// Load client credentials from platform_oauth_credentials table (Wails UI stores them there),
-	// then fall back to env vars.
+	// Load client credentials from platform_oauth_credentials table (scoped
+	// per profile — two connections for the same platform under different
+	// profiles may need different Azure/OAuth app registrations), then fall
+	// back to env vars.
+	credProfileID := conn.ProfileID
+	if credProfileID == "" {
+		credProfileID = "default"
+	}
 	var dbClientID, dbClientSecret string
 	_ = s.db.QueryRowContext(ctx,
-		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ?`,
-		conn.Platform,
+		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
+		conn.Platform, credProfileID,
 	).Scan(&dbClientID, &dbClientSecret)
 	if dbClientID != "" {
 		cfg.ClientID = dbClientID
@@ -199,24 +205,13 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 	form.Set("client_id", cfg.ClientID)
 	form.Set("client_secret", cfg.ClientSecret)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return conn, nil
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return conn, nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
+	body, status, err := postTokenRequestWithAudienceFallback(cfg.TokenURL, form)
+	if err != nil || status != http.StatusOK {
 		return conn, nil
 	}
 
 	var result OAuthResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return conn, nil
 	}
 

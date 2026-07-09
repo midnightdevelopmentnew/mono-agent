@@ -482,10 +482,14 @@ func (d *Database) BatchCreateActionTargets(targets []*ActionTarget) error {
 // ---------------------------------------------------------------------------
 
 // UpsertPerson inserts a new person or updates an existing one matched by
-// platform_username + platform.
+// platform_username + platform + profile_id (person.ProfileID; defaults to
+// "default" if unset).
 func (d *Database) UpsertPerson(person *Person) error {
 	if person.ID == "" {
 		person.ID = NewID()
+	}
+	if person.ProfileID == "" {
+		person.ProfileID = "default"
 	}
 	now := time.Now().UTC()
 
@@ -494,9 +498,9 @@ func (d *Database) UpsertPerson(person *Person) error {
 			id, platform_username, platform, full_name, image_url,
 			contact_details, website, content_count, follower_count,
 			following_count, introduction, is_verified, category, job_title,
-			created_at, updated_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(platform_username, platform)
+			profile_id, created_at, updated_at
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(platform_username, platform, profile_id)
 		DO UPDATE SET
 			full_name       = excluded.full_name,
 			image_url       = excluded.image_url,
@@ -516,7 +520,7 @@ func (d *Database) UpsertPerson(person *Person) error {
 		person.ContentCount, nullStr(person.FollowerCount), person.FollowingCount,
 		nullStr(person.Introduction), boolToInt(person.IsVerified),
 		nullStr(person.Category), nullStr(person.JobTitle),
-		now, now,
+		person.ProfileID, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting person %s/%s: %w", person.Platform, person.PlatformUsername, err)
@@ -564,9 +568,12 @@ func (d *Database) GetPerson(id string) (*Person, error) {
 }
 
 // GetPersonByUsername retrieves a single person by (platform_username,
-// platform), the same unique key UpsertPerson conflicts on. Returns nil when
-// not found.
-func (d *Database) GetPersonByUsername(platformUsername, platform string) (*Person, error) {
+// platform, profileID), the same unique key UpsertPerson conflicts on.
+// Returns nil when not found.
+func (d *Database) GetPersonByUsername(platformUsername, platform, profileID string) (*Person, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
 	p := &Person{}
 	var fullName, imageURL, contactDetails, website, followerCount sql.NullString
 	var introduction, category, jobTitle sql.NullString
@@ -576,13 +583,13 @@ func (d *Database) GetPersonByUsername(platformUsername, platform string) (*Pers
 		SELECT id, platform_username, platform, full_name, image_url,
 		       contact_details, website, content_count, follower_count,
 		       following_count, introduction, is_verified, category, job_title,
-		       created_at, updated_at
-		FROM people WHERE platform_username = ? AND platform = ?`, platformUsername, platform,
+		       profile_id, created_at, updated_at
+		FROM people WHERE platform_username = ? AND platform = ? AND profile_id = ?`, platformUsername, platform, profileID,
 	).Scan(
 		&p.ID, &p.PlatformUsername, &p.Platform, &fullName, &imageURL,
 		&contactDetails, &website, &p.ContentCount, &followerCount,
 		&p.FollowingCount, &introduction, &isVerified, &category, &jobTitle,
-		&p.CreatedAt, &p.UpdatedAt,
+		&p.ProfileID, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -707,9 +714,9 @@ func (d *Database) BatchUpsertPeople(people []*Person) error {
 			id, platform_username, platform, full_name, image_url,
 			contact_details, website, content_count, follower_count,
 			following_count, introduction, is_verified, category, job_title,
-			created_at, updated_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(platform_username, platform)
+			profile_id, created_at, updated_at
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(platform_username, platform, profile_id)
 		DO UPDATE SET
 			full_name       = excluded.full_name,
 			image_url       = excluded.image_url,
@@ -734,6 +741,9 @@ func (d *Database) BatchUpsertPeople(people []*Person) error {
 		if p.ID == "" {
 			p.ID = NewID()
 		}
+		if p.ProfileID == "" {
+			p.ProfileID = "default"
+		}
 		if _, err := stmt.Exec(
 			p.ID, p.PlatformUsername, p.Platform,
 			nullStr(p.FullName), nullStr(p.ImageURL),
@@ -741,7 +751,7 @@ func (d *Database) BatchUpsertPeople(people []*Person) error {
 			p.ContentCount, nullStr(p.FollowerCount), p.FollowingCount,
 			nullStr(p.Introduction), boolToInt(p.IsVerified),
 			nullStr(p.Category), nullStr(p.JobTitle),
-			now, now,
+			p.ProfileID, now, now,
 		); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("upserting person %s/%s: %w", p.Platform, p.PlatformUsername, err)

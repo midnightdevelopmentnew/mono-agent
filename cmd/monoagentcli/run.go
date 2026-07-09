@@ -378,7 +378,7 @@ func (s *storageAdapter) SaveExtractedData(actionID string, items []map[string]i
 		        following_count, introduction, is_verified, category, job_title,
 		        profile_url, profile_id, created_at, updated_at)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(platform_username, platform)
+		 ON CONFLICT(platform_username, platform, profile_id)
 		 DO UPDATE SET
 		   full_name       = COALESCE(excluded.full_name, people.full_name),
 		   image_url       = COALESCE(excluded.image_url, people.image_url),

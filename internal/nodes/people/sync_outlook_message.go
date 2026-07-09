@@ -54,13 +54,14 @@ func (n *SyncOutlookMessageNode) Execute(
 			PlatformUsername: senderEmail,
 			Platform:         "email",
 			FullName:         senderName,
+			ProfileID:        profileID,
 		}
 		if err := db.UpsertPerson(person); err != nil {
 			return nil, fmt.Errorf("people.sync_outlook_message: upsert person %s: %w", senderEmail, err)
 		}
 		// UpsertPerson only fills in person.ID when the caller pre-set it;
 		// re-fetch to get the resolved ID for the (possibly pre-existing) row.
-		resolved, err := db.GetPersonByUsername(senderEmail, "email")
+		resolved, err := db.GetPersonByUsername(senderEmail, "email", profileID)
 		if err != nil {
 			return nil, fmt.Errorf("people.sync_outlook_message: resolve person %s: %w", senderEmail, err)
 		}

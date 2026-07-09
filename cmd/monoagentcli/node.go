@@ -157,13 +157,19 @@ func refreshOAuthTokenCLI(ctx context.Context, store *connections.Store, conn *c
 	if cfg.ClientSecret == "" {
 		cfg.ClientSecret = os.Getenv(envPrefix + "CLIENT_SECRET")
 	}
-	// Fallback: read from platform_oauth_credentials table (same table the Wails app uses).
+	// Fallback: read from platform_oauth_credentials table (same table the Wails app uses),
+	// scoped per profile since different profiles' connections for the same
+	// platform may need different Azure/OAuth app registrations.
 	if (cfg.ClientID == "" || cfg.ClientSecret == "") && store != nil {
 		if db := store.DB(); db != nil {
+			credProfileID := conn.ProfileID
+			if credProfileID == "" {
+				credProfileID = "default"
+			}
 			var storedID, storedSecret string
 			_ = db.QueryRowContext(ctx,
-				`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ?`,
-				conn.Platform,
+				`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
+				conn.Platform, credProfileID,
 			).Scan(&storedID, &storedSecret)
 			if cfg.ClientID == "" {
 				cfg.ClientID = storedID
