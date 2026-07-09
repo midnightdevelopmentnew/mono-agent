@@ -414,7 +414,7 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
                       />
                       <input
                         type="password"
-                        placeholder="Client Secret"
+                        placeholder="Client Secret (optional — leave blank for public/native app registrations)"
                         value={oauthCreds.clientSecret}
                         onChange={e => setOauthCreds(p => ({ ...p, clientSecret: e.target.value }))}
                         style={{ fontFamily: 'var(--font-mono)', fontSize: 11, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '6px 10px', outline: 'none' }}
@@ -422,7 +422,7 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <button
                           className="btn btn-primary btn-sm"
-                          disabled={!oauthCreds.clientID || !oauthCreds.clientSecret}
+                          disabled={!oauthCreds.clientID}
                           onClick={async () => {
                             const r = await api.setOAuthCredentials(pid, oauthCreds.clientID, oauthCreds.clientSecret)
                             if (r === 'ok') { setOauthCredsSaved(true); setOauthCredsNeeded(false); setTimeout(() => setOauthCredsSaved(false), 2000) }
@@ -441,14 +441,14 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
                     <>
                       <button
                         className="btn btn-secondary btn-sm"
-                        disabled={!oauthCreds.clientID || !oauthCreds.clientSecret}
+                        disabled={!oauthCreds.clientID}
                         onClick={startOAuthFlow}
                         style={{ gap: 5, alignSelf: 'flex-start' }}
-                        title={(!oauthCreds.clientID || !oauthCreds.clientSecret) ? 'Save your OAuth credentials first' : ''}
+                        title={!oauthCreds.clientID ? 'Save your OAuth credentials first' : ''}
                       >
                         <CheckCircle size={11} /> Connect with {name}
                       </button>
-                      {(!oauthCreds.clientID || !oauthCreds.clientSecret) && (
+                      {!oauthCreds.clientID && (
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
                           Save your OAuth credentials above first
                         </span>
