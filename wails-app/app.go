@@ -1600,6 +1600,7 @@ func (a *App) SaveWorkflow(req SaveWorkflowRequest) (*WorkflowSummary, error) {
 		Name:        req.Name,
 		Description: req.Description,
 		IsActive:    req.IsActive,
+		ProfileID:   a.activeProfileID,
 	}
 	for _, n := range req.Nodes {
 		node := workflow.WorkflowNode{

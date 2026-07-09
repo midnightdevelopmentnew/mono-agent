@@ -457,6 +457,7 @@ func newWorkflowCreateCmd(cfg *globalConfig) *cobra.Command {
 				Description: description,
 				IsActive:    active,
 				Version:     1,
+				ProfileID:   cfg.ProfileID,
 				CreatedAt:   now,
 				UpdatedAt:   now,
 			}

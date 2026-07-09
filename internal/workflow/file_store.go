@@ -19,6 +19,7 @@ type WorkflowFile struct {
 	Description string             `json:"description"`
 	Version     int                `json:"version"`
 	IsActive    bool               `json:"is_active"`
+	ProfileID   string             `json:"profile_id,omitempty"`
 	CreatedAt   time.Time          `json:"created_at"`
 	UpdatedAt   time.Time          `json:"updated_at"`
 	Nodes       []WorkflowFileNode `json:"nodes"`
@@ -86,6 +87,7 @@ func (s *WorkflowFileStore) SaveWorkflow(ctx context.Context, wf *Workflow) erro
 		Description: wf.Description,
 		Version:     wf.Version,
 		IsActive:    wf.IsActive,
+		ProfileID:   wf.ProfileID,
 		CreatedAt:   wf.CreatedAt,
 		UpdatedAt:   wf.UpdatedAt,
 	}
@@ -202,6 +204,7 @@ func parseWorkflowFile(data []byte) (*Workflow, error) {
 		Description: wfFile.Description,
 		Version:     wfFile.Version,
 		IsActive:    wfFile.IsActive,
+		ProfileID:   wfFile.ProfileID,
 		CreatedAt:   wfFile.CreatedAt,
 		UpdatedAt:   wfFile.UpdatedAt,
 	}
