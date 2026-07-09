@@ -42,7 +42,68 @@ func newConnectCmd(cfg *globalConfig) *cobra.Command {
 		newConnectTestCmd(cfg),
 		newConnectRemoveCmd(cfg),
 		newConnectRefreshCmd(cfg),
+		newConnectSetOAuthClientCmd(cfg),
 	)
+
+	return cmd
+}
+
+// newConnectSetOAuthClientCmd persistently stores an OAuth app's client_id
+// (and optional client_secret) for a platform, so silent token refresh
+// works for any process (including a long-running `monoagentcli daemon`)
+// without needing a MONOAGENT_<PLATFORM>_CLIENT_ID env var set in that
+// process's environment.
+func newConnectSetOAuthClientCmd(cfg *globalConfig) *cobra.Command {
+	var clientSecret string
+
+	cmd := &cobra.Command{
+		Use:   "set-oauth-client <platform> --client-id <id>",
+		Short: "Persistently store an OAuth app's client ID/secret for a platform (enables silent token refresh)",
+		Long: "Stores the OAuth client_id/client_secret used to obtain and silently refresh tokens for a " +
+			"platform. Without this, an OAuth connection's access token expires (typically ~1h) and can only " +
+			"be renewed by re-running the full interactive `connect`/`connect refresh` flow. client_secret " +
+			"may be omitted for public-client apps (e.g. a desktop/native Azure app registration using PKCE).",
+		Example: `  monoagentcli connect set-oauth-client outlook --client-id a8c1df90-1c79-4bc0-813a-f96b6b93a256
+  monoagentcli connect set-oauth-client github --client-id abc123 --client-secret xyz789`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientID, _ := cmd.Flags().GetString("client-id")
+			if clientID == "" {
+				return fmt.Errorf("--client-id is required")
+			}
+
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+
+			if _, err := db.DB.Exec(`CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
+				platform      TEXT PRIMARY KEY,
+				client_id     TEXT NOT NULL,
+				client_secret TEXT NOT NULL,
+				updated_at    TEXT NOT NULL
+			)`); err != nil {
+				return fmt.Errorf("ensuring platform_oauth_credentials table: %w", err)
+			}
+
+			_, err = db.DB.Exec(
+				`INSERT OR REPLACE INTO platform_oauth_credentials (platform, client_id, client_secret, updated_at)
+				 VALUES (?, ?, ?, ?)`,
+				args[0], clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
+			)
+			if err != nil {
+				return fmt.Errorf("saving OAuth client credentials: %w", err)
+			}
+
+			fmt.Fprintf(os.Stdout, "Saved OAuth client credentials for %s.\n", args[0])
+			return nil
+		},
+	}
+
+	cmd.Flags().String("client-id", "", "OAuth client ID (required)")
+	cmd.Flags().StringVar(&clientSecret, "client-secret", "", "OAuth client secret (omit for public-client apps)")
+	_ = cmd.MarkFlagRequired("client-id")
 
 	return cmd
 }

@@ -2700,12 +2700,14 @@ func (a *App) GetOAuthCredentials(platformID string) string {
 }
 
 // SetOAuthCredentials saves OAuth client_id and client_secret for a platform.
+// clientSecret may be empty for public-client OAuth apps (e.g. those using
+// PKCE, like a desktop app registration with no client secret).
 func (a *App) SetOAuthCredentials(platformID, clientID, clientSecret string) string {
 	if a.db == nil {
 		return "error: db not available"
 	}
-	if clientID == "" || clientSecret == "" {
-		return "error: clientID and clientSecret are required"
+	if clientID == "" {
+		return "error: clientID is required"
 	}
 	_ = a.ensureOAuthCredsTable()
 	_, err := a.db.Exec(
