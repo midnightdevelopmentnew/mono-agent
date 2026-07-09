@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,8 +115,33 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 			id = "default"
 		}
 		cfg.ProfileID = id
+	} else {
+		// --profile accepts either a profile's ID or its display name; resolve
+		// to the canonical ID. Without this, --profile <name> silently scoped
+		// every read/write to a profile_id string that matched no real
+		// profile (data landed in "default" instead), since a name and its
+		// ID only coincide for the "default" profile.
+		resolved, err := resolveProfileID(db.DB, cfg.ProfileID)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		cfg.ProfileID = resolved
 	}
 	return db, nil
+}
+
+// resolveProfileID accepts either a profile's ID or its name and returns the
+// canonical ID, erroring if neither matches any row in `profiles`.
+func resolveProfileID(db *sql.DB, idOrName string) (string, error) {
+	var id string
+	if err := db.QueryRow(`SELECT id FROM profiles WHERE id = ?`, idOrName).Scan(&id); err == nil {
+		return id, nil
+	}
+	if err := db.QueryRow(`SELECT id FROM profiles WHERE name = ?`, idOrName).Scan(&id); err == nil {
+		return id, nil
+	}
+	return "", fmt.Errorf("profile %q not found (checked both id and name)", idOrName)
 }
 
 // ensureDir creates a directory if it does not exist.

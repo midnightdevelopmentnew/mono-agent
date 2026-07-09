@@ -1,6 +1,7 @@
 {
   "credential_platform": null,
   "fields": [
-    { "key": "source", "label": "Source Label", "type": "text", "required": false, "default": "outlook", "help": "Stored as the message's source, e.g. outlook, gmail" }
+    { "key": "source", "label": "Source Label", "type": "text", "required": false, "default": "outlook", "help": "Stored as the message's source, e.g. outlook, gmail" },
+    { "key": "profile_id", "label": "Profile ID", "type": "text", "required": false, "default": "default", "help": "Which profile owns the synced people/messages. Defaults to 'default' — set this explicitly if this workflow belongs to a different profile (find the ID via `monoagentcli profile list`)." }
   ]
 }
