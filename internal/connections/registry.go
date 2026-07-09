@@ -550,13 +550,14 @@ var Registry = map[string]PlatformDef{
 			},
 		},
 		OAuth: &OAuthConfig{
-			// /consumers/ (not /common/): this app targets personal
-			// Outlook.com/Hotmail accounts only. /common/ requires the Azure
-			// app to be registered for "All" account types (work/school +
-			// personal); Microsoft rejects it otherwise with "userAudience"
-			// invalid_request.
-			AuthURL:      "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
-			TokenURL:     "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+			// /common/: supports both personal (outlook.com/hotmail.com) and
+			// work/school (Microsoft 365) accounts. Requires the Azure app's
+			// "Supported account types" to be set to "Accounts in any
+			// organizational directory and personal Microsoft accounts" —
+			// Microsoft rejects /common/ with a "userAudience" invalid_request
+			// if the app is still registered as "Personal accounts only".
+			AuthURL:      "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+			TokenURL:     "https://login.microsoftonline.com/common/oauth2/v2.0/token",
 			Scopes:       []string{"https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send", "offline_access"},
 			CallbackPort: 9876,
 		},
