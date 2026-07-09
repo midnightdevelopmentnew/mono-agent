@@ -2,11 +2,15 @@ package connections
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/textproto"
 	"strings"
+	"time"
 )
 
 // ValidateConnection calls the platform-specific validator and returns the
@@ -40,7 +44,7 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		if c.Method == MethodOAuth {
 			return validateOutlookOAuth(ctx, c)
 		}
-		return "", nil
+		return validateOutlookAppPassword(ctx, c)
 	case "hubspot":
 		return validateHubSpot(ctx, c)
 	case "salesforce":
@@ -54,6 +58,52 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return cs[:end] + "...", nil
 	default:
 		return "", nil
+	}
+}
+
+// validateOutlookAppPassword validates an Outlook/Hotmail app-password
+// connection by performing a live IMAP LOGIN — without this, any garbage
+// email/password gets saved as a "connected" credential that only fails
+// later when an actual workflow node tries to use it. Note: Microsoft has
+// deprecated Basic Auth for IMAP on outlook.com/hotmail.com accounts, so
+// this will legitimately fail for those even with correct credentials —
+// use OAuth instead for those accounts.
+func validateOutlookAppPassword(ctx context.Context, c *Connection) (string, error) {
+	email := getStr(c.Data, "email")
+	password := getStr(c.Data, "app_password")
+	if email == "" || password == "" {
+		return "", fmt.Errorf("validateOutlookAppPassword: email and app_password are required")
+	}
+
+	const host = "outlook.office365.com"
+	dialer := &tls.Dialer{
+		NetDialer: &net.Dialer{Timeout: 15 * time.Second},
+		Config:    &tls.Config{ServerName: host},
+	}
+	conn, err := dialer.DialContext(ctx, "tcp", host+":993")
+	if err != nil {
+		return "", fmt.Errorf("validateOutlookAppPassword: connect: %w", err)
+	}
+	tc := textproto.NewConn(conn)
+	defer tc.Close()
+
+	if _, err := tc.ReadLine(); err != nil {
+		return "", fmt.Errorf("validateOutlookAppPassword: greeting: %w", err)
+	}
+	if _, err := fmt.Fprintf(conn, "A1 LOGIN %q %q\r\n", email, password); err != nil {
+		return "", fmt.Errorf("validateOutlookAppPassword: login send: %w", err)
+	}
+	for {
+		line, err := tc.ReadLine()
+		if err != nil {
+			return "", fmt.Errorf("validateOutlookAppPassword: login: %w", err)
+		}
+		if strings.HasPrefix(line, "A1 OK") {
+			return email, nil
+		}
+		if strings.HasPrefix(line, "A1 NO") || strings.HasPrefix(line, "A1 BAD") {
+			return "", fmt.Errorf("validateOutlookAppPassword: IMAP login rejected: %s", line)
+		}
 	}
 }
 
