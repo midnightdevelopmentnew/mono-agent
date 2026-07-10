@@ -27,9 +27,17 @@ func newRootCmd() *cobra.Command {
 	cfg := &globalConfig{}
 
 	cmd := &cobra.Command{
-		Use:           "monoagentcli",
-		Short:         "Multi-platform social media automation agent",
-		Long:          "Mono Agent — automate keyword search, profile discovery, bulk messaging, content publishing, and more across Instagram, LinkedIn, X, TikTok, Telegram, and Email.",
+		Use:   "monoagentcli",
+		Short: "Multi-platform social media automation agent",
+		Long: `Mono Agent — automate keyword search, profile discovery, bulk messaging, content publishing, and more across Instagram, LinkedIn, X, TikTok, Telegram, and Email.
+
+AI agents: run 'monoagentcli ref' for built-in, offline documentation
+covering every command and workflow node type in depth — including
+'monoagentcli ref connections' for the profile/OAuth/credential model
+(read this before writing anything that touches --profile or
+--credential) and 'monoagentcli ref examples' for common patterns. This
+is the primary, most current source of truth for how the CLI is meant to
+be used — prefer it over guessing from --help output alone.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {

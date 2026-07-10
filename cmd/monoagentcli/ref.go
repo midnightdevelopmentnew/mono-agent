@@ -663,6 +663,63 @@ Output is always PNG. Subsequent calls reuse cached model and ORT session.`,
 		Inputs:   "item with prompt",
 		Outputs:  "response_text",
 	},
+	{
+		Type:     "service.outlook_mail",
+		Category: "service",
+		Short:    "Read, send, draft, and search Outlook/Hotmail mail via Microsoft Graph",
+		Description: `Talks to Microsoft Graph directly (not IMAP/SMTP), so it keeps working now that
+Microsoft has deprecated Basic Auth for outlook.com/hotmail.com. Needs an OAuth
+connection: monoagentcli connect outlook (see 'monoagentcli ref connections'
+for the full multi-profile/identity model this depends on).
+
+Operations (set via "operation"):
+  list_messages   list/search a mailbox folder
+  get_message     fetch one full message by id (body included)
+  send_message    send immediately
+  create_draft    save to Drafts without sending
+  send_draft      send a previously-created draft, by its message_id
+  delete_message  delete a message (e.g. a rejected draft)
+  whoami          resolve the authenticated mailbox's own address — no
+                   message content read, just one field of one message.
+                   Use this FIRST when you don't already know which
+                   account a connection points to — see 'ref connections'.
+
+"mailbox" (list_messages only) accepts ANY well-known Graph folder name, not
+just inbox: inbox, drafts, sentitems, deleteditems, junkemail, archive,
+outbox. To sync/read SENT mail, set mailbox to "sentitems" — this is a
+distinct read from inbox and must be set up as its own node if you want both
+(see the people.sync_outlook_message entry and the bundled
+"outlook_email_sync" workflow template for the two-branch pattern).
+
+Finding a specific email: don't page through max_results blindly. Use
+"search" (full-text over subject/body/sender, or field-scoped like
+"from:someone@x.com" or "subject:invoice") or "from_address" (exact sender
+match). "search" takes priority over "from_address"/"unread_only" if both
+are set — Graph doesn't support combining $search with $filter.`,
+		Config: `// List unread inbox mail
+{ "credential_id": "outlook-conn-id", "operation": "list_messages", "mailbox": "inbox", "unread_only": true, "max_results": 20 }
+
+// Search sent mail for a specific thread instead of paging blind
+{ "credential_id": "outlook-conn-id", "operation": "list_messages", "mailbox": "sentitems", "search": "invoice", "max_results": 10 }
+
+// Send immediately
+{ "credential_id": "outlook-conn-id", "operation": "send_message", "to": "a@b.com", "subject": "Hi", "body": "...", "body_type": "html" }
+
+// Save as draft, then later send it or delete it by the id create_draft returned
+{ "credential_id": "outlook-conn-id", "operation": "create_draft", "to": "a@b.com", "subject": "Hi", "body": "...", "body_type": "html" }
+{ "credential_id": "outlook-conn-id", "operation": "send_draft", "message_id": "<id from create_draft>" }
+
+// Who does this connection actually authenticate as?
+{ "credential_id": "outlook-conn-id", "operation": "whoami" }`,
+		Inputs:  "none for list/whoami; item(s) with to/subject/body for send/draft ops",
+		Outputs: "one item per message (list_messages/get_message); {address,source} for whoami; {status,...} for send/draft/delete",
+		Notes: `credential_id accepts an exact connection ID OR a platform name ("outlook") —
+the platform-name form resolves within the CURRENT --profile only (fixed
+2026-07: it used to silently match the oldest "outlook" connection across
+ALL profiles). When more than one profile has an outlook connection, prefer
+the exact connection ID to remove any ambiguity, especially in scripts/agents
+running without a human watching --profile.`,
+	},
 
 	// ── AI ────────────────────────────────────────────────────────────────────
 	{
@@ -1271,6 +1328,45 @@ Always prefer the browser crawl method. It requires only a Google login, no bill
 		Inputs:   "items with: url, platform, username, display_name, bio",
 		Outputs:  "saved_count",
 	},
+	{
+		Type:     "people.sync_outlook_message",
+		Category: "people",
+		Short:    "Upsert People + message history from service.outlook_mail's list_messages output",
+		Description: `Feed this directly from a service.outlook_mail list_messages node's output.
+For each message item, upserts a Person (platform="email") and a
+PersonMessage attached to them — this is how Outlook mail becomes visible
+on a person's Profile page / in the Communications feed / GetPersonMessages.
+
+"direction" controls WHICH side of the message becomes the person:
+  inbound  (default) — the SENDER becomes the person. Use with an inbox read.
+  outbound            — each RECIPIENT becomes the person instead (the sender
+                         is always your own mailbox for sent mail, so syncing
+                         it as "the person" would be wrong). Use with a
+                         sentitems read. Requires the upstream list_messages
+                         node to select toRecipients — it's included in
+                         service.outlook_mail's default $select already.
+
+To sync BOTH received and sent mail, wire up TWO independent branches off
+the same trigger: one inbox read → sync (direction=inbound), one sentitems
+read → sync (direction=outbound). This is exactly what the bundled
+"outlook_email_sync" workflow template does — run
+'monoagentcli workflow templates use outlook_email_sync' to get both
+branches pre-wired instead of building them by hand.
+
+"profile_id" defaults to "default" if omitted — this is EASY to get wrong:
+it is NOT inherited from the workflow's own profile automatically. A
+workflow belonging to profile X whose sync node has no explicit profile_id
+will silently attribute all synced people/messages to the "default"
+profile instead of X. Always set profile_id explicitly to match the
+workflow's profile (monoagentcli profile list to find the ID).`,
+		Config: `// Inbound (received mail) — sender becomes the person
+{ "source": "outlook", "direction": "inbound", "profile_id": "680bc228-81c9-40e6-aedc-52b6fdb261e0" }
+
+// Outbound (sent mail) — recipient(s) become the person
+{ "source": "outlook", "direction": "outbound", "profile_id": "680bc228-81c9-40e6-aedc-52b6fdb261e0" }`,
+		Inputs:  "items from service.outlook_mail's list_messages output (id, subject, from, toRecipients, body/bodyPreview, receivedDateTime)",
+		Outputs: "one item per synced person/message: {person_id, email, message_id}",
+	},
 }
 
 // findNodeDoc returns nil when not found.
@@ -1541,6 +1637,7 @@ Subcommands:
   nodes                 All node types grouped by category
   node <type>           Detailed docs for a specific node type
   workflow              Workflow JSON structure and connection format
+  connections           Profiles, OAuth connections, credential resolution, account identity
   expressions           Template expression syntax and built-in functions
   examples              Common workflow patterns and use cases
   crawling              How to automate scraping on new/custom platforms`,
@@ -1553,12 +1650,14 @@ Subcommands:
 			fmt.Fprintln(w, "  nodes\tAll node types grouped by category")
 			fmt.Fprintln(w, "  node <type>\tDetailed docs for a specific node type")
 			fmt.Fprintln(w, "  workflow\tWorkflow JSON structure and connection format")
+			fmt.Fprintln(w, "  connections\tProfiles, OAuth connections, credential resolution, account identity")
 			fmt.Fprintln(w, "  expressions\tTemplate expression syntax and built-in functions")
 			fmt.Fprintln(w, "  examples\tCommon workflow patterns and use cases")
 			fmt.Fprintln(w, "  crawling\tHow to scrape/automate new platforms with Claude Code")
 			w.Flush()
 			fmt.Println()
 			fmt.Println("Example:  monoagentcli ref crawling")
+			fmt.Println("Example:  monoagentcli ref connections")
 			fmt.Println("Example:  monoagentcli ref node gemini.generate_text")
 			return nil
 		},
@@ -1569,6 +1668,7 @@ Subcommands:
 		refNodesCmd(),
 		refNodeCmd(),
 		refWorkflowCmd(),
+		refConnectionsCmd(),
 		refExpressionsCmd(),
 		refExamplesCmd(),
 		refCrawlingCmd(),
@@ -1705,6 +1805,16 @@ func refWorkflowCmd() *cobra.Command {
 ╔══════════════════════════════════════════════════════════════╗
 ║                monoagentcli — workflow format reference            ║
 ╚══════════════════════════════════════════════════════════════╝
+
+BEFORE HAND-BUILDING ONE — CHECK FOR A BUNDLED TEMPLATE FIRST
+  monoagentcli workflow templates list
+  monoagentcli workflow templates use <id>
+
+Instantiates a ready-made, pre-wired workflow (fresh node/connection IDs,
+correct config shape) for the active profile in one command — starts
+inactive so you can fill in credentials before 'workflow activate'. Only
+fall back to building the JSON below by hand for something not covered by
+an existing template.
 
 FILE LOCATION
   ~/.monoagent/workflows/<workflow-id>.json
@@ -2125,4 +2235,135 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func refConnectionsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "connections",
+		Short: "Profiles, OAuth connections, credential resolution, and account identity",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Print(`
+╔══════════════════════════════════════════════════════════════╗
+║   monoagentcli — profiles, connections & account identity      ║
+╚══════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROFILES — the isolation boundary
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A profile fully isolates people, messages, connections, and workflows
+from every other profile. There's always a "default" profile; create
+more with 'monoagentcli profile create <name>'.
+
+  monoagentcli profile list                 list profiles + which is active
+  monoagentcli profile create <name>        make a new one
+  monoagentcli profile switch <name>        change the active default
+  monoagentcli --profile <name-or-id> ...   override for a single command
+
+--profile accepts EITHER a profile's display name OR its ID — resolved to
+the canonical ID before anything runs. Passing a name that matches no real
+profile errors out; it does not silently fall back to "default".
+
+Every read/write in this CLI is scoped to a profile — mostly the ACTIVE
+one, overridable per-command with --profile. When writing a NEW workflow
+node by hand (not via 'workflow templates use', which already does this),
+double-check any node that takes its own "profile_id" config field (e.g.
+people.sync_outlook_message) — it does NOT inherit the workflow's profile
+automatically and defaults to "default" if you leave it unset. See
+'monoagentcli ref node people.sync_outlook_message' for the specific gotcha.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CONNECTIONS — one external account, one row
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A "connection" is one authenticated external account (Outlook, Slack,
+GitHub, ...), always scoped to exactly one profile. Two profiles can each
+have their own connection for the SAME platform (e.g. two different
+Outlook accounts) — nothing links them beyond both being "outlook".
+
+  monoagentcli connect <platform>               interactive connect (OAuth or API key)
+  monoagentcli connect list                     connections for the ACTIVE profile
+  monoagentcli connect list --all               every platform this CLI supports, connected or not
+  monoagentcli connect test <id>                verify a connection still works
+  monoagentcli connect refresh <id>             force a silent token refresh right now
+  monoagentcli connect remove <id>              delete a connection
+
+'connect list' shows an ACCOUNT column with the REAL resolved identity for
+platforms that support it (currently Outlook) — e.g. the actual mailbox
+address, not just the connection's human-supplied label. Resolved once at
+connect/refresh/test time via the smallest possible read on that platform
+(for Outlook: one field of one message — no extra OAuth scope, no message
+content). A profile named "acme" is a LABEL, not a guarantee that the
+acme.com account is what actually got authenticated — always sanity-check
+the ACCOUNT column (or run the platform's whoami node op, e.g.
+'monoagentcli node run service.outlook_mail --credential <id> --config
+"{\"operation\":\"whoami\"}"') before trusting a profile's data as
+belonging to a specific real-world account. 'connect <platform>' and
+'connect refresh' both print a non-blocking warning to stderr if the
+resolved account doesn't obviously relate to the profile's name.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+--credential: EXACT CONNECTION ID vs PLATFORM NAME
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Every service.* node that needs auth takes credential_id (in --config) or
+the 'monoagentcli node run ... --credential <value>' flag. That value can
+be:
+
+  • an EXACT connection ID (from 'connect list')      — unambiguous, always
+                                                          correct, verified
+                                                          to belong to the
+                                                          active --profile
+  • a PLATFORM NAME (e.g. "outlook", "slack")          — resolved to that
+                                                          platform's active
+                                                          connection WITHIN
+                                                          THE ACTIVE PROFILE
+                                                          ONLY
+
+Prefer the exact connection ID in scripts, agents, or workflow node
+configs that must be unambiguous — especially once more than one profile
+has a connection for the same platform. (Historical note: before a
+2026-07 fix, the platform-name form ignored --profile entirely and always
+matched the OLDEST connection for that platform across every profile —
+already fixed, but a good reason to default to exact IDs when precision
+matters.)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OAUTH TOKEN REFRESH — silent, automatic, per-profile client credentials
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OAuth access tokens expire (typically ~1h). Every credential-resolution
+path (CLI node run, the GUI, the daemon's workflow triggers) silently
+refreshes an expiring token using its stored refresh_token before use —
+no user action needed in the common case.
+
+Silent refresh needs the OAuth app's client_id (and client_secret, if the
+app isn't a public/native client). Store it once per platform+profile:
+
+  monoagentcli connect set-oauth-client <platform> --client-id <id> [--client-secret <secret>]
+
+Two profiles' connections for the same platform CAN use different Azure/
+OAuth app registrations (e.g. a personal-account-only app for one profile,
+a work/school-only app for another) — set-oauth-client is scoped per
+profile for exactly this reason.
+
+If silent refresh fails (e.g. missing client credentials, revoked
+consent), the affected command falls back to using the existing —
+possibly expired — token rather than blocking, and prints a warning. Fix
+with set-oauth-client, or 'monoagentcli connect refresh <id>' /
+'monoagentcli connect <platform>' to fully re-authenticate.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SCHEDULED/WEBHOOK TRIGGERS NEED THE DAEMON RUNNING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+'monoagentcli workflow activate <id>' only keeps trigger.schedule /
+trigger.webhook nodes live for as long as THAT command keeps running.
+For a workflow to actually fire on its own over time (e.g. an hourly
+sync), 'monoagentcli daemon' must be running continuously — it restores
+and keeps alive every active workflow's triggers across ALL profiles.
+See 'monoagentcli daemon --help'.
+`)
+		},
+	}
 }
