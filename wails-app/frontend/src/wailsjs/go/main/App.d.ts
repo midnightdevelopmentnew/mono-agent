@@ -71,7 +71,7 @@ export function GetAllTags():Promise<Array<main.TagInfo>>;
 
 export function GetAvailableActionTypes():Promise<Record<string, Array<string>>>;
 
-export function GetConnectionsForPlatform(arg1:string):Promise<Array<connections.Connection>>;
+export function GetConnectionsForPlatform(arg1:string):Promise<Array<connections.SafeConnection>>;
 
 export function GetDBPath():Promise<string>;
 
@@ -139,7 +139,7 @@ export function IsDBConnected():Promise<boolean>;
 
 export function ListAIProviders():Promise<string>;
 
-export function ListConnections(arg1:string):Promise<Array<connections.Connection>>;
+export function ListConnections(arg1:string):Promise<Array<connections.SafeConnection>>;
 
 export function ListCredentials():Promise<Array<main.CredentialSummary>>;
 

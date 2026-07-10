@@ -1,12 +1,11 @@
 export namespace connections {
 	
-	export class Connection {
+	export class SafeConnection {
 	    id: string;
 	    platform: string;
 	    method: string;
 	    label: string;
 	    account_id: string;
-	    data: Record<string, any>;
 	    status: string;
 	    last_tested?: string;
 	    profile_id?: string;
@@ -14,7 +13,7 @@ export namespace connections {
 	    updated_at: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new Connection(source);
+	        return new SafeConnection(source);
 	    }
 	
 	    constructor(source: any = {}) {
@@ -24,7 +23,6 @@ export namespace connections {
 	        this.method = source["method"];
 	        this.label = source["label"];
 	        this.account_id = source["account_id"];
-	        this.data = source["data"];
 	        this.status = source["status"];
 	        this.last_tested = source["last_tested"];
 	        this.profile_id = source["profile_id"];

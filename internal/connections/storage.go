@@ -29,6 +29,48 @@ type Connection struct {
 	UpdatedAt  string                 `json:"updated_at"`
 }
 
+// SafeConnection is the credential-free projection of a Connection for any
+// output boundary — CLI --json, GUI IPC responses — that must never leak
+// stored token/secret material (Connection.Data holds access_token,
+// refresh_token, api_key, etc. in cleartext).
+type SafeConnection struct {
+	ID         string     `json:"id"`
+	Platform   string     `json:"platform"`
+	Method     AuthMethod `json:"method"`
+	Label      string     `json:"label"`
+	AccountID  string     `json:"account_id"`
+	Status     string     `json:"status"`
+	LastTested string     `json:"last_tested,omitempty"`
+	ProfileID  string     `json:"profile_id,omitempty"`
+	CreatedAt  string     `json:"created_at"`
+	UpdatedAt  string     `json:"updated_at"`
+}
+
+// Redact strips credential material, returning the safe-to-serialize view.
+func (c Connection) Redact() SafeConnection {
+	return SafeConnection{
+		ID:         c.ID,
+		Platform:   c.Platform,
+		Method:     c.Method,
+		Label:      c.Label,
+		AccountID:  c.AccountID,
+		Status:     c.Status,
+		LastTested: c.LastTested,
+		ProfileID:  c.ProfileID,
+		CreatedAt:  c.CreatedAt,
+		UpdatedAt:  c.UpdatedAt,
+	}
+}
+
+// RedactAll maps a slice of Connections to their safe projections.
+func RedactAll(conns []Connection) []SafeConnection {
+	out := make([]SafeConnection, len(conns))
+	for i, c := range conns {
+		out[i] = c.Redact()
+	}
+	return out
+}
+
 const createConnectionsTable = `
 CREATE TABLE IF NOT EXISTS connections (
     id          TEXT PRIMARY KEY,

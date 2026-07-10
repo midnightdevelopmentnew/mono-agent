@@ -189,7 +189,7 @@ func newConnectListCmd(cfg *globalConfig) *cobra.Command {
 			if jsonOut {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
-				return enc.Encode(conns)
+				return enc.Encode(connections.RedactAll(conns))
 			}
 
 			if len(conns) == 0 {

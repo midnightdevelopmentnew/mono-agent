@@ -2727,18 +2727,16 @@ func (a *App) ListCredentialsForNode(nodeType string) []CredentialOption {
 }
 
 // ListConnections returns all saved connections for the active profile, filtered by platform if non-empty.
-func (a *App) ListConnections(platform string) []connections.Connection {
+// Credential material (Connection.Data) is stripped before crossing the Wails IPC boundary.
+func (a *App) ListConnections(platform string) []connections.SafeConnection {
 	if a.connMgr == nil {
-		return []connections.Connection{}
+		return []connections.SafeConnection{}
 	}
 	result, err := a.connMgr.List(a.ctx, platform, a.activeProfileID)
 	if err != nil {
-		return []connections.Connection{}
+		return []connections.SafeConnection{}
 	}
-	if result == nil {
-		result = []connections.Connection{}
-	}
-	return result
+	return connections.RedactAll(result)
 }
 
 // PlatformInfo is a frontend-safe representation of a platform (no OAuth secrets).
@@ -2880,7 +2878,8 @@ func (a *App) RemoveConnection(id string) string {
 }
 
 // GetConnectionsForPlatform returns connections filtered by platform ID.
-func (a *App) GetConnectionsForPlatform(platformID string) []connections.Connection {
+// Credential material (Connection.Data) is stripped before crossing the Wails IPC boundary.
+func (a *App) GetConnectionsForPlatform(platformID string) []connections.SafeConnection {
 	return a.ListConnections(platformID)
 }
 

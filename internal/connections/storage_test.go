@@ -3,6 +3,8 @@ package connections
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -146,5 +148,58 @@ func TestStoreMarkTested(t *testing.T) {
 	// MarkTested on unknown ID should error
 	if err := s.MarkTested(ctx, "nonexistent", "active"); err == nil {
 		t.Error("expected error for unknown ID")
+	}
+}
+
+// TestConnectionRedactStripsCredentialData is a regression test: `monoagentcli
+// connect list --json` and the Wails GUI's ListConnections/GetConnectionsForPlatform
+// previously serialized the full Connection struct, leaking access_token/
+// refresh_token/api_key in cleartext via Data. Redact/RedactAll must produce
+// output with no trace of Data while preserving every other field.
+func TestConnectionRedactStripsCredentialData(t *testing.T) {
+	conn := Connection{
+		ID:       "conn-1",
+		Platform: "github",
+		Method:   MethodOAuth,
+		Label:    "GitHub – octocat",
+		Data: map[string]interface{}{
+			"access_token":  "ghp_supersecrettoken",
+			"refresh_token": "ghr_supersecretrefresh",
+		},
+		Status:     "active",
+		LastTested: "2026-01-01T00:00:00Z",
+		ProfileID:  "work",
+		CreatedAt:  "2026-01-01T00:00:00Z",
+		UpdatedAt:  "2026-01-01T00:00:00Z",
+	}
+
+	safe := conn.Redact()
+
+	b, err := json.Marshal(safe)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	out := string(b)
+	if strings.Contains(out, "supersecret") {
+		t.Fatalf("Redact() leaked credential material into JSON output: %s", out)
+	}
+	if strings.Contains(out, "\"data\"") {
+		t.Fatalf("Redact() output still contains a data field: %s", out)
+	}
+
+	// Non-credential fields must survive.
+	if safe.ID != conn.ID || safe.Platform != conn.Platform || safe.Label != conn.Label ||
+		safe.AccountID != conn.AccountID || safe.Status != conn.Status ||
+		safe.LastTested != conn.LastTested || safe.ProfileID != conn.ProfileID {
+		t.Fatalf("Redact() dropped a non-credential field: %+v", safe)
+	}
+
+	list := RedactAll([]Connection{conn, conn})
+	if len(list) != 2 {
+		t.Fatalf("RedactAll: got %d entries, want 2", len(list))
+	}
+	b2, _ := json.Marshal(list)
+	if strings.Contains(string(b2), "supersecret") {
+		t.Fatalf("RedactAll() leaked credential material into JSON output: %s", b2)
 	}
 }
