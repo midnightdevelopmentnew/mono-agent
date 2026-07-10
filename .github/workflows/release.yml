@@ -66,19 +66,47 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build CLI for all platforms
+      - name: Build CLI for linux and windows
         run: |
           LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p dist
-          GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-amd64   ./cmd/monoagentcli
-          GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-arm64   ./cmd/monoagentcli
           GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-linux-amd64    ./cmd/monoagentcli
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-windows-amd64.exe ./cmd/monoagentcli
-          cd dist && sha256sum * > CLI-SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cli-binaries
+          name: cli-binaries-linux-windows
+          path: dist/
+
+  # ─── 2a2. Build CLI for macOS (native — cross-compiled darwin binaries built
+  # on ubuntu-latest carry an ad-hoc signature that newer macOS's
+  # AppleSystemPolicy rejects outright at exec time: "load code signature
+  # error 2" / SIGKILL. Building natively on macos-latest and explicitly
+  # ad-hoc re-signing each binary produces a signature this Mac's AMFI
+  # enforcement actually accepts. ─────────────────────────────────────────
+  build-cli-macos:
+    needs: version
+    runs-on: macos-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build CLI for macOS (native)
+        run: |
+          LD="-X main.version=${TAG} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p dist
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-amd64 ./cmd/monoagentcli
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$LD" -o dist/monoagentcli-darwin-arm64 ./cmd/monoagentcli
+          codesign --force --sign - dist/monoagentcli-darwin-amd64
+          codesign --force --sign - dist/monoagentcli-darwin-arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-binaries-macos
           path: dist/
 
   # ─── 2b. Build macOS app (Apple Silicon / arm64) ──────────────────────────
@@ -244,7 +272,7 @@ jobs:
 
   # ─── 3. Publish GitHub Release with all artifacts ─────────────────────────
   release:
-    needs: [version, build-cli, build-macos-arm64, build-windows, build-linux]
+    needs: [version, build-cli, build-cli-macos, build-macos-arm64, build-windows, build-linux]
     runs-on: ubuntu-latest
     env:
       TAG:  ${{ needs.version.outputs.tag }}

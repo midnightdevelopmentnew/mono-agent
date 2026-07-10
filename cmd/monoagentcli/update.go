@@ -57,7 +57,11 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 	latest := strings.TrimPrefix(release.TagName, "v")
 	current := strings.TrimPrefix(version, "v")
 
-	if version == "dev" || latest == current {
+	if version == "dev" {
+		fmt.Println("Running a dev build (no embedded version) — skipping update check.")
+		return nil
+	}
+	if latest == current {
 		fmt.Printf("Already on latest version (%s)\n", version)
 		return nil
 	}
