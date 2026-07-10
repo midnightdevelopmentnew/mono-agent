@@ -219,6 +219,18 @@ func (m *Manager) Refresh(ctx context.Context, id string, timeout time.Duration)
 		if err := m.store.RefreshToken(ctx, conn); err != nil {
 			return fmt.Errorf("refresh: %w", err)
 		}
+		// Re-resolve the account identity/AccountID/Label too — a silent
+		// token refresh alone would otherwise leave AccountID/LastTested
+		// stale even though the connection is genuinely fresh.
+		if accountID, err := ValidateConnection(ctx, conn); err == nil {
+			conn.AccountID = accountID
+			conn.Status = "active"
+			conn.LastTested = time.Now().UTC().Format(time.RFC3339)
+			if accountID != "" {
+				conn.Label = fmt.Sprintf("%s – %s", p.Name, accountID)
+			}
+			_ = m.store.Save(ctx, conn)
+		}
 		return nil
 	}
 

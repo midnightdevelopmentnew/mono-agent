@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -115,11 +116,45 @@ func runConnectPlatform(cmd *cobra.Command, cfg *globalConfig, platformID string
 		return err
 	}
 
-	_, err = mgr.Connect(cmd.Context(), platformID, connections.ConnectOptions{
+	conn, err := mgr.Connect(cmd.Context(), platformID, connections.ConnectOptions{
 		OAuthTimeout: 5 * time.Minute,
 		ProfileID:    cfg.ProfileID,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	warnIfAccountProfileMismatch(db.DB, cfg, conn)
+	return nil
+}
+
+// warnIfAccountProfileMismatch prints a non-blocking heads-up when the
+// resolved account identity (email/username, once known) doesn't obviously
+// relate to the profile's name — e.g. a profile named "halansari" whose
+// connection actually resolved to a @hotmail.com/@gmail.com personal
+// address. A profile name is a human label, not a guarantee of which
+// account got authenticated; this exists purely to make a mismatch visible,
+// never to block the connection.
+func warnIfAccountProfileMismatch(db *sql.DB, cfg *globalConfig, conn *connections.Connection) {
+	if conn == nil || conn.AccountID == "" || !strings.Contains(conn.AccountID, "@") {
+		return
+	}
+	var profileName string
+	_ = db.QueryRow(`SELECT name FROM profiles WHERE id = ?`, cfg.ProfileID).Scan(&profileName)
+	if profileName == "" || strings.EqualFold(profileName, "default") {
+		return
+	}
+	needle := strings.ToLower(strings.ReplaceAll(profileName, " ", ""))
+	if len(needle) < 3 {
+		return // too short a name to meaningfully match against
+	}
+	if strings.Contains(strings.ToLower(conn.AccountID), needle) {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"\n⚠ Heads up: profile %q connected to %s, which doesn't obviously match the profile name.\n"+
+			"  If this wasn't intentional, re-run with the correct account:\n"+
+			"  monoagentcli --profile %s connect %s\n\n",
+		profileName, conn.AccountID, profileName, conn.Platform)
 }
 
 func newConnectListCmd(cfg *globalConfig) *cobra.Command {
@@ -258,6 +293,9 @@ func newConnectRefreshCmd(cfg *globalConfig) *cobra.Command {
 
 			if err := mgr.Refresh(cmd.Context(), args[0], timeout); err != nil {
 				return err
+			}
+			if conn, gErr := mgr.Get(cmd.Context(), args[0]); gErr == nil {
+				warnIfAccountProfileMismatch(db.DB, cfg, conn)
 			}
 			fmt.Printf("Connection %s refreshed.\n", args[0])
 			return nil

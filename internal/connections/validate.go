@@ -574,20 +574,73 @@ func validateOutlookOAuth(ctx context.Context, c *Connection) (string, error) {
 	if token == "" {
 		return "", fmt.Errorf("validateOutlookOAuth: missing access_token")
 	}
-	// Use a Mail-scoped endpoint rather than /me: /me requires a User.Read
-	// scope this app never requests (only Mail.ReadWrite/Mail.Send/
-	// offline_access), so it 401s even with a perfectly valid token.
-	body, status, err := doGET(ctx, "https://graph.microsoft.com/v1.0/me/mailFolders/inbox?$select=unreadItemCount", "Bearer "+token)
+	// Resolves the real mailbox address (not just a liveness check) so
+	// connect/refresh/test all keep AccountID/Label showing which account is
+	// actually behind this connection — a profile name is a human label,
+	// not a guarantee of which mailbox got authenticated. /me itself needs
+	// a User.Read scope this app never requests (only Mail.ReadWrite/
+	// Mail.Send/offline_access), so the address is read from the smallest
+	// possible mail data instead: one field of at most one message.
+	address, _, err := outlookWhoAmI(ctx, token)
 	if err != nil {
 		return "", fmt.Errorf("validateOutlookOAuth: %w", err)
 	}
-	if status == 401 {
-		return "", fmt.Errorf("validateOutlookOAuth: token expired or invalid (HTTP 401)")
+	return address, nil
+}
+
+// outlookWhoAmI resolves the mailbox owner's own address using the smallest
+// possible read: one field ("from" or "toRecipients") of at most one
+// message, no subject/body/content fetched.
+func outlookWhoAmI(ctx context.Context, token string) (address, source string, err error) {
+	// A Sent Items message's "from" is always the account owner.
+	body, status, err := doGET(ctx, "https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=1&$select=from", "Bearer "+token)
+	if err == nil && status == 200 {
+		if addr := firstEmailAddressField(body, "from"); addr != "" {
+			return addr, "sentitems", nil
+		}
+	}
+	// Fall back to Inbox: mail addressed to the owner names them in toRecipients.
+	body, status, err = doGET(ctx, "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=1&$select=toRecipients", "Bearer "+token)
+	if err != nil {
+		return "", "", err
 	}
 	if status != 200 {
-		return "", fmt.Errorf("validateOutlookOAuth: unexpected status %d: %s", status, string(body))
+		return "", "", fmt.Errorf("unexpected status %d: %s", status, string(body))
 	}
-	return "outlook account", nil
+	if addr := firstEmailAddressField(body, "toRecipients"); addr != "" {
+		return addr, "inbox", nil
+	}
+	return "", "", fmt.Errorf("mailbox has no sent or received messages to resolve identity from")
+}
+
+// firstEmailAddressField extracts the address from the first message's given
+// field in a raw Graph list response, which is either a single
+// {"emailAddress":{...}} object ("from") or an array of them ("toRecipients").
+func firstEmailAddressField(body []byte, field string) string {
+	var parsed struct {
+		Value []map[string]interface{} `json:"value"`
+	}
+	if json.Unmarshal(body, &parsed) != nil || len(parsed.Value) == 0 {
+		return ""
+	}
+	msg := parsed.Value[0]
+	switch field {
+	case "from":
+		fromObj, _ := msg["from"].(map[string]interface{})
+		ea, _ := fromObj["emailAddress"].(map[string]interface{})
+		addr, _ := ea["address"].(string)
+		return addr
+	case "toRecipients":
+		recipients, _ := msg["toRecipients"].([]interface{})
+		if len(recipients) == 0 {
+			return ""
+		}
+		rm, _ := recipients[0].(map[string]interface{})
+		ea, _ := rm["emailAddress"].(map[string]interface{})
+		addr, _ := ea["address"].(string)
+		return addr
+	}
+	return ""
 }
 
 // validateHubSpot validates a HubSpot OAuth connection.

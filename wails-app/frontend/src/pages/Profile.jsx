@@ -3,7 +3,8 @@ import {
   ArrowLeft, ExternalLink, CheckCircle, Globe, Mail,
   Users, FileText, Heart, MessageSquare, Send, Eye,
   UserPlus, UserMinus, Search, RefreshCw, Zap,
-  MessageCircle, ChevronDown, ChevronRight
+  MessageCircle, ChevronDown, ChevronRight,
+  ArrowDownLeft, ArrowUpRight
 } from 'lucide-react'
 import { api, PLATFORM_COLORS, STATE_COLORS } from '../services/api.js'
 import MessageDetailModal from '../components/MessageDetailModal.jsx'
@@ -265,8 +266,11 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   const [sending, setSending] = useState(null) // 'send' | 'draft'
   const [composeError, setComposeError] = useState(null)
   const [draftActionId, setDraftActionId] = useState(null) // message id being sent/rejected
+  const [directionFilter, setDirectionFilter] = useState('all') // 'all' | 'inbound' | 'outbound'
 
   const canCompose = personPlatform === 'email'
+  const visibleMessages = directionFilter === 'all' ? messages : messages.filter(m => m.direction === directionFilter)
+  const sentCount = messages.filter(m => m.direction === 'outbound').length
 
   const reload = () => api.getPersonMessages(personId).then(data => setMessages(data || []))
 
@@ -418,22 +422,44 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
         </div>
       )}
 
+      {open && !loading && messages.length > 0 && (
+        <div style={{ display: 'flex', gap: 4, marginTop: 10 }}>
+          {[
+            { key: 'all', label: `All (${messages.length})` },
+            { key: 'inbound', label: `Received (${messages.length - sentCount})` },
+            { key: 'outbound', label: `Sent (${sentCount})` },
+          ].map(f => (
+            <button
+              key={f.key}
+              onClick={() => setDirectionFilter(f.key)}
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10,
+                padding: '3px 9px', borderRadius: 5, cursor: 'pointer',
+                background: directionFilter === f.key ? 'rgba(0,180,216,0.15)' : 'transparent',
+                border: '1px solid ' + (directionFilter === f.key ? 'rgba(0,180,216,0.3)' : 'var(--border)'),
+                color: directionFilter === f.key ? '#00b4d8' : 'var(--text-muted)',
+              }}
+            >{f.label}</button>
+          ))}
+        </div>
+      )}
+
       {open && (
         <div style={{ marginTop: 10 }}>
           {loading ? (
             <div style={{ padding: '12px 0', textAlign: 'center' }}>
               <div className="spinner" style={{ width: 14, height: 14, margin: '0 auto' }} />
             </div>
-          ) : messages.length === 0 ? (
+          ) : visibleMessages.length === 0 ? (
             <div style={{
               padding: '16px 0', textAlign: 'center',
               color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 11,
             }}>
-              No messages synced yet
+              {messages.length === 0 ? 'No messages synced yet' : 'No messages in this view'}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {messages.map(msg => (
+              {visibleMessages.map(msg => (
                 <div
                   key={msg.id}
                   role="button"
@@ -447,6 +473,10 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
                   border: '1px solid var(--border)',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {msg.direction === 'outbound'
+                      ? <ArrowUpRight size={11} style={{ color: '#10b981', flexShrink: 0 }} title="Sent" />
+                      : <ArrowDownLeft size={11} style={{ color: 'var(--text-muted)', flexShrink: 0 }} title="Received" />
+                    }
                     <span style={{
                       padding: '1px 6px', borderRadius: 4,
                       background: 'rgba(0,180,216,0.12)',

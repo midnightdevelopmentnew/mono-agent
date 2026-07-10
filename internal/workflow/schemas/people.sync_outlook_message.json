@@ -2,6 +2,7 @@
   "credential_platform": null,
   "fields": [
     { "key": "source", "label": "Source Label", "type": "text", "required": false, "default": "outlook", "help": "Stored as the message's source, e.g. outlook, gmail" },
+    { "key": "direction", "label": "Direction", "type": "select", "required": false, "options": ["inbound", "outbound"], "default": "inbound", "help": "inbound: sync each message's sender as the person (use with an inbox read). outbound: sync each recipient as the person instead (use with a sentitems/sent-mail read)." },
     { "key": "profile_id", "label": "Profile ID", "type": "text", "required": false, "default": "default", "help": "Which profile owns the synced people/messages. Defaults to 'default' — set this explicitly if this workflow belongs to a different profile (find the ID via `monoagentcli profile list`)." }
   ]
 }

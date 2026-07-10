@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"monoagent/internal/workflow"
 )
@@ -121,9 +122,24 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 		if mailbox == "" {
 			mailbox = "inbox"
 		}
-		url := fmt.Sprintf("%s/mailFolders/%s/messages?$top=%d&$select=id,subject,from,receivedDateTime,body,bodyPreview,isRead", outlookGraphBaseURL, mailbox, maxResults)
-		if unreadOnly, _ := config["unread_only"].(bool); unreadOnly {
-			url += "&$filter=" + gmailURLEncode("isRead eq false")
+		url := fmt.Sprintf("%s/mailFolders/%s/messages?$top=%d&$select=id,subject,from,toRecipients,receivedDateTime,body,bodyPreview,isRead", outlookGraphBaseURL, mailbox, maxResults)
+		// $search (full-text over subject/body/sender, or a field-scoped query
+		// like `from:someone@x.com` or `subject:invoice`) and $filter are
+		// mutually exclusive in the same Graph request, so prefer $search when
+		// given — it covers the more common "find this email" case directly.
+		if search := strVal(config, "search"); search != "" {
+			url += "&$search=" + gmailURLEncode(`"`+search+`"`)
+		} else {
+			var filters []string
+			if unreadOnly, _ := config["unread_only"].(bool); unreadOnly {
+				filters = append(filters, "isRead eq false")
+			}
+			if from := strVal(config, "from_address"); from != "" {
+				filters = append(filters, fmt.Sprintf("from/emailAddress/address eq '%s'", from))
+			}
+			if len(filters) > 0 {
+				url += "&$filter=" + gmailURLEncode(strings.Join(filters, " and "))
+			}
 		}
 		data, err := outlookGraphRequest(ctx, "GET", url, accessToken, nil)
 		if err != nil {
@@ -136,6 +152,19 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 				items = append(items, workflow.NewItem(msg))
 			}
 		}
+
+	case "whoami":
+		// Resolves the authenticated account's own address using the
+		// smallest possible read: one field ("from" or "toRecipients") of
+		// at most one message, no subject/body/content fetched. Tries
+		// Sent Items first (its "from" is always the account owner); falls
+		// back to Inbox ("toRecipients" — mail addressed to the owner) for
+		// mailboxes that have never sent anything.
+		address, source, err := outlookWhoAmI(ctx, accessToken)
+		if err != nil {
+			return nil, fmt.Errorf("outlook_mail whoami: %w", err)
+		}
+		items = []workflow.Item{workflow.NewItem(map[string]interface{}{"address": address, "source": source})}
 
 	case "get_message":
 		messageID := strVal(config, "message_id")
@@ -153,6 +182,60 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 	}
 
 	return []workflow.NodeOutput{{Handle: "main", Items: items}}, nil
+}
+
+// outlookWhoAmI resolves the mailbox owner's own address without the
+// User.Read scope (not part of this app's OAuth scopes, and adding it would
+// force every existing connection to be reconnected). Mail.Read/ReadWrite
+// alone can't reach /me, so this reads the single smallest field that
+// reveals the owner's identity from mail data instead.
+func outlookWhoAmI(ctx context.Context, accessToken string) (address, source string, err error) {
+	// A Sent Items message's "from" is always the account owner.
+	data, err := outlookGraphRequest(ctx, "GET",
+		outlookGraphBaseURL+"/mailFolders/sentitems/messages?$top=1&$select=from", accessToken, nil)
+	if err == nil {
+		if addr := firstEmailAddress(data, "from"); addr != "" {
+			return addr, "sentitems", nil
+		}
+	}
+	// Fall back to Inbox: mail addressed to the owner names them in toRecipients.
+	data, err = outlookGraphRequest(ctx, "GET",
+		outlookGraphBaseURL+"/mailFolders/inbox/messages?$top=1&$select=toRecipients", accessToken, nil)
+	if err != nil {
+		return "", "", err
+	}
+	if addr := firstEmailAddress(data, "toRecipients"); addr != "" {
+		return addr, "inbox", nil
+	}
+	return "", "", fmt.Errorf("mailbox has no sent or received messages to resolve identity from")
+}
+
+// firstEmailAddress extracts the address from the first message's given
+// field, which is either a single {"emailAddress":{...}} object ("from") or
+// an array of them ("toRecipients").
+func firstEmailAddress(data map[string]interface{}, field string) string {
+	values, _ := data["value"].([]interface{})
+	if len(values) == 0 {
+		return ""
+	}
+	msg, _ := values[0].(map[string]interface{})
+	switch field {
+	case "from":
+		fromObj, _ := msg["from"].(map[string]interface{})
+		ea, _ := fromObj["emailAddress"].(map[string]interface{})
+		addr, _ := ea["address"].(string)
+		return addr
+	case "toRecipients":
+		recipients, _ := msg["toRecipients"].([]interface{})
+		if len(recipients) == 0 {
+			return ""
+		}
+		rm, _ := recipients[0].(map[string]interface{})
+		ea, _ := rm["emailAddress"].(map[string]interface{})
+		addr, _ := ea["address"].(string)
+		return addr
+	}
+	return ""
 }
 
 // outlookGraphRequest makes an authenticated request to the Microsoft Graph API.

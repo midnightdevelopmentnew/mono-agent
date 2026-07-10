@@ -91,15 +91,27 @@ func nodeTypeToPlatform(nodeType string) string {
 // resolveCredentialData looks up a connection by ID or platform name, checks for
 // token expiry, and returns the credential data map. This mirrors the Wails app's
 // getResourceCredentialData function.
-func resolveCredentialData(ctx context.Context, store *connections.Store, credentialOrPlatform string) (map[string]interface{}, error) {
+func resolveCredentialData(ctx context.Context, store *connections.Store, credentialOrPlatform, profileID string) (map[string]interface{}, error) {
 	if store == nil {
 		return nil, fmt.Errorf("connections store not available")
 	}
 	// Try by ID first.
 	conn, err := store.Get(ctx, credentialOrPlatform)
+	// A connection ID is unambiguous, but still confirm it belongs to the
+	// active profile — passing another profile's connection ID (by mistake,
+	// or a stale ID from a previous --profile) must not silently succeed
+	// against the wrong mailbox/account.
+	if err == nil && conn != nil && conn.ProfileID != "" && conn.ProfileID != profileID {
+		conn = nil
+		err = fmt.Errorf("connection %q belongs to a different profile", credentialOrPlatform)
+	}
 	if (err != nil || conn == nil) && credentialOrPlatform != "" {
-		// Fallback: look up by platform name.
-		conns, lErr := store.ListByPlatform(ctx, credentialOrPlatform, "")
+		// Fallback: look up by platform name, scoped to the active profile —
+		// unscoped lookup here previously matched whichever profile's
+		// connection for this platform happened to be found first,
+		// silently operating on the wrong account when multiple profiles
+		// have a connection for the same platform.
+		conns, lErr := store.ListByPlatform(ctx, credentialOrPlatform, profileID)
 		if lErr == nil && len(conns) > 0 {
 			for i := range conns {
 				if conns[i].Status == "active" {
@@ -442,7 +454,13 @@ platform name to override. Token refresh is handled automatically for OAuth conn
   monoagentcli node run service.google_sheets --config '{"operation":"read_rows","spreadsheetId":"abc123","range":"Sheet1!A1:D10"}'
 
   # Explicit credential by connection ID or platform name
-  monoagentcli node run service.google_sheets --credential google_sheets --config '{"operation":"read_rows","spreadsheetId":"abc123"}'`,
+  monoagentcli node run service.google_sheets --credential google_sheets --config '{"operation":"read_rows","spreadsheetId":"abc123"}'
+
+  # Outlook: list any mailbox folder, not just inbox — mailbox accepts any
+  # well-known Graph folder name (inbox, drafts, sentitems, deleteditems,
+  # junkemail, archive, outbox)
+  monoagentcli node run service.outlook_mail --credential outlook --config '{"operation":"list_messages","mailbox":"drafts","max_results":10}'
+  monoagentcli node run service.outlook_mail --credential outlook --config '{"operation":"list_messages","mailbox":"sentitems","max_results":10}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeType := args[0]
@@ -494,7 +512,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					credKey = nodeTypeToPlatform(nodeType)
 				}
 				if credKey != "" {
-					credData, err := resolveCredentialData(context.Background(), connStore, credKey)
+					credData, err := resolveCredentialData(context.Background(), connStore, credKey, cfg.ProfileID)
 					if err == nil && credData != nil {
 						// Merge credential data into config (access_token, refresh_token, etc.).
 						for k, v := range credData {

@@ -1,6 +1,6 @@
 {
   "name": "Outlook Email Sync",
-  "description": "Every hour: fetch new Outlook emails and sync senders into People with message history. Set the Outlook Account credential on the \"Read Outlook (Graph)\" node before activating.",
+  "description": "Every hour: fetch new Outlook emails (received AND sent) and sync senders/recipients into People with message history. Set the Outlook Account credential on both \"Read Outlook\" nodes before activating.",
   "version": 1,
   "is_active": false,
   "nodes": [
@@ -37,6 +37,31 @@
       "config": {
         "source": "outlook"
       }
+    },
+    {
+      "id": "read_outlook_sent",
+      "type": "service.outlook_mail",
+      "name": "Read Outlook Sent (Graph)",
+      "position": { "x": 320, "y": 160 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "mailbox": "sentitems",
+        "max_results": 50,
+        "operation": "list_messages",
+        "unread_only": false
+      }
+    },
+    {
+      "id": "sync_sent_people",
+      "type": "people.sync_outlook_message",
+      "name": "Sync Sent Email to People",
+      "position": { "x": 640, "y": 160 },
+      "disabled": false,
+      "config": {
+        "source": "outlook",
+        "direction": "outbound"
+      }
     }
   ],
   "connections": [
@@ -52,6 +77,20 @@
       "source": "read_outlook",
       "source_handle": "main",
       "target": "sync_people",
+      "target_handle": "main"
+    },
+    {
+      "id": "trigger-to-read-sent",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "read_outlook_sent",
+      "target_handle": "main"
+    },
+    {
+      "id": "read-sent-to-sync-sent",
+      "source": "read_outlook_sent",
+      "source_handle": "main",
+      "target": "sync_sent_people",
       "target_handle": "main"
     }
   ]
