@@ -1,12 +1,15 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
+	"monoagent/internal/connections"
 	"monoagent/internal/storage"
+	"monoagent/internal/workflow"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +27,10 @@ func newPeopleMessagesCmd(cfg *globalConfig) *cobra.Command {
 		newPeopleMessagesListCmd(cfg),
 		newPeopleMessagesImportCmd(cfg),
 		newPeopleMessagesAllCmd(cfg),
+		newPeopleMessagesComposeCmd(cfg),
+		newPeopleMessagesDraftsCmd(cfg),
+		newPeopleMessagesSendDraftCmd(cfg),
+		newPeopleMessagesRejectDraftCmd(cfg),
 	)
 
 	return cmd
@@ -308,4 +315,285 @@ func getStr(m map[string]interface{}, key string) string {
 		return v
 	}
 	return ""
+}
+
+// newPeopleMessagesComposeCmd sends (or drafts) an email to a person via
+// service.outlook_mail and records the result on their message history —
+// the CLI equivalent of the GUI's Compose button on a person's Profile page.
+func newPeopleMessagesComposeCmd(cfg *globalConfig) *cobra.Command {
+	var (
+		connectionID string
+		subject      string
+		body         string
+		bodyType     string
+		asDraft      bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "compose <person-id>",
+		Short: "Send or save-as-draft an email to a person, recorded on their message history",
+		Args:  cobra.ExactArgs(1),
+		Example: `  monoagentcli people messages compose abc123 --connection outlook --subject "Hi" --body "Thanks for reaching out"
+  monoagentcli people messages compose abc123 --connection outlook --subject "Hi" --body "..." --draft`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if body == "" {
+				return fmt.Errorf("--body is required")
+			}
+
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+
+			var toAddr string
+			if err := db.DB.QueryRow(
+				`SELECT platform_username FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+				args[0], cfg.ProfileID,
+			).Scan(&toAddr); err != nil {
+				return fmt.Errorf("person %s not found in profile %s: %w", args[0], cfg.ProfileID, err)
+			}
+
+			operation, status := "send_message", "sent"
+			if asDraft {
+				operation, status = "create_draft", "draft"
+			}
+			if bodyType == "" {
+				bodyType = "html"
+			}
+
+			config := map[string]interface{}{
+				"operation": operation,
+				"to":        toAddr,
+				"subject":   subject,
+				"body":      body,
+				"body_type": bodyType,
+			}
+			outputs, err := runOutlookNode(cmd, cfg, db.DB, connectionID, config)
+			if err != nil {
+				return err
+			}
+
+			var externalID string
+			if len(outputs) > 0 && len(outputs[0].Items) > 0 {
+				externalID = getStr(outputs[0].Items[0].JSON, "id")
+			}
+			metaBytes, _ := json.Marshal(map[string]string{"connection_id": connectionID})
+
+			msg := &storage.PersonMessage{
+				PersonID:   args[0],
+				Source:     "outlook",
+				ExternalID: externalID,
+				Direction:  "outbound",
+				Sender:     toAddr,
+				Subject:    subject,
+				Body:       body,
+				Metadata:   string(metaBytes),
+				Status:     status,
+				SentAt:     time.Now().UTC(),
+			}
+			if err := db.UpsertPersonMessage(msg, cfg.ProfileID); err != nil {
+				return fmt.Errorf("saving message: %w", err)
+			}
+
+			if cfg.JSONOutput {
+				return json.NewEncoder(os.Stdout).Encode(msg)
+			}
+			verb := "Sent"
+			if asDraft {
+				verb = "Drafted"
+			}
+			fmt.Fprintf(os.Stdout, "%s message to %s (message id: %s)\n", verb, toAddr, msg.ID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&connectionID, "connection", "", "Outlook connection ID or platform name, e.g. \"outlook\" (required)")
+	cmd.Flags().StringVar(&subject, "subject", "", "Subject")
+	cmd.Flags().StringVar(&body, "body", "", "Body (required)")
+	cmd.Flags().StringVar(&bodyType, "body-type", "html", "Body type: text or html")
+	cmd.Flags().BoolVar(&asDraft, "draft", false, "Save as a draft instead of sending immediately")
+	_ = cmd.MarkFlagRequired("connection")
+	_ = cmd.MarkFlagRequired("body")
+
+	return cmd
+}
+
+// newPeopleMessagesDraftsCmd lists draft messages awaiting confirmation —
+// the same set shown in the GUI's Human in Loop page.
+func newPeopleMessagesDraftsCmd(cfg *globalConfig) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "drafts",
+		Short: "List draft messages awaiting confirmation (also shown in the GUI's Human in Loop page)",
+		Example: `  monoagentcli people messages drafts
+  monoagentcli people messages drafts --json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+
+			drafts, err := db.ListPersonMessagesByStatus(cfg.ProfileID, "draft")
+			if err != nil {
+				return fmt.Errorf("listing drafts: %w", err)
+			}
+
+			if cfg.JSONOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(drafts)
+			}
+
+			if len(drafts) == 0 {
+				fmt.Println("No pending drafts.")
+				return nil
+			}
+
+			table := tablewriter.NewWriter(os.Stdout)
+			table.SetHeader([]string{"ID", "To", "Subject", "Created"})
+			table.SetBorder(false)
+			table.SetAutoWrapText(false)
+			for _, d := range drafts {
+				to := d.PersonFullName
+				if to == "" {
+					to = d.PersonPlatformUsername
+				}
+				shortID := d.ID
+				if len(shortID) > 8 {
+					shortID = shortID[:8]
+				}
+				table.Append([]string{shortID, truncateStr(to, 24), truncateStr(d.Subject, 40), d.CreatedAt.Format("2006-01-02 15:04:05")})
+			}
+			table.Render()
+			fmt.Fprintf(os.Stderr, "\nUse 'monoagentcli people messages send-draft <full-id>' or 'reject-draft <full-id>' (get the full ID with --json).\n")
+			return nil
+		},
+	}
+	return cmd
+}
+
+// newPeopleMessagesSendDraftCmd sends a previously-created draft as-is.
+func newPeopleMessagesSendDraftCmd(cfg *globalConfig) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "send-draft <message-id>",
+		Short: "Send a previously-created draft message",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+
+			msg, err := db.GetPersonMessage(args[0])
+			if err != nil {
+				return err
+			}
+			if msg == nil {
+				return fmt.Errorf("message %s not found", args[0])
+			}
+			if msg.Status != "draft" {
+				return fmt.Errorf("message %s is not a draft (status: %s)", args[0], msg.Status)
+			}
+			connectionID, err := draftMessageConnectionID(msg)
+			if err != nil {
+				return err
+			}
+
+			config := map[string]interface{}{"operation": "send_draft", "message_id": msg.ExternalID}
+			if _, err := runOutlookNode(cmd, cfg, db.DB, connectionID, config); err != nil {
+				return err
+			}
+
+			if err := db.UpdatePersonMessageStatus(args[0], "sent"); err != nil {
+				return fmt.Errorf("updating status: %w", err)
+			}
+			fmt.Fprintf(os.Stdout, "Sent draft %s.\n", args[0])
+			return nil
+		},
+	}
+	return cmd
+}
+
+// newPeopleMessagesRejectDraftCmd discards a draft: best-effort removes it
+// from the mailbox's Drafts folder too, then deletes the local history row.
+func newPeopleMessagesRejectDraftCmd(cfg *globalConfig) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reject-draft <message-id>",
+		Short: "Discard a draft message",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+
+			msg, err := db.GetPersonMessage(args[0])
+			if err != nil {
+				return err
+			}
+			if msg == nil {
+				return fmt.Errorf("message %s not found", args[0])
+			}
+			if connectionID, cErr := draftMessageConnectionID(msg); cErr == nil && msg.ExternalID != "" {
+				config := map[string]interface{}{"operation": "delete_message", "message_id": msg.ExternalID}
+				_, _ = runOutlookNode(cmd, cfg, db.DB, connectionID, config) // best-effort
+			}
+
+			if err := db.DeletePersonMessage(args[0]); err != nil {
+				return fmt.Errorf("deleting message: %w", err)
+			}
+			fmt.Fprintf(os.Stdout, "Discarded draft %s.\n", args[0])
+			return nil
+		},
+	}
+	return cmd
+}
+
+// draftMessageConnectionID extracts the connection_id stashed in a draft
+// message's Metadata by newPeopleMessagesComposeCmd.
+func draftMessageConnectionID(msg *storage.PersonMessage) (string, error) {
+	var meta struct {
+		ConnectionID string `json:"connection_id"`
+	}
+	if msg.Metadata == "" {
+		return "", fmt.Errorf("message %s has no associated connection", msg.ID)
+	}
+	if err := json.Unmarshal([]byte(msg.Metadata), &meta); err != nil || meta.ConnectionID == "" {
+		return "", fmt.Errorf("message %s has no associated connection", msg.ID)
+	}
+	return meta.ConnectionID, nil
+}
+
+// runOutlookNode resolves credentials for the given connection ID/platform
+// name (scoped to cfg.ProfileID) and executes service.outlook_mail with the
+// given config, in-process — shared by compose/send-draft/reject-draft so
+// none of them duplicate credential resolution or node dispatch.
+func runOutlookNode(cmd *cobra.Command, cfg *globalConfig, db *sql.DB, connectionID string, config map[string]interface{}) ([]workflow.NodeOutput, error) {
+	if connectionID == "" {
+		connectionID = "outlook"
+	}
+	registry := buildNodeRegistry(cfg.Verbose, db)
+	factory, ok := registry.Get("service.outlook_mail")
+	if !ok {
+		return nil, fmt.Errorf("service.outlook_mail node not registered")
+	}
+
+	connStore := connections.NewStore(db)
+	credData, err := resolveCredentialData(cmd.Context(), connStore, connectionID, cfg.ProfileID)
+	if err != nil {
+		return nil, fmt.Errorf("resolving connection %q: %w", connectionID, err)
+	}
+	for k, v := range credData {
+		config[k] = v
+	}
+
+	outputs, err := factory().Execute(cmd.Context(), workflow.NodeInput{}, config)
+	if err != nil {
+		op, _ := config["operation"].(string)
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	return outputs, nil
 }

@@ -1470,16 +1470,28 @@ var cliDocs = []cmdDoc{
 	},
 	{
 		Name:  "people",
-		Short: "Manage people / contact lists",
+		Short: "Manage people / contact lists and their message history",
 		Usage: "monoagentcli people <subcommand>",
-		Flags: `  list                  List all people
-  add                   Add a person
-  import <file>         Import from CSV/JSON
-  export <list-id>      Export list to file
-  remove <id>           Remove a person`,
+		Flags: `  list                              List all people
+  add                               Add a person
+  import <file>                     Import from CSV/JSON
+  export <list-id>                  Export list to file
+  remove <id>                       Remove a person
+  messages add <person-id>          Record a single message/interaction
+  messages list <person-id>         List a person's messages
+  messages import <person-id>       Bulk-import messages from a JSON file
+  messages all                      Unified communications feed across everyone
+  messages compose <person-id>      Send/draft an email to a person (recorded on their history)
+  messages drafts                   List draft messages awaiting confirmation
+  messages send-draft <msg-id>      Send a previously-created draft
+  messages reject-draft <msg-id>    Discard a draft`,
 		Examples: []string{
 			"monoagentcli people list",
 			"monoagentcli people import leads.csv",
+			"monoagentcli people messages all --source outlook --limit 50",
+			`monoagentcli people messages compose <person-id> --connection outlook --subject "Hi" --body "..." --draft`,
+			"monoagentcli people messages drafts --json",
+			"monoagentcli people messages send-draft <message-id>",
 		},
 	},
 	{
@@ -1549,25 +1561,48 @@ var cliDocs = []cmdDoc{
 		Name:  "workflow",
 		Short: "Manage and run multi-node automation workflows",
 		Usage: "monoagentcli workflow <subcommand>",
-		Flags: `  list          List all workflows
-  get <id>      Show workflow definition
-  run <id>      Execute a workflow (--verbose to stream logs)
-  create        Create a new workflow
-  delete <id>   Delete a workflow`,
+		Flags: `  list                        List all workflows (scoped to --profile)
+  get <id>                    Show workflow definition
+  create <name>               Create a new blank workflow
+  import                      Import a workflow from a JSON file (--file or stdin)
+  export <id>                 Export a workflow as JSON
+  run <id>                    Execute a workflow once (--verbose to stream logs)
+  activate <id>               Register triggers for this command's lifetime only
+  deactivate <id>             Stop a workflow's triggers
+  delete <id>                 Delete a workflow (--force to skip confirmation)
+  executions <id>             List recent executions
+  node add <wf-id>            Add a node (--type, --name, --config)
+  node set <wf-id> <node-id>  Update a node's config/name/position
+  node remove <wf-id> <id>    Remove a node
+  connect <wf-id>             Connect two nodes (--from, --to)
+  disconnect <wf-id> <conn>   Remove a connection
+  migrate                     One-time migration helper for legacy workflow formats
+  templates list              List bundled, ready-to-use workflow templates
+  templates use <id>          Instantiate a template as a new, editable workflow`,
 		Examples: []string{
+			"monoagentcli workflow templates list",
+			"monoagentcli workflow templates use outlook_email_sync",
 			"monoagentcli workflow list",
 			"monoagentcli workflow run german-news-persian-instagram-v1 --verbose",
 			"monoagentcli workflow get my-workflow",
+			`monoagentcli workflow node add my-workflow --type trigger.schedule --name "Every Hour" --config '{"cron":"0 0 * * * *"}'`,
+			"monoagentcli workflow connect my-workflow --from nodeA:main --to nodeB:main",
+			"monoagentcli workflow activate my-workflow   # requires `monoagentcli daemon` running to actually fire over time",
 		},
 	},
 	{
 		Name:  "node",
-		Short: "Run individual workflow nodes for testing",
+		Short: "Run individual workflow nodes directly — also how any node type gets used ad hoc, not just for testing",
 		Usage: "monoagentcli node <subcommand>",
-		Flags: `  list           List all available node types
-  run <type>     Run a node with --config JSON and optional --input JSON`,
+		Flags: `  list                        List all available node types (--filter substring)
+  run <type>                  Run a node with --config JSON, optional --input JSON
+    --config string             Node configuration as JSON object
+    --input string               Input items as JSON array of {"json":{...}}, or a single object
+    --credential string           Connection ID or platform name — see 'ref connections' for how this resolves
+    --output string                Output format: text (default) or json`,
 		Examples: []string{
 			"monoagentcli node list",
+			"monoagentcli node list --filter outlook",
 			`monoagentcli node run system.rss_read --config '{"url":"https://rss.dw.com/rdf/rss-en-all","limit":5}'`,
 			`# Gemini text — NO API KEY needed, uses browser session (run 'monoagentcli login gemini' first)`,
 			`monoagentcli node run gemini.generate_text --config '{"prompt":"Say hello in Persian"}'`,
@@ -1582,14 +1617,44 @@ var cliDocs = []cmdDoc{
 	},
 	{
 		Name:  "connect",
-		Short: "Manage AI and external service connections",
-		Usage: "monoagentcli connect <subcommand>",
-		Flags: `  list          List all connections
-  test <id>     Test a connection
-  remove <id>   Remove a connection`,
+		Short: "Manage AI and external service connections (OAuth, API keys) — see 'ref connections' for the full model",
+		Usage: "monoagentcli connect <platform> | connect <subcommand>",
+		Flags: `  <platform>                              Interactively connect a platform (OAuth or API key)
+  list [--all] [--platform x]            List saved connections (--all: every supported platform)
+  test <id>                              Verify a connection still works
+  refresh <id>                           Force a silent token refresh right now
+  remove <id>                            Delete a connection
+  set-oauth-client <platform>            Store an OAuth app's client_id/secret (enables silent refresh)`,
 		Examples: []string{
+			"monoagentcli connect outlook",
 			"monoagentcli connect list",
-			"monoagentcli connect test gemini-user",
+			"monoagentcli connect list --all",
+			"monoagentcli connect refresh 08ccf6df-3ed2-4d47-85b5-3741cd4f9f25",
+			"monoagentcli connect set-oauth-client outlook --client-id <azure-app-client-id>",
+		},
+	},
+	{
+		Name:  "profile",
+		Short: "Manage profiles — the full isolation boundary for people/messages/connections/workflows",
+		Usage: "monoagentcli profile <subcommand>",
+		Flags: `  list             List all profiles and which is active
+  create <name>    Create a new profile
+  switch <name>    Change the active default profile
+  current          Show the currently active profile`,
+		Examples: []string{
+			"monoagentcli profile list",
+			"monoagentcli profile create halansari",
+			"monoagentcli --profile halansari people list   # override for a single command, no switch needed",
+		},
+	},
+	{
+		Name:  "daemon",
+		Short: "Keep scheduled/webhook workflow triggers alive continuously, across ALL profiles",
+		Usage: "monoagentcli daemon",
+		Flags: `  (no subcommands — runs in the foreground until interrupted)`,
+		Examples: []string{
+			"monoagentcli daemon",
+			"# run as a background/system service (macOS launchd, systemd, etc.) for it to survive logout/reboot",
 		},
 	},
 	{
