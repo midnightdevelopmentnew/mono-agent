@@ -34,7 +34,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		profile_id TEXT NOT NULL DEFAULT 'default',
 		created_at DATETIME,
 		updated_at DATETIME,
-		UNIQUE(platform_username, platform)
+		UNIQUE(platform_username, platform, profile_id)
 	)`)
 	if err != nil {
 		t.Fatalf("create table: %v", err)
