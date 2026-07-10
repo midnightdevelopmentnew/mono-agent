@@ -2,14 +2,14 @@
   "credential_platform": "outlook",
   "fields": [
     { "key": "credential_id", "label": "Outlook Account", "type": "credential_picker", "required": true },
-    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_messages", "get_message", "send_message"], "default": "list_messages" },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["list_messages", "get_message", "send_message", "create_draft", "send_draft", "delete_message"], "default": "list_messages" },
     { "key": "mailbox", "label": "Mailbox", "type": "text", "required": false, "default": "inbox", "depends_on": { "key": "operation", "values": ["list_messages"] } },
     { "key": "unread_only", "label": "Unread Only", "type": "boolean", "required": false, "default": false, "depends_on": { "key": "operation", "values": ["list_messages"] } },
     { "key": "max_results", "label": "Max Results", "type": "number", "required": false, "default": 10, "depends_on": { "key": "operation", "values": ["list_messages"] } },
-    { "key": "message_id", "label": "Message ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_message"] } },
-    { "key": "to", "label": "To", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_message"] } },
-    { "key": "subject", "label": "Subject", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_message"] } },
-    { "key": "body", "label": "Body", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["send_message"] } },
-    { "key": "body_type", "label": "Body Type", "type": "select", "required": false, "options": ["text", "html"], "default": "text", "depends_on": { "key": "operation", "values": ["send_message"] } }
+    { "key": "message_id", "label": "Message ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_message", "send_draft", "delete_message"] } },
+    { "key": "to", "label": "To", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_message", "create_draft"] } },
+    { "key": "subject", "label": "Subject", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["send_message", "create_draft"] } },
+    { "key": "body", "label": "Body", "type": "textarea", "required": false, "rows": 5, "depends_on": { "key": "operation", "values": ["send_message", "create_draft"] } },
+    { "key": "body_type", "label": "Body Type", "type": "select", "required": false, "options": ["text", "html"], "default": "text", "depends_on": { "key": "operation", "values": ["send_message", "create_draft"] } }
   ]
 }

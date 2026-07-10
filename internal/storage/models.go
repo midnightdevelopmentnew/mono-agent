@@ -100,6 +100,7 @@ type PersonMessage struct {
 	Subject    string    `json:"subject,omitempty"`
 	Body       string    `json:"body,omitempty"`
 	Metadata   string    `json:"metadata,omitempty"`
+	Status     string    `json:"status,omitempty"` // draft | sent | failed; meaningful for outbound compose messages
 	SentAt     time.Time `json:"sent_at,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }

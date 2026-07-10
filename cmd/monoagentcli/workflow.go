@@ -129,8 +129,144 @@ func newWorkflowCmd(cfg *globalConfig) *cobra.Command {
 		newWorkflowConnectCmd(cfg),
 		newWorkflowDisconnectCmd(cfg),
 		newWorkflowMigrateCmd(cfg),
+		newWorkflowTemplatesCmd(cfg),
 	)
 
+	return cmd
+}
+
+// newWorkflowTemplatesCmd manages bundled, ready-to-use workflow templates
+// (e.g. "Outlook Email Sync") that ship with the CLI/app and can be turned
+// into a real, editable workflow with one command.
+func newWorkflowTemplatesCmd(cfg *globalConfig) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "templates",
+		Short: "Browse and instantiate bundled ready-to-use workflow templates",
+	}
+	cmd.AddCommand(newWorkflowTemplatesListCmd(cfg), newWorkflowTemplatesUseCmd(cfg))
+	return cmd
+}
+
+func newWorkflowTemplatesListCmd(cfg *globalConfig) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List bundled workflow templates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			templates := workflow.ListTemplates()
+			if cfg.JSONOutput {
+				return json.NewEncoder(os.Stdout).Encode(templates)
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
+			for _, t := range templates {
+				fmt.Fprintf(w, "%s\t%s\t%s\n", t.ID, t.Name, t.Description)
+			}
+			return w.Flush()
+		},
+	}
+	return cmd
+}
+
+func newWorkflowTemplatesUseCmd(cfg *globalConfig) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "use <template-id>",
+		Short: "Instantiate a bundled template as a new, editable workflow",
+		Long: "Creates a new workflow for the current profile from a bundled template " +
+			"(see `workflow templates list` for IDs). The workflow starts inactive — " +
+			"fill in any required credentials (e.g. the Outlook account) via `workflow node set` " +
+			"or the app, then `workflow activate` it.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tmplFile, ok := workflow.GetTemplate(args[0])
+			if !ok {
+				return fmt.Errorf("unknown template %q. Run `monoagentcli workflow templates list` to see available IDs", args[0])
+			}
+
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("open database: %w", err)
+			}
+			defer db.Close()
+
+			// Node IDs in the template are stable, human-readable placeholders
+			// (e.g. "trigger") shared across every instantiation, so remap them
+			// to fresh UUIDs here rather than colliding across workflows.
+			idMap := make(map[string]string, len(tmplFile.Nodes))
+			for _, n := range tmplFile.Nodes {
+				idMap[n.ID] = uuid.New().String()
+			}
+
+			now := time.Now().UTC()
+			wf := workflow.Workflow{
+				ID:          uuid.New().String(),
+				Name:        tmplFile.Name,
+				Description: tmplFile.Description,
+				IsActive:    false,
+				Version:     1,
+				ProfileID:   cfg.ProfileID,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			for _, fn := range tmplFile.Nodes {
+				config := fn.Config
+				if config == nil {
+					config = map[string]interface{}{}
+				}
+				// people.sync_outlook_message scopes synced people/messages by
+				// its own "profile_id" config field, independent of the
+				// workflow's ProfileID — default it to this profile so the
+				// template works correctly out of the box for non-default profiles.
+				if fn.Type == "people.sync_outlook_message" {
+					config["profile_id"] = cfg.ProfileID
+				}
+				wf.Nodes = append(wf.Nodes, workflow.WorkflowNode{
+					ID:         idMap[fn.ID],
+					WorkflowID: wf.ID,
+					Type:       fn.Type,
+					Name:       fn.Name,
+					PositionX:  fn.Position.X,
+					PositionY:  fn.Position.Y,
+					Disabled:   fn.Disabled,
+					Config:     config,
+				})
+			}
+			for _, fe := range tmplFile.Connections {
+				wf.Connections = append(wf.Connections, workflow.WorkflowConnection{
+					ID:           uuid.New().String(),
+					WorkflowID:   wf.ID,
+					SourceNodeID: idMap[fe.Source],
+					SourceHandle: fe.SourceHandle,
+					TargetNodeID: idMap[fe.Target],
+					TargetHandle: fe.TargetHandle,
+				})
+			}
+
+			store := newHybridStore(db)
+			ctx := context.Background()
+			if err := store.CreateWorkflow(ctx, &wf); err != nil {
+				return fmt.Errorf("create workflow: %w", err)
+			}
+			for i := range wf.Nodes {
+				if err := wf.Nodes[i].MarshalConfig(); err != nil {
+					return fmt.Errorf("marshal node config: %w", err)
+				}
+			}
+			if err := store.SaveWorkflowNodes(ctx, wf.ID, wf.Nodes); err != nil {
+				return fmt.Errorf("save nodes: %w", err)
+			}
+			if err := store.SaveWorkflowConnections(ctx, wf.ID, wf.Connections); err != nil {
+				return fmt.Errorf("save connections: %w", err)
+			}
+
+			if cfg.JSONOutput {
+				return json.NewEncoder(os.Stdout).Encode(wf)
+			}
+			fmt.Fprintf(os.Stdout, "Created workflow %q from template %q  (id: %s, %d nodes, %d connections)\n",
+				wf.Name, args[0], wf.ID, len(wf.Nodes), len(wf.Connections))
+			fmt.Fprintln(os.Stdout, "It starts inactive — set any required credentials, then `monoagentcli workflow activate "+wf.ID+"`.")
+			return nil
+		},
+	}
 	return cmd
 }
 

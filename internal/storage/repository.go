@@ -785,6 +785,9 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 	if msg.ExternalID == "" {
 		msg.ExternalID = msg.ID
 	}
+	if msg.Status == "" {
+		msg.Status = "sent"
+	}
 
 	var exists int
 	err := d.DB.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, msg.PersonID, profileID).Scan(&exists)
@@ -798,8 +801,8 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 	_, err = d.DB.Exec(`
 		INSERT INTO person_messages (
 			id, person_id, source, external_id, direction, sender, subject,
-			body, metadata, sent_at, profile_id, created_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+			body, metadata, status, sent_at, profile_id, created_at
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(person_id, source, external_id)
 		DO UPDATE SET
 			direction = excluded.direction,
@@ -807,10 +810,11 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 			subject   = excluded.subject,
 			body      = excluded.body,
 			metadata  = excluded.metadata,
+			status    = excluded.status,
 			sent_at   = excluded.sent_at`,
 		msg.ID, msg.PersonID, msg.Source, msg.ExternalID, msg.Direction,
 		nullStr(msg.Sender), nullStr(msg.Subject), nullStr(msg.Body),
-		nullStr(msg.Metadata), nullTime(msg.SentAt), profileID, time.Now().UTC(),
+		nullStr(msg.Metadata), msg.Status, nullTime(msg.SentAt), profileID, time.Now().UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("upserting message for person %s: %w", msg.PersonID, err)
@@ -835,7 +839,7 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 	query := `
 		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
 		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
-		       COALESCE(pm.metadata,''), pm.sent_at, pm.created_at
+		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at
 		FROM person_messages pm
 		JOIN people p ON p.id = pm.person_id
 		WHERE pm.person_id = ? AND COALESCE(p.profile_id,'default') = ?`
@@ -860,7 +864,85 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 		var sentAt sql.NullTime
 		if err := rows.Scan(
 			&m.ID, &m.PersonID, &m.Source, &m.ExternalID, &m.Direction,
-			&m.Sender, &m.Subject, &m.Body, &m.Metadata, &sentAt, &m.CreatedAt,
+			&m.Sender, &m.Subject, &m.Body, &m.Metadata, &m.Status, &sentAt, &m.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning person message row: %w", err)
+		}
+		if sentAt.Valid {
+			m.SentAt = sentAt.Time
+		}
+		messages = append(messages, m)
+	}
+	return messages, rows.Err()
+}
+
+// GetPersonMessage returns a single message by ID, or nil if not found.
+func (d *Database) GetPersonMessage(id string) (*PersonMessage, error) {
+	m := &PersonMessage{}
+	var sentAt sql.NullTime
+	err := d.DB.QueryRow(`
+		SELECT id, person_id, source, external_id, direction,
+		       COALESCE(sender,''), COALESCE(subject,''), COALESCE(body,''),
+		       COALESCE(metadata,''), status, sent_at, created_at
+		FROM person_messages WHERE id = ?`, id,
+	).Scan(
+		&m.ID, &m.PersonID, &m.Source, &m.ExternalID, &m.Direction,
+		&m.Sender, &m.Subject, &m.Body, &m.Metadata, &m.Status, &sentAt, &m.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting person message %s: %w", id, err)
+	}
+	if sentAt.Valid {
+		m.SentAt = sentAt.Time
+	}
+	return m, nil
+}
+
+// UpdatePersonMessageStatus transitions a message's status (e.g. "draft" -> "sent").
+func (d *Database) UpdatePersonMessageStatus(id, status string) error {
+	result, err := d.DB.Exec(`UPDATE person_messages SET status = ? WHERE id = ?`, status, id)
+	if err != nil {
+		return fmt.Errorf("updating status for message %s: %w", id, err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("message %s not found", id)
+	}
+	return nil
+}
+
+// ListPersonMessagesByStatus returns messages across every person in the
+// given profile filtered by status (e.g. "draft"), newest first.
+func (d *Database) ListPersonMessagesByStatus(profileID, status string) ([]*PersonMessageWithPerson, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	rows, err := d.DB.Query(`
+		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
+		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
+		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at,
+		       COALESCE(p.full_name,''), p.platform_username, p.platform
+		FROM person_messages pm
+		JOIN people p ON p.id = pm.person_id
+		WHERE COALESCE(p.profile_id,'default') = ? AND pm.status = ?
+		ORDER BY pm.created_at DESC`, profileID, status,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing person messages by status %q: %w", status, err)
+	}
+	defer rows.Close()
+
+	var messages []*PersonMessageWithPerson
+	for rows.Next() {
+		m := &PersonMessageWithPerson{}
+		var sentAt sql.NullTime
+		if err := rows.Scan(
+			&m.ID, &m.PersonID, &m.Source, &m.ExternalID, &m.Direction,
+			&m.Sender, &m.Subject, &m.Body, &m.Metadata, &m.Status, &sentAt, &m.CreatedAt,
+			&m.PersonFullName, &m.PersonPlatformUsername, &m.PersonPlatform,
 		); err != nil {
 			return nil, fmt.Errorf("scanning person message row: %w", err)
 		}
@@ -898,7 +980,7 @@ func (d *Database) ListAllPersonMessages(profileID, source string, limit, offset
 	query := `
 		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
 		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
-		       COALESCE(pm.metadata,''), pm.sent_at, pm.created_at,
+		       COALESCE(pm.metadata,''), pm.status, pm.sent_at, pm.created_at,
 		       COALESCE(p.full_name,''), p.platform_username, p.platform
 		FROM person_messages pm
 		JOIN people p ON p.id = pm.person_id
@@ -924,7 +1006,7 @@ func (d *Database) ListAllPersonMessages(profileID, source string, limit, offset
 		var sentAt sql.NullTime
 		if err := rows.Scan(
 			&m.ID, &m.PersonID, &m.Source, &m.ExternalID, &m.Direction,
-			&m.Sender, &m.Subject, &m.Body, &m.Metadata, &sentAt, &m.CreatedAt,
+			&m.Sender, &m.Subject, &m.Body, &m.Metadata, &m.Status, &sentAt, &m.CreatedAt,
 			&m.PersonFullName, &m.PersonPlatformUsername, &m.PersonPlatform,
 		); err != nil {
 			return nil, fmt.Errorf("scanning person message row: %w", err)

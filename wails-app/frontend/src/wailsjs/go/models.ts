@@ -991,6 +991,7 @@ export namespace storage {
 	    subject?: string;
 	    body?: string;
 	    metadata?: string;
+	    status?: string;
 	    // Go type: time
 	    sent_at?: any;
 	    // Go type: time
@@ -1011,6 +1012,7 @@ export namespace storage {
 	        this.subject = source["subject"];
 	        this.body = source["body"];
 	        this.metadata = source["metadata"];
+	        this.status = source["status"];
 	        this.sent_at = this.convertValues(source["sent_at"], null);
 	        this.created_at = this.convertValues(source["created_at"], null);
 	    }
@@ -1043,6 +1045,7 @@ export namespace storage {
 	    subject?: string;
 	    body?: string;
 	    metadata?: string;
+	    status?: string;
 	    // Go type: time
 	    sent_at?: any;
 	    // Go type: time
@@ -1066,6 +1069,7 @@ export namespace storage {
 	        this.subject = source["subject"];
 	        this.body = source["body"];
 	        this.metadata = source["metadata"];
+	        this.status = source["status"];
 	        this.sent_at = this.convertValues(source["sent_at"], null);
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.person_full_name = source["person_full_name"];
@@ -1217,6 +1221,23 @@ export namespace workflow {
 		}
 	}
 	
+	
+	export class Template {
+	    id: string;
+	    name: string;
+	    description: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Template(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	    }
+	}
 
 }
 

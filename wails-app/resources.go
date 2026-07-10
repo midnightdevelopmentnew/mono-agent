@@ -8,11 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
-
-	"monoagent/internal/connections"
 )
 
 // ResourceItem is a single listable resource (spreadsheet, channel, etc.)
@@ -115,110 +112,17 @@ func (a *App) getResourceCredentialData(ctx context.Context, credentialID string
 	// Check if token needs refresh (OAuth connections with expires_at).
 	if expiresStr, _ := conn.Data["expires_at"].(string); expiresStr != "" {
 		if expiresAt, err := time.Parse(time.RFC3339, expiresStr); err == nil {
-			// Refresh if token expires within the next 60 seconds.
+			// Refresh if token expires within the next 60 seconds. Shares the
+			// same silent refresh_token exchange (per-profile client
+			// credentials, /consumers/ audience fallback) as every other
+			// refresh call site — CLI, daemon, and `connect refresh`.
 			if time.Now().UTC().After(expiresAt.Add(-60 * time.Second)) {
-				if refreshed, err := a.refreshOAuthToken(ctx, conn); err == nil {
-					return refreshed, nil
+				if err := a.connMgr.RefreshToken(ctx, conn); err == nil {
+					return conn.Data, nil
 				}
 				// If refresh fails, fall through and try with the existing token.
 			}
 		}
-	}
-
-	return conn.Data, nil
-}
-
-// refreshOAuthToken uses the stored refresh_token to obtain a new access_token
-// from the provider's token endpoint, updates the connection, and returns the
-// refreshed credential data.
-func (a *App) refreshOAuthToken(ctx context.Context, conn *connections.Connection) (map[string]interface{}, error) {
-	refreshToken, _ := conn.Data["refresh_token"].(string)
-	if refreshToken == "" {
-		return nil, fmt.Errorf("no refresh_token available")
-	}
-
-	p, ok := connections.Get(conn.Platform)
-	if !ok || p.OAuth == nil {
-		return nil, fmt.Errorf("platform %q has no OAuth config", conn.Platform)
-	}
-
-	cfg := *p.OAuth
-	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
-	if cfg.ClientID == "" {
-		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
-	}
-	if cfg.ClientSecret == "" {
-		cfg.ClientSecret = os.Getenv(envPrefix + "CLIENT_SECRET")
-	}
-	// Fall back to stored OAuth app credentials from the DB.
-	if cfg.ClientID == "" {
-		if credsJSON := a.GetOAuthCredentials(conn.Platform); credsJSON != "" {
-			var creds map[string]string
-			if json.Unmarshal([]byte(credsJSON), &creds) == nil {
-				if creds["clientID"] != "" {
-					cfg.ClientID = creds["clientID"]
-				}
-				if creds["clientSecret"] != "" {
-					cfg.ClientSecret = creds["clientSecret"]
-				}
-			}
-		}
-	}
-	if cfg.ClientID == "" {
-		return nil, fmt.Errorf("missing OAuth client credentials for refresh")
-	}
-
-	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", refreshToken)
-	form.Set("client_id", cfg.ClientID)
-	form.Set("client_secret", cfg.ClientSecret)
-
-	req, err := http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("build refresh request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("refresh request: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token refresh returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		ExpiresIn    int    `json:"expires_in"`
-		TokenType    string `json:"token_type"`
-		Scope        string `json:"scope"`
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := json.Unmarshal(body, &tokenResp); err != nil || tokenResp.AccessToken == "" {
-		return nil, fmt.Errorf("invalid refresh response: %s", string(body))
-	}
-
-	// Update connection data with new tokens.
-	conn.Data["access_token"] = tokenResp.AccessToken
-	if tokenResp.TokenType != "" {
-		conn.Data["token_type"] = tokenResp.TokenType
-	}
-	if tokenResp.RefreshToken != "" {
-		conn.Data["refresh_token"] = tokenResp.RefreshToken
-	}
-	if tokenResp.ExpiresIn > 0 {
-		conn.Data["expires_at"] = time.Now().UTC().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-	}
-	conn.Status = "active"
-	conn.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-
-	// Persist the refreshed credentials.
-	if saveErr := a.connMgr.Save(ctx, conn); saveErr != nil {
-		fmt.Printf("warning: could not persist refreshed token: %v\n", saveErr)
 	}
 
 	return conn.Data, nil

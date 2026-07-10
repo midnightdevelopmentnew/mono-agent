@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {storage} from '../models';
 import {connections} from '../models';
+import {workflow} from '../models';
 
 export function AddActionTarget(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -24,6 +25,8 @@ export function ClearAIChatHistory(arg1:string):Promise<string>;
 
 export function ClearLogs():Promise<void>;
 
+export function ComposePersonMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<storage.PersonMessage>;
+
 export function ConnectPlatformOAuth(arg1:string):Promise<string>;
 
 export function CreateAction(arg1:main.CreateActionRequest):Promise<main.ActionInfo>;
@@ -31,6 +34,8 @@ export function CreateAction(arg1:main.CreateActionRequest):Promise<main.ActionI
 export function CreateProfile(arg1:string):Promise<main.ProfileInfo>;
 
 export function CreateResource(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.ResourceItemResult>;
+
+export function CreateWorkflowFromTemplate(arg1:string):Promise<main.WorkflowSummary>;
 
 export function DeleteAIProvider(arg1:string):Promise<string>;
 
@@ -71,6 +76,8 @@ export function GetConnectionsForPlatform(arg1:string):Promise<Array<connections
 export function GetDBPath():Promise<string>;
 
 export function GetDashboardStats():Promise<main.DashboardStats>;
+
+export function GetDraftPersonMessages():Promise<Array<storage.PersonMessageWithPerson>>;
 
 export function GetExecutionDetail(arg1:string):Promise<Record<string, any>>;
 
@@ -142,6 +149,8 @@ export function ListPlatformsJSON(arg1:string):Promise<string>;
 
 export function ListResources(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.ResourceListResult>;
 
+export function ListWorkflowTemplates():Promise<Array<workflow.Template>>;
+
 export function ListWorkflows():Promise<Array<main.WorkflowSummary>>;
 
 export function LoginSocial(arg1:string):Promise<string>;
@@ -149,6 +158,8 @@ export function LoginSocial(arg1:string):Promise<string>;
 export function OpenURL(arg1:string):Promise<void>;
 
 export function OpenVaultFilePicker():Promise<string>;
+
+export function RejectDraftPersonMessage(arg1:string):Promise<void>;
 
 export function RejectHIL(arg1:string):Promise<void>;
 
@@ -173,6 +184,8 @@ export function SaveWorkflow(arg1:main.SaveWorkflowRequest):Promise<main.Workflo
 export function SearchVaultImages(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function SelfUpdate():Promise<main.UpdateResult>;
+
+export function SendDraftPersonMessage(arg1:string):Promise<storage.PersonMessage>;
 
 export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise<string>;
 

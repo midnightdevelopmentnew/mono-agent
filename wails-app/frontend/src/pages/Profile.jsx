@@ -251,41 +251,172 @@ function PostsSection({ personId, onOpenPost, onOpenURL }) {
   )
 }
 
-function MessagesSection({ personId, personLabel }) {
+function MessagesSection({ personId, personLabel, personPlatform }) {
   const [messages, setMessages] = useState([])
   const [open, setOpen]         = useState(false)
   const [loading, setLoading]   = useState(true)
   const [openMessage, setOpenMessage] = useState(null)
 
+  const [composeOpen, setComposeOpen] = useState(false)
+  const [connections, setConnections] = useState([])
+  const [connectionId, setConnectionId] = useState('')
+  const [subject, setSubject] = useState('')
+  const [body, setBody] = useState('')
+  const [sending, setSending] = useState(null) // 'send' | 'draft'
+  const [composeError, setComposeError] = useState(null)
+  const [draftActionId, setDraftActionId] = useState(null) // message id being sent/rejected
+
+  const canCompose = personPlatform === 'email'
+
+  const reload = () => api.getPersonMessages(personId).then(data => setMessages(data || []))
+
   useEffect(() => {
-    api.getPersonMessages(personId).then(data => {
-      const rows = data || []
-      setMessages(rows)
-      if (rows.length > 0) setOpen(true)
-    }).catch(() => {}).finally(() => setLoading(false))
+    reload().then(() => {}).catch(() => {}).finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personId])
+
+  useEffect(() => {
+    if (!canCompose) return
+    api.listConnections('outlook').then(rows => {
+      const list = rows || []
+      setConnections(list)
+      if (list.length === 1) setConnectionId(list[0].id)
+    }).catch(() => {})
+  }, [canCompose])
+
+  const handleCompose = async (asDraft) => {
+    if (!connectionId || !body.trim()) return
+    setSending(asDraft ? 'draft' : 'send')
+    setComposeError(null)
+    try {
+      await api.composePersonMessage(personId, connectionId, subject, body, asDraft)
+      setSubject('')
+      setBody('')
+      setComposeOpen(false)
+      await reload()
+      setOpen(true)
+    } catch (e) {
+      setComposeError(e?.message || String(e))
+    } finally {
+      setSending(null)
+    }
+  }
+
+  const handleSendDraft = async (id) => {
+    setDraftActionId(id)
+    try {
+      await api.sendDraftPersonMessage(id)
+      await reload()
+    } catch (e) {
+      setComposeError(e?.message || String(e))
+    } finally {
+      setDraftActionId(null)
+    }
+  }
+
+  const handleRejectDraft = async (id) => {
+    setDraftActionId(id)
+    try {
+      await api.rejectDraftPersonMessage(id)
+      await reload()
+    } catch (e) {
+      setComposeError(e?.message || String(e))
+    } finally {
+      setDraftActionId(null)
+    }
+  }
 
   return (
     <div className="profile-section">
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          background: 'none', border: 'none', cursor: 'pointer',
-          width: '100%', padding: 0, textAlign: 'left',
-        }}
-      >
-        {open
-          ? <ChevronDown size={13} style={{ color: 'var(--text-muted)' }} />
-          : <ChevronRight size={13} style={{ color: 'var(--text-muted)' }} />
-        }
-        <span className="profile-section-title" style={{ margin: 0 }}>
-          Messages
-          <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
-            {loading ? '…' : messages.length}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={() => setOpen(o => !o)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'none', border: 'none', cursor: 'pointer',
+            flex: 1, padding: 0, textAlign: 'left',
+          }}
+        >
+          {open
+            ? <ChevronDown size={13} style={{ color: 'var(--text-muted)' }} />
+            : <ChevronRight size={13} style={{ color: 'var(--text-muted)' }} />
+          }
+          <span className="profile-section-title" style={{ margin: 0 }}>
+            Messages
+            <span style={{ color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
+              {loading ? '…' : messages.length}
+            </span>
           </span>
-        </span>
-      </button>
+        </button>
+        {canCompose && (
+          <button
+            onClick={() => { setOpen(true); setComposeOpen(o => !o) }}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              padding: '3px 10px', borderRadius: 5, cursor: 'pointer',
+              background: composeOpen ? 'rgba(0,180,216,0.18)' : 'rgba(0,180,216,0.08)',
+              border: '1px solid rgba(0,180,216,0.3)', color: '#00b4d8',
+            }}
+          >
+            {composeOpen ? 'Cancel' : 'Compose'}
+          </button>
+        )}
+      </div>
+
+      {composeOpen && (
+        <div style={{
+          marginTop: 10, padding: 10, borderRadius: 6,
+          background: 'var(--elevated)', border: '1px solid var(--border)',
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          {connections.length === 0 ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+              No Outlook account connected. Connect one under Connections first.
+            </div>
+          ) : (
+            <>
+              {connections.length > 1 && (
+                <select
+                  value={connectionId}
+                  onChange={e => setConnectionId(e.target.value)}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '4px 6px', borderRadius: 4, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                >
+                  <option value="">Select account…</option>
+                  {connections.map(c => <option key={c.id} value={c.id}>{c.label || c.account_id || c.id}</option>)}
+                </select>
+              )}
+              <input
+                placeholder="Subject"
+                value={subject}
+                onChange={e => setSubject(e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '6px 8px', borderRadius: 4, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}
+              />
+              <textarea
+                placeholder="Write a message…"
+                value={body}
+                onChange={e => setBody(e.target.value)}
+                rows={4}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '6px 8px', borderRadius: 4, background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', resize: 'vertical' }}
+              />
+              {composeError && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#ef4444' }}>{composeError}</div>
+              )}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => handleCompose(true)}
+                  disabled={!!sending || !connectionId || !body.trim()}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, padding: '5px 12px', borderRadius: 5, cursor: 'pointer', background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', color: 'var(--text-secondary)', opacity: sending && sending !== 'draft' ? 0.5 : 1 }}
+                >{sending === 'draft' ? 'Saving…' : 'Save as Draft'}</button>
+                <button
+                  onClick={() => handleCompose(false)}
+                  disabled={!!sending || !connectionId || !body.trim()}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, padding: '5px 14px', borderRadius: 5, cursor: 'pointer', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981', opacity: sending && sending !== 'send' ? 0.5 : 1 }}
+                >{sending === 'send' ? 'Sending…' : 'Send'}</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {open && (
         <div style={{ marginTop: 10 }}>
@@ -325,6 +456,17 @@ function MessagesSection({ personId, personLabel }) {
                     }}>
                       {msg.source}
                     </span>
+                    {msg.status === 'draft' && (
+                      <span style={{
+                        padding: '1px 6px', borderRadius: 4,
+                        background: 'rgba(245,158,11,0.12)',
+                        border: '1px solid rgba(245,158,11,0.35)',
+                        color: '#f59e0b', fontSize: 9,
+                        fontFamily: 'var(--font-mono)', flexShrink: 0,
+                      }}>
+                        DRAFT
+                      </span>
+                    )}
                     <span style={{
                       fontFamily: 'var(--font-mono)', fontSize: 11,
                       color: 'var(--text)', fontWeight: 500,
@@ -348,6 +490,20 @@ function MessagesSection({ personId, personLabel }) {
                       display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
                     }}>
                       {stripHTML(msg.body)}
+                    </div>
+                  )}
+                  {msg.status === 'draft' && (
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleRejectDraft(msg.id) }}
+                        disabled={draftActionId === msg.id}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}
+                      >{draftActionId === msg.id ? '…' : 'Discard'}</button>
+                      <button
+                        onClick={e => { e.stopPropagation(); handleSendDraft(msg.id) }}
+                        disabled={draftActionId === msg.id}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: 10, padding: '3px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}
+                      >{draftActionId === msg.id ? '…' : 'Send'}</button>
                     </div>
                   )}
                 </div>
@@ -565,7 +721,7 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
         />
 
         {/* ── Messages section ── */}
-        <MessagesSection personId={id} personLabel={person.full_name || person.username} />
+        <MessagesSection personId={id} personLabel={person.full_name || person.username} personPlatform={person.platform} />
 
         {/* ── Interaction history ── */}
         <div className="profile-section">

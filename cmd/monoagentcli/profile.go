@@ -32,14 +32,18 @@ func newProfileListCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
+			// Resolve the active profile before opening the profiles cursor
+			// below — running a second query while `rows` is still open (not
+			// yet closed/drained) can hold the connection pool's only
+			// connection when the pool is capped to one, deadlocking.
+			var activeID string
+			_ = db.DB.QueryRow(`SELECT value FROM settings WHERE key = 'active_profile_id'`).Scan(&activeID)
+
 			rows, err := db.DB.Query(`SELECT id, name, created_at FROM profiles ORDER BY created_at ASC`)
 			if err != nil {
 				return fmt.Errorf("list profiles: %w", err)
 			}
 			defer rows.Close()
-
-			var activeID string
-			_ = db.DB.QueryRow(`SELECT value FROM settings WHERE key = 'active_profile_id'`).Scan(&activeID)
 
 			fmt.Printf("%-36s  %-20s  %s\n", "ID", "NAME", "CREATED")
 			for rows.Next() {

@@ -25,6 +25,8 @@ const SaveWorkflow     = WailsApp.SaveWorkflow     ?? (async (req) => { const s=
 const DeleteWorkflow   = WailsApp.DeleteWorkflow   ?? (async (id) => { const s=_ms(); delete s[id]; _mp(s) })
 const SetWorkflowActive= WailsApp.SetWorkflowActive?? (async (id,a) => { const s=_ms(); if(s[id]){s[id].active=a;_mp(s)} })
 const GetWorkflowExecutions = WailsApp.GetWorkflowExecutions ?? (async () => [])
+const ListWorkflowTemplates    = WailsApp.ListWorkflowTemplates    ?? (async () => [])
+const CreateWorkflowFromTemplate = WailsApp.CreateWorkflowFromTemplate ?? (async () => { throw new Error('templates unavailable') })
 
 // ── Canvas geometry ───────────────────────────────────────────────────────────
 const NODE_W   = 220
@@ -298,14 +300,31 @@ function SaveModal({ initialName, onConfirm, onClose }) {
 
 // ── Workflows modal ───────────────────────────────────────────────────────────
 function WorkflowsModal({ currentId, onLoad, onDelete, onClose }) {
+  const [tab, setTab]         = useState('saved') // 'saved' | 'templates'
   const [list, setList]       = useState([])
   const [loading, setLoading] = useState(true)
+  const [templates, setTemplates] = useState([])
+  const [templatesLoading, setTemplatesLoading] = useState(true)
+  const [usingTemplate, setUsingTemplate] = useState(null) // template id being instantiated
   const [execsFor, setExecsFor] = useState(null) // workflowId to show executions for
   const [execs, setExecs]     = useState([])
 
   useEffect(() => {
     ListWorkflows().then(d => { setList(d || []); setLoading(false) }).catch(() => setLoading(false))
+    ListWorkflowTemplates().then(d => { setTemplates(d || []); setTemplatesLoading(false) }).catch(() => setTemplatesLoading(false))
   }, [])
+
+  const useTemplate = async (id) => {
+    setUsingTemplate(id)
+    try {
+      const wf = await CreateWorkflowFromTemplate(id)
+      onLoad(wf.id)
+      onClose()
+    } catch (e) {
+      setUsingTemplate(null)
+      alert(`Could not create workflow from template: ${e.message || e}`)
+    }
+  }
 
   const showExecs = async (id) => {
     setExecsFor(id)
@@ -339,7 +358,16 @@ function WorkflowsModal({ currentId, onLoad, onDelete, onClose }) {
           ) : (
             <>
               <List size={13} color="#00b4d8" />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: '#e2e8f0', flex: 1 }}>SAVED WORKFLOWS</span>
+              <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+                <button
+                  onMouseDown={() => setTab('saved')}
+                  style={{ background: tab === 'saved' ? 'rgba(0,180,216,0.15)' : 'transparent', border: 'none', borderRadius: 5, cursor: 'pointer', color: tab === 'saved' ? '#00b4d8' : 'var(--text-muted)', padding: '4px 10px', fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}
+                >SAVED WORKFLOWS</button>
+                <button
+                  onMouseDown={() => setTab('templates')}
+                  style={{ background: tab === 'templates' ? 'rgba(0,180,216,0.15)' : 'transparent', border: 'none', borderRadius: 5, cursor: 'pointer', color: tab === 'templates' ? '#00b4d8' : 'var(--text-muted)', padding: '4px 10px', fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}
+                >TEMPLATES</button>
+              </div>
             </>
           )}
           <button onMouseDown={onClose} style={{ background:'transparent',border:'none',cursor:'pointer',color:'var(--text-muted)',display:'flex' }}><X size={14} /></button>
@@ -356,6 +384,31 @@ function WorkflowsModal({ currentId, onLoad, onDelete, onClose }) {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', flex: 1 }}>{ex.id}</span>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{ex.status}</span>
                 {ex.started_at && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{new Date(ex.started_at).toLocaleString()}</span>}
+              </div>
+            ))
+          ) : tab === 'templates' ? (
+            templatesLoading ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>Loading…</div>
+            ) : templates.length === 0 ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No templates available</div>
+            ) : templates.map(t => (
+              <div key={t.id} style={{
+                padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10,
+                borderBottom: '1px solid rgba(0,180,216,0.05)',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0' }}>{t.name}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'normal' }}>
+                    {t.description}
+                  </div>
+                </div>
+                <button
+                  onMouseDown={() => useTemplate(t.id)}
+                  disabled={usingTemplate === t.id}
+                  style={{ background:'rgba(0,180,216,0.08)',border:'1px solid rgba(0,180,216,0.2)',borderRadius:5,cursor:'pointer',color:'#00b4d8',padding:'3px 10px',fontFamily:'var(--font-mono)',fontSize:10,flexShrink:0,opacity: usingTemplate === t.id ? 0.5 : 1 }}
+                  onMouseEnter={e => e.currentTarget.style.background='rgba(0,180,216,0.18)'}
+                  onMouseLeave={e => e.currentTarget.style.background='rgba(0,180,216,0.08)'}
+                >{usingTemplate === t.id ? 'Creating…' : 'Use Template'}</button>
               </div>
             ))
           ) : loading ? (

@@ -65,6 +65,57 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 		}
 		items = []workflow.Item{workflow.NewItem(map[string]interface{}{"status": "sent", "to": to, "subject": subject})}
 
+	case "create_draft":
+		to := strVal(config, "to")
+		subject := strVal(config, "subject")
+		body := strVal(config, "body")
+		bodyType := strVal(config, "body_type")
+		if bodyType == "html" {
+			bodyType = "HTML"
+		} else {
+			bodyType = "Text"
+		}
+		draftBody := map[string]interface{}{
+			"subject": subject,
+			"body": map[string]interface{}{
+				"contentType": bodyType,
+				"content":     body,
+			},
+		}
+		if to != "" {
+			draftBody["toRecipients"] = []map[string]interface{}{
+				{"emailAddress": map[string]interface{}{"address": to}},
+			}
+		}
+		// POST /me/messages (unlike /sendMail) saves the message to Drafts
+		// without sending it.
+		data, err := outlookGraphRequest(ctx, "POST", outlookGraphBaseURL+"/messages", accessToken, draftBody)
+		if err != nil {
+			return nil, fmt.Errorf("outlook_mail create_draft: %w", err)
+		}
+		items = []workflow.Item{workflow.NewItem(data)}
+
+	case "send_draft":
+		messageID := strVal(config, "message_id")
+		if messageID == "" {
+			return nil, fmt.Errorf("outlook_mail: message_id is required for send_draft")
+		}
+		// POST /messages/{id}/send sends an existing draft as-is.
+		if _, err := outlookGraphRequest(ctx, "POST", outlookGraphBaseURL+"/messages/"+messageID+"/send", accessToken, map[string]interface{}{}); err != nil {
+			return nil, fmt.Errorf("outlook_mail send_draft: %w", err)
+		}
+		items = []workflow.Item{workflow.NewItem(map[string]interface{}{"status": "sent", "message_id": messageID})}
+
+	case "delete_message":
+		messageID := strVal(config, "message_id")
+		if messageID == "" {
+			return nil, fmt.Errorf("outlook_mail: message_id is required for delete_message")
+		}
+		if _, err := outlookGraphRequest(ctx, "DELETE", outlookGraphBaseURL+"/messages/"+messageID, accessToken, nil); err != nil {
+			return nil, fmt.Errorf("outlook_mail delete_message: %w", err)
+		}
+		items = []workflow.Item{workflow.NewItem(map[string]interface{}{"status": "deleted", "message_id": messageID})}
+
 	case "list_messages":
 		mailbox := strVal(config, "mailbox")
 		if mailbox == "" {

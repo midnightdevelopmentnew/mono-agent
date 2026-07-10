@@ -733,6 +733,162 @@ func (a *App) AddPersonMessage(personID, source, externalID, direction, sender, 
 	return (&storage.Database{DB: a.db}).UpsertPersonMessage(msg, a.activeProfileID)
 }
 
+// ComposePersonMessage sends (or drafts, when asDraft is true) an email to a
+// person via the given Outlook connection, using service.outlook_mail under
+// the hood, and records the result on that person's message history.
+func (a *App) ComposePersonMessage(personID, connectionID, subject, body string, asDraft bool) (*storage.PersonMessage, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var toAddr string
+	if err := a.db.QueryRow(
+		`SELECT platform_username FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+		personID, a.activeProfileID,
+	).Scan(&toAddr); err != nil {
+		return nil, fmt.Errorf("person not found: %w", err)
+	}
+
+	operation, status := "send_message", "sent"
+	if asDraft {
+		operation, status = "create_draft", "draft"
+	}
+
+	result := a.RunNode(NodeRunRequest{
+		NodeType: "service.outlook_mail",
+		Config: map[string]interface{}{
+			"credential_id": connectionID,
+			"operation":     operation,
+			"to":            toAddr,
+			"subject":       subject,
+			"body":          body,
+			"body_type":     "html",
+		},
+	})
+	if result.Error != "" {
+		return nil, fmt.Errorf("%s", result.Error)
+	}
+
+	var externalID string
+	if len(result.Outputs) > 0 && len(result.Outputs[0].Items) > 0 {
+		if id, ok := result.Outputs[0].Items[0]["id"].(string); ok {
+			externalID = id
+		}
+	}
+	// Remember which connection created this draft so a later send/reject
+	// doesn't need the caller to resupply it.
+	metaBytes, _ := json.Marshal(map[string]string{"connection_id": connectionID})
+
+	msg := &storage.PersonMessage{
+		PersonID:   personID,
+		Source:     "outlook",
+		ExternalID: externalID,
+		Direction:  "outbound",
+		Sender:     toAddr,
+		Subject:    subject,
+		Body:       body,
+		Metadata:   string(metaBytes),
+		Status:     status,
+		SentAt:     time.Now().UTC(),
+	}
+	db := &storage.Database{DB: a.db}
+	if err := db.UpsertPersonMessage(msg, a.activeProfileID); err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
+// GetDraftPersonMessages returns all draft (unsent) outbound messages for the
+// active profile, for review in the Human in Loop section.
+func (a *App) GetDraftPersonMessages() ([]*storage.PersonMessageWithPerson, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	return (&storage.Database{DB: a.db}).ListPersonMessagesByStatus(a.activeProfileID, "draft")
+}
+
+// draftMessageConnectionID extracts the connection_id stashed in a draft
+// message's Metadata by ComposePersonMessage.
+func draftMessageConnectionID(msg *storage.PersonMessage) (string, error) {
+	var meta struct {
+		ConnectionID string `json:"connection_id"`
+	}
+	if msg.Metadata == "" {
+		return "", fmt.Errorf("message %s has no associated connection", msg.ID)
+	}
+	if err := json.Unmarshal([]byte(msg.Metadata), &meta); err != nil || meta.ConnectionID == "" {
+		return "", fmt.Errorf("message %s has no associated connection", msg.ID)
+	}
+	return meta.ConnectionID, nil
+}
+
+// SendDraftPersonMessage sends a previously-created draft (via Graph's
+// "send an existing draft" endpoint) and marks it as sent.
+func (a *App) SendDraftPersonMessage(personMessageID string) (*storage.PersonMessage, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	db := &storage.Database{DB: a.db}
+	msg, err := db.GetPersonMessage(personMessageID)
+	if err != nil {
+		return nil, err
+	}
+	if msg == nil {
+		return nil, fmt.Errorf("message %s not found", personMessageID)
+	}
+	if msg.Status != "draft" {
+		return nil, fmt.Errorf("message %s is not a draft", personMessageID)
+	}
+	connectionID, err := draftMessageConnectionID(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	result := a.RunNode(NodeRunRequest{
+		NodeType: "service.outlook_mail",
+		Config: map[string]interface{}{
+			"credential_id": connectionID,
+			"operation":     "send_draft",
+			"message_id":    msg.ExternalID,
+		},
+	})
+	if result.Error != "" {
+		return nil, fmt.Errorf("%s", result.Error)
+	}
+
+	if err := db.UpdatePersonMessageStatus(personMessageID, "sent"); err != nil {
+		return nil, err
+	}
+	msg.Status = "sent"
+	return msg, nil
+}
+
+// RejectDraftPersonMessage deletes a draft message: best-effort removes it
+// from the Outlook Drafts folder, then deletes the local history row.
+func (a *App) RejectDraftPersonMessage(personMessageID string) error {
+	if a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	db := &storage.Database{DB: a.db}
+	msg, err := db.GetPersonMessage(personMessageID)
+	if err != nil {
+		return err
+	}
+	if msg == nil {
+		return fmt.Errorf("message %s not found", personMessageID)
+	}
+	if connectionID, err := draftMessageConnectionID(msg); err == nil && msg.ExternalID != "" {
+		a.RunNode(NodeRunRequest{
+			NodeType: "service.outlook_mail",
+			Config: map[string]interface{}{
+				"credential_id": connectionID,
+				"operation":     "delete_message",
+				"message_id":    msg.ExternalID,
+			},
+		})
+	}
+	return db.DeletePersonMessage(personMessageID)
+}
+
 // GetPersonPosts returns all scraped posts for a person, with we_liked/we_commented flags.
 func (a *App) GetPersonPosts(personID string) []PostSummary {
 	if a.db == nil {
@@ -1530,6 +1686,63 @@ func workflowToDetail(wf *workflow.Workflow) *WorkflowDetail {
 		})
 	}
 	return detail
+}
+
+// ListWorkflowTemplates returns metadata for all bundled, ready-to-use
+// workflow templates (e.g. "Outlook Email Sync") shipped with the app.
+func (a *App) ListWorkflowTemplates() []workflow.Template {
+	return workflow.ListTemplates()
+}
+
+// CreateWorkflowFromTemplate instantiates a bundled template as a new,
+// editable workflow for the active profile. Node IDs from the template are
+// remapped to fresh UUIDs so multiple instantiations never collide, then
+// saved via the same path as a normal SaveWorkflow call.
+func (a *App) CreateWorkflowFromTemplate(templateID string) (*WorkflowSummary, error) {
+	tmpl, ok := workflow.GetTemplate(templateID)
+	if !ok {
+		return nil, fmt.Errorf("unknown template %q", templateID)
+	}
+
+	idMap := make(map[string]string, len(tmpl.Nodes))
+	for _, n := range tmpl.Nodes {
+		idMap[n.ID] = uuid.New().String()
+	}
+
+	req := SaveWorkflowRequest{Name: tmpl.Name, Description: tmpl.Description, IsActive: false}
+	for _, n := range tmpl.Nodes {
+		config := n.Config
+		if config == nil {
+			config = map[string]interface{}{}
+		}
+		// people.sync_outlook_message scopes synced people/messages by its
+		// own "profile_id" config field, independent of the workflow's
+		// profile — default it to the active profile so the template works
+		// correctly out of the box.
+		if n.Type == "people.sync_outlook_message" {
+			config["profile_id"] = a.activeProfileID
+		}
+		req.Nodes = append(req.Nodes, WorkflowNodeData{
+			ID:        idMap[n.ID],
+			NodeType:  n.Type,
+			Name:      n.Name,
+			Config:    config,
+			PositionX: n.Position.X,
+			PositionY: n.Position.Y,
+			Disabled:  n.Disabled,
+		})
+	}
+	for _, c := range tmpl.Connections {
+		req.Connections = append(req.Connections, WorkflowConnectionData{
+			ID:           uuid.New().String(),
+			SourceNodeID: idMap[c.Source],
+			SourceHandle: c.SourceHandle,
+			TargetNodeID: idMap[c.Target],
+			TargetHandle: c.TargetHandle,
+		})
+	}
+
+	return a.SaveWorkflow(req)
 }
 
 func (a *App) ListWorkflows() ([]WorkflowSummary, error) {

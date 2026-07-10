@@ -1,0 +1,58 @@
+{
+  "name": "Outlook Email Sync",
+  "description": "Every hour: fetch new Outlook emails and sync senders into People with message history. Set the Outlook Account credential on the \"Read Outlook (Graph)\" node before activating.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.schedule",
+      "name": "Every Hour",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {
+        "cron": "0 0 * * * *"
+      }
+    },
+    {
+      "id": "read_outlook",
+      "type": "service.outlook_mail",
+      "name": "Read Outlook (Graph)",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "credential_id": "",
+        "mailbox": "inbox",
+        "max_results": 50,
+        "operation": "list_messages",
+        "unread_only": false
+      }
+    },
+    {
+      "id": "sync_people",
+      "type": "people.sync_outlook_message",
+      "name": "Sync Email to People",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "source": "outlook"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-read",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "read_outlook",
+      "target_handle": "main"
+    },
+    {
+      "id": "read-to-sync",
+      "source": "read_outlook",
+      "source_handle": "main",
+      "target": "sync_people",
+      "target_handle": "main"
+    }
+  ]
+}

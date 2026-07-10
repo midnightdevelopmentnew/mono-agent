@@ -144,6 +144,10 @@ func (s *Store) GetOrResolve(ctx context.Context, idOrPlatform string) (*Connect
 
 // ensureFreshToken checks if an OAuth token is expired and refreshes it using
 // the stored refresh_token. Returns the (possibly refreshed) connection.
+// Best-effort: any refresh failure is swallowed and the caller gets back the
+// connection as-is (its existing, possibly-stale token) rather than an error,
+// since callers on this path just want a usable connection to proceed with.
+// Use RefreshToken instead when the caller needs to know whether it worked.
 func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connection, error) {
 	expiresStr, _ := conn.Data["expires_at"].(string)
 	if expiresStr == "" {
@@ -157,16 +161,23 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 	if time.Now().UTC().Before(expiresAt.Add(-60 * time.Second)) {
 		return conn, nil
 	}
+	_ = s.RefreshToken(ctx, conn)
+	return conn, nil
+}
 
-	// Token expired — try to refresh.
+// RefreshToken performs a refresh_token exchange for conn (regardless of
+// whether its access_token has actually expired yet), persists the result,
+// and reports exactly why it failed when it does — used by `connect refresh`
+// and anywhere else that needs real feedback instead of a silent no-op.
+func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 	refreshToken, _ := conn.Data["refresh_token"].(string)
 	if refreshToken == "" {
-		return conn, nil // No refresh token — use expired token (will likely fail).
+		return fmt.Errorf("no refresh_token stored for this connection — reconnect with the full OAuth flow instead")
 	}
 
 	p, ok := Get(conn.Platform)
 	if !ok || p.OAuth == nil {
-		return conn, nil // Unknown platform or no OAuth config.
+		return fmt.Errorf("platform %q has no OAuth config", conn.Platform)
 	}
 
 	cfg := *p.OAuth
@@ -196,7 +207,7 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 		cfg.ClientSecret = os.Getenv(envPrefix + "CLIENT_SECRET")
 	}
 	if cfg.ClientID == "" {
-		return conn, nil // Can't refresh without client credentials.
+		return fmt.Errorf("missing OAuth client credentials for %q profile %q — run `monoagentcli connect set-oauth-client %s --client-id <id> [--client-secret <secret>]` or set %sCLIENT_ID", p.ID, credProfileID, p.ID, envPrefix)
 	}
 
 	form := url.Values{}
@@ -205,14 +216,20 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 	form.Set("client_id", cfg.ClientID)
 	form.Set("client_secret", cfg.ClientSecret)
 
-	body, status, err := postTokenRequestWithAudienceFallback(cfg.TokenURL, form)
-	if err != nil || status != http.StatusOK {
-		return conn, nil
+	body, status, err := PostTokenRequestWithAudienceFallback(cfg.TokenURL, form)
+	if err != nil {
+		return fmt.Errorf("token request: %w", err)
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("token endpoint returned %d: %s", status, string(body))
 	}
 
 	var result OAuthResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return conn, nil
+		return fmt.Errorf("decode token response: %w", err)
+	}
+	if result.AccessToken == "" {
+		return fmt.Errorf("token response missing access_token")
 	}
 
 	// Update connection data with new tokens.
@@ -224,11 +241,9 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 	if result.ExpiresIn > 0 {
 		conn.Data["expires_at"] = time.Now().UTC().Add(time.Duration(result.ExpiresIn) * time.Second).Format(time.RFC3339)
 	}
+	conn.Status = "active"
 
-	// Persist refreshed token.
-	_ = s.Save(ctx, conn)
-
-	return conn, nil
+	return s.Save(ctx, conn)
 }
 
 func envLookup(key string) string {

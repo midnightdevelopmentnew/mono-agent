@@ -176,7 +176,7 @@ func exchangeCode(cfg OAuthConfig, code, redirectURI, codeVerifier string) (*OAu
 		form.Set("code_verifier", codeVerifier)
 	}
 
-	body, status, err := postTokenRequestWithAudienceFallback(cfg.TokenURL, form)
+	body, status, err := PostTokenRequestWithAudienceFallback(cfg.TokenURL, form)
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
@@ -196,7 +196,7 @@ func exchangeCode(cfg OAuthConfig, code, redirectURI, codeVerifier string) (*OAu
 	return &result, nil
 }
 
-// postTokenRequestWithAudienceFallback POSTs a token request and, if
+// PostTokenRequestWithAudienceFallback POSTs a token request and, if
 // Microsoft rejects it with AADSTS9002331/9002332 ("this app is
 // personal-account-only, use /consumers" or its organizational-only
 // counterpart), retries once against the corresponding tenant segment.
@@ -204,7 +204,10 @@ func exchangeCode(cfg OAuthConfig, code, redirectURI, codeVerifier string) (*OAu
 // personal-only and org-only Azure app registrations without per-connection
 // configuration — different connections for the same platform may use
 // different Azure apps with different audience settings.
-func postTokenRequestWithAudienceFallback(tokenURL string, form url.Values) ([]byte, int, error) {
+// Exported so every OAuth token-refresh call site (CLI, GUI, workflow
+// engine) shares this one fallback implementation instead of each keeping
+// its own copy that silently misses the fix.
+func PostTokenRequestWithAudienceFallback(tokenURL string, form url.Values) ([]byte, int, error) {
 	body, status, err := postForm(tokenURL, form)
 	if err != nil {
 		return nil, 0, err

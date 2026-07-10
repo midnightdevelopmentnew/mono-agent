@@ -182,7 +182,21 @@ func (m *Manager) Save(ctx context.Context, conn *Connection) error {
 	return m.store.Save(ctx, conn)
 }
 
-// Refresh re-runs the OAuth flow for a connection and updates stored data.
+// RefreshToken silently exchanges conn's stored refresh_token for a new
+// access_token (per-profile client credentials, with the /consumers/
+// audience fallback) and persists the result. Exposed so every caller —
+// CLI, GUI, workflow engine — shares this one implementation instead of
+// keeping its own copy that silently misses fixes applied to the others.
+func (m *Manager) RefreshToken(ctx context.Context, conn *Connection) error {
+	return m.store.RefreshToken(ctx, conn)
+}
+
+// Refresh silently exchanges a connection's stored refresh_token for a new
+// access_token — no browser, no user interaction — the same mechanism used
+// automatically whenever a stale connection is resolved for use. Falls back
+// to the full interactive OAuth flow only when there's no refresh_token to
+// use at all (e.g. a very old connection saved before refresh_token capture
+// was added, or a provider that never issued one).
 func (m *Manager) Refresh(ctx context.Context, id string, timeout time.Duration) error {
 	conn, err := m.store.Get(ctx, id)
 	if err != nil {
@@ -201,6 +215,14 @@ func (m *Manager) Refresh(ctx context.Context, id string, timeout time.Duration)
 		return fmt.Errorf("refresh: unknown platform %q", conn.Platform)
 	}
 
+	if refreshToken, _ := conn.Data["refresh_token"].(string); refreshToken != "" {
+		if err := m.store.RefreshToken(ctx, conn); err != nil {
+			return fmt.Errorf("refresh: %w", err)
+		}
+		return nil
+	}
+
+	// No refresh_token on file — only path left is a full interactive re-auth.
 	if err := m.connectOAuth(ctx, p, conn, timeout); err != nil {
 		return fmt.Errorf("refresh: oauth: %w", err)
 	}

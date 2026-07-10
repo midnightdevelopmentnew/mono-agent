@@ -31,40 +31,28 @@ func NewDatabase(dbPath string) (*Database, error) {
 		return nil, fmt.Errorf("resolving database path: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", absPath)
+	// Pragmas are passed via the DSN (not a one-off db.Exec after opening) so
+	// modernc.org/sqlite applies them to EVERY pooled connection, not just
+	// whichever one happened to run an Exec call. A prior fix capped the pool
+	// at 1 connection to work around exactly this gap, but that serializes
+	// ALL access through a single connection — any code path that holds one
+	// query's rows open while starting a second query on the same *sql.DB
+	// (a normal, supported database/sql pattern) deadlocks waiting for the
+	// pool's only connection to free up. DSN-level pragmas fix the root cause
+	// (missing busy_timeout on fresh connections) without that constraint.
+	dsn := fmt.Sprintf(
+		"file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)",
+		absPath,
+	)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
-
-	// SQLite only supports one writer at a time. database/sql pools multiple
-	// connections by default, and any pragma set via db.Exec below only
-	// applies to whichever connection happened to run it — concurrent
-	// callers (e.g. two profiles' hourly sync triggers firing at once) can
-	// get routed to a fresh, unconfigured connection with no busy_timeout,
-	// producing an immediate SQLITE_BUSY instead of waiting for the lock.
-	// Capping the pool at one connection forces all access through the
-	// single connection that has the pragmas below, and serializes
-	// concurrent writers via Go's connection queueing instead of racing.
-	db.SetMaxOpenConns(1)
 
 	// Verify the connection is usable.
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("pinging database: %w", err)
-	}
-
-	// Configure SQLite pragmas for reliability and performance.
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
-		"PRAGMA synchronous=NORMAL",
-	}
-	for _, p := range pragmas {
-		if _, err := db.Exec(p); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("executing %q: %w", p, err)
-		}
 	}
 
 	return &Database{DB: db, dbPath: absPath}, nil
@@ -98,6 +86,14 @@ func (d *Database) ApplyMigrations() error {
 	var migrations []migration
 	for _, e := range entries {
 		name := e.Name()
+		// macOS AppleDouble sidecar files (e.g. "._001_initial.sql") show up
+		// in the embedded FS when built on a network volume that generates
+		// them for every real file. They're never real migrations — skip
+		// silently rather than logging a "non-numeric prefix" warning for
+		// every one of them, every run.
+		if strings.HasPrefix(name, "._") {
+			continue
+		}
 		if e.IsDir() || !strings.HasSuffix(name, ".sql") {
 			continue
 		}

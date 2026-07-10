@@ -5,9 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -123,119 +120,18 @@ func resolveCredentialData(ctx context.Context, store *connections.Store, creden
 	if expiresStr, _ := conn.Data["expires_at"].(string); expiresStr != "" {
 		if expiresAt, err := time.Parse(time.RFC3339, expiresStr); err == nil {
 			if time.Now().UTC().After(expiresAt.Add(-60 * time.Second)) {
-				if refreshed, err := refreshOAuthTokenCLI(ctx, store, conn); err == nil {
-					return refreshed, nil
+				// Shares the same silent refresh_token exchange (with the
+				// per-profile client-credential lookup and /consumers/
+				// audience fallback) as every other refresh call site —
+				// GUI, daemon, and `connect refresh` all go through this one
+				// implementation now instead of each keeping its own copy.
+				if err := store.RefreshToken(ctx, conn); err == nil {
+					return conn.Data, nil
+				} else {
+					fmt.Fprintf(os.Stderr, "  Warning: token refresh failed, using existing token: %v\n", err)
 				}
-				// If refresh fails, fall through and try with existing (possibly expired) token.
-				fmt.Fprintf(os.Stderr, "  Warning: token refresh failed, using existing token\n")
 			}
 		}
-	}
-
-	return conn.Data, nil
-}
-
-// refreshOAuthTokenCLI uses the stored refresh_token to obtain a new access_token
-// from the provider's token endpoint, updates the connection in the DB, and returns
-// the refreshed credential data. This mirrors the Wails app's refreshOAuthToken.
-func refreshOAuthTokenCLI(ctx context.Context, store *connections.Store, conn *connections.Connection) (map[string]interface{}, error) {
-	refreshToken, _ := conn.Data["refresh_token"].(string)
-	if refreshToken == "" {
-		return nil, fmt.Errorf("no refresh_token available")
-	}
-
-	p, ok := connections.Get(conn.Platform)
-	if !ok || p.OAuth == nil {
-		return nil, fmt.Errorf("platform %q has no OAuth config", conn.Platform)
-	}
-
-	cfg := *p.OAuth
-	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
-	if cfg.ClientID == "" {
-		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
-	}
-	if cfg.ClientSecret == "" {
-		cfg.ClientSecret = os.Getenv(envPrefix + "CLIENT_SECRET")
-	}
-	// Fallback: read from platform_oauth_credentials table (same table the Wails app uses),
-	// scoped per profile since different profiles' connections for the same
-	// platform may need different Azure/OAuth app registrations.
-	if (cfg.ClientID == "" || cfg.ClientSecret == "") && store != nil {
-		if db := store.DB(); db != nil {
-			credProfileID := conn.ProfileID
-			if credProfileID == "" {
-				credProfileID = "default"
-			}
-			var storedID, storedSecret string
-			_ = db.QueryRowContext(ctx,
-				`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
-				conn.Platform, credProfileID,
-			).Scan(&storedID, &storedSecret)
-			if cfg.ClientID == "" {
-				cfg.ClientID = storedID
-			}
-			if cfg.ClientSecret == "" {
-				cfg.ClientSecret = storedSecret
-			}
-		}
-	}
-	if cfg.ClientID == "" {
-		return nil, fmt.Errorf("missing OAuth client credentials for refresh (set %sCLIENT_ID)", envPrefix)
-	}
-
-	form := url.Values{}
-	form.Set("grant_type", "refresh_token")
-	form.Set("refresh_token", refreshToken)
-	form.Set("client_id", cfg.ClientID)
-	form.Set("client_secret", cfg.ClientSecret)
-
-	req, err := http.NewRequest(http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("build refresh request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("refresh request: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token refresh returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		ExpiresIn    int    `json:"expires_in"`
-		TokenType    string `json:"token_type"`
-		Scope        string `json:"scope"`
-		RefreshToken string `json:"refresh_token"`
-	}
-	if err := json.Unmarshal(body, &tokenResp); err != nil || tokenResp.AccessToken == "" {
-		return nil, fmt.Errorf("invalid refresh response: %s", string(body))
-	}
-
-	// Update connection data with new tokens.
-	conn.Data["access_token"] = tokenResp.AccessToken
-	if tokenResp.TokenType != "" {
-		conn.Data["token_type"] = tokenResp.TokenType
-	}
-	if tokenResp.RefreshToken != "" {
-		conn.Data["refresh_token"] = tokenResp.RefreshToken
-	}
-	if tokenResp.ExpiresIn > 0 {
-		conn.Data["expires_at"] = time.Now().UTC().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339)
-	}
-	conn.Status = "active"
-	conn.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-
-	// Persist the refreshed credentials.
-	if saveErr := store.Save(ctx, conn); saveErr != nil {
-		fmt.Fprintf(os.Stderr, "  Warning: could not persist refreshed token: %v\n", saveErr)
-	} else {
-		fmt.Fprintf(os.Stderr, "  Token refreshed successfully\n")
 	}
 
 	return conn.Data, nil

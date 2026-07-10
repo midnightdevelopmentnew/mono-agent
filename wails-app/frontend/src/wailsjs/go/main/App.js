@@ -42,6 +42,10 @@ export function ClearLogs() {
   return window['go']['main']['App']['ClearLogs']();
 }
 
+export function ComposePersonMessage(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ComposePersonMessage'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function ConnectPlatformOAuth(arg1) {
   return window['go']['main']['App']['ConnectPlatformOAuth'](arg1);
 }
@@ -56,6 +60,10 @@ export function CreateProfile(arg1) {
 
 export function CreateResource(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateResource'](arg1, arg2, arg3, arg4);
+}
+
+export function CreateWorkflowFromTemplate(arg1) {
+  return window['go']['main']['App']['CreateWorkflowFromTemplate'](arg1);
 }
 
 export function DeleteAIProvider(arg1) {
@@ -136,6 +144,10 @@ export function GetDBPath() {
 
 export function GetDashboardStats() {
   return window['go']['main']['App']['GetDashboardStats']();
+}
+
+export function GetDraftPersonMessages() {
+  return window['go']['main']['App']['GetDraftPersonMessages']();
 }
 
 export function GetExecutionDetail(arg1) {
@@ -278,6 +290,10 @@ export function ListResources(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ListResources'](arg1, arg2, arg3, arg4);
 }
 
+export function ListWorkflowTemplates() {
+  return window['go']['main']['App']['ListWorkflowTemplates']();
+}
+
 export function ListWorkflows() {
   return window['go']['main']['App']['ListWorkflows']();
 }
@@ -292,6 +308,10 @@ export function OpenURL(arg1) {
 
 export function OpenVaultFilePicker() {
   return window['go']['main']['App']['OpenVaultFilePicker']();
+}
+
+export function RejectDraftPersonMessage(arg1) {
+  return window['go']['main']['App']['RejectDraftPersonMessage'](arg1);
 }
 
 export function RejectHIL(arg1) {
@@ -340,6 +360,10 @@ export function SearchVaultImages(arg1) {
 
 export function SelfUpdate() {
   return window['go']['main']['App']['SelfUpdate']();
+}
+
+export function SendDraftPersonMessage(arg1) {
+  return window['go']['main']['App']['SendDraftPersonMessage'](arg1);
 }
 
 export function SetOAuthCredentials(arg1, arg2, arg3) {
