@@ -17,6 +17,18 @@ CREATE TABLE IF NOT EXISTS platform_oauth_credentials_v2 (
     PRIMARY KEY (platform, profile_id)
 );
 
+-- On a fresh database, platform_oauth_credentials never existed (it was only
+-- ever created ad hoc by old application code), but SQLite must still resolve
+-- the table reference below at prepare time even though WHERE EXISTS(...)
+-- would filter all rows at runtime — so ensure it exists as an empty stub
+-- first. The DROP TABLE below removes it again once migrated.
+CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
+    platform      TEXT NOT NULL,
+    client_id     TEXT NOT NULL,
+    client_secret TEXT NOT NULL DEFAULT '',
+    updated_at    TEXT NOT NULL
+);
+
 INSERT OR IGNORE INTO platform_oauth_credentials_v2 (platform, profile_id, client_id, client_secret, updated_at)
 SELECT platform, 'default', client_id, client_secret, updated_at
 FROM platform_oauth_credentials
