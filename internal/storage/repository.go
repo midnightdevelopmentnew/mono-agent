@@ -1082,11 +1082,10 @@ func (d *Database) GetLatestPersonStatusUpdate(personID, profileID string) (*Per
 	}
 	u := &PersonStatusUpdate{}
 	err := d.DB.QueryRow(`
-		SELECT su.id, su.person_id, su.text, su.created_at
-		FROM person_status_updates su
-		JOIN people p ON p.id = su.person_id
-		WHERE su.person_id = ? AND COALESCE(p.profile_id,'default') = ?
-		ORDER BY su.created_at DESC LIMIT 1`, personID, profileID,
+		SELECT id, person_id, text, created_at
+		FROM person_status_updates
+		WHERE person_id = ? AND COALESCE(profile_id,'default') = ?
+		ORDER BY created_at DESC LIMIT 1`, personID, profileID,
 	).Scan(&u.ID, &u.PersonID, &u.Text, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -1104,11 +1103,10 @@ func (d *Database) ListPersonStatusUpdates(personID, profileID string, limit int
 		profileID = "default"
 	}
 	query := `
-		SELECT su.id, su.person_id, su.text, su.created_at
-		FROM person_status_updates su
-		JOIN people p ON p.id = su.person_id
-		WHERE su.person_id = ? AND COALESCE(p.profile_id,'default') = ?
-		ORDER BY su.created_at DESC`
+		SELECT id, person_id, text, created_at
+		FROM person_status_updates
+		WHERE person_id = ? AND COALESCE(profile_id,'default') = ?
+		ORDER BY created_at DESC`
 	args := []interface{}{personID, profileID}
 	if limit > 0 {
 		query += " LIMIT ?"
