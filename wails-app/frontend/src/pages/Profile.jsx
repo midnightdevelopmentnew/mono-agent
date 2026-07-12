@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { api, PLATFORM_COLORS, STATE_COLORS } from '../services/api.js'
 import MessageDetailModal from '../components/MessageDetailModal.jsx'
+import StatusHistoryModal from '../components/StatusHistoryModal.jsx'
 
 // Map action types to icons + labels
 const ACTION_META = {
@@ -615,6 +616,10 @@ function StatusSection({ personId, platformColor }) {
           Post
         </button>
       </div>
+
+      {historyOpen && (
+        <StatusHistoryModal personId={personId} onClose={() => setHistoryOpen(false)} />
+      )}
     </div>
   )
 }
