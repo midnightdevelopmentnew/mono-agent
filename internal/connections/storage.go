@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -91,14 +90,36 @@ CREATE INDEX IF NOT EXISTS idx_connections_status   ON connections(status);
 CREATE INDEX IF NOT EXISTS idx_connections_profile  ON connections(profile_id);
 `
 
+// createRefreshLocksTable backs RefreshToken's cross-process lock. The
+// connections DB is shared (by file path) across the CLI, the daemon, and
+// the GUI, each their own OS process with their own in-memory Store — a
+// Go-level mutex only ever serializes goroutines inside one of them. Two
+// processes resolving the same stale connection at once would otherwise both
+// exchange the same stored refresh_token; providers that rotate single-use
+// refresh tokens invalidate the loser's exchange, permanently breaking the
+// connection. Coordinating through this table (which every process reads
+// and writes through the same SQLite file) closes that gap.
+const createRefreshLocksTable = `
+CREATE TABLE IF NOT EXISTS oauth_refresh_locks (
+    connection_id TEXT PRIMARY KEY,
+    locked_at     TEXT NOT NULL
+);
+`
+
+// refreshLockStaleAfter bounds how long a lock row is honored before it's
+// considered abandoned (its holder crashed or was killed mid-refresh) and
+// safe to steal — a token exchange is a single HTTP round trip and never
+// legitimately takes this long.
+const refreshLockStaleAfter = 30 * time.Second
+
+// refreshLockWaitTimeout is how long a caller that lost the race waits for
+// the current holder to finish before giving up and just using whatever is
+// on file — a real exchange completes in well under this.
+const refreshLockWaitTimeout = 5 * time.Second
+
 // Store provides CRUD operations for connections.
 type Store struct {
 	db *sql.DB
-	// refreshMu serializes token refreshes within this process so two
-	// concurrent resolvers can't both exchange the same refresh_token — with
-	// providers that rotate single-use refresh tokens the loser would persist
-	// a dead token and permanently break the connection.
-	refreshMu sync.Mutex
 }
 
 // NewStore creates a new Store backed by the given database.
@@ -111,7 +132,10 @@ func (s *Store) DB() *sql.DB { return s.db }
 
 // EnsureTable creates the connections table and indices if they do not exist.
 func (s *Store) EnsureTable(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, createConnectionsTable)
+	if _, err := s.db.ExecContext(ctx, createConnectionsTable); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, createRefreshLocksTable)
 	return err
 }
 
@@ -218,14 +242,28 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 // and reports exactly why it failed when it does — used by `connect refresh`
 // and anywhere else that needs real feedback instead of a silent no-op.
 func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
-	// Serialize refreshes so overlapping callers don't each exchange the same
-	// stored refresh_token. After acquiring the lock, re-read the latest
-	// tokens: a refresh that just completed in another goroutine may have
-	// rotated the refresh_token, and exchanging the now-consumed one would
-	// permanently break the connection.
-	s.refreshMu.Lock()
-	defer s.refreshMu.Unlock()
+	// Serialize refreshes across every process sharing this DB (CLI, daemon,
+	// GUI) so overlapping resolvers don't each exchange the same stored
+	// refresh_token. A caller that loses the race waits briefly for the
+	// winner to finish, then re-reads and uses whatever it produced instead
+	// of racing a second exchange of the same (possibly now-rotated) token.
 	if conn.ID != "" {
+		acquired, err := s.acquireRefreshLock(ctx, conn.ID)
+		if err != nil {
+			return fmt.Errorf("acquiring refresh lock: %w", err)
+		}
+		if !acquired {
+			if latest, gerr := s.Get(ctx, conn.ID); gerr == nil && latest != nil {
+				*conn = *latest
+			}
+			return nil
+		}
+		defer s.releaseRefreshLock(context.WithoutCancel(ctx), conn.ID)
+
+		// Re-read the latest tokens: a refresh that completed in another
+		// process between our caller's Get and our lock acquisition may have
+		// rotated the refresh_token, and exchanging the now-consumed one
+		// would permanently break the connection.
 		if latest, err := s.Get(ctx, conn.ID); err == nil && latest != nil && latest.Data != nil {
 			conn.Data = latest.Data
 		}
@@ -300,6 +338,63 @@ func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 	conn.Status = "active"
 
 	return s.Save(ctx, conn)
+}
+
+// acquireRefreshLock atomically claims the refresh lock for connID, stealing
+// it if the existing holder's lock has gone stale (crashed mid-refresh), and
+// otherwise polling briefly for the current holder to release it. Returns
+// false (no error) if the lock is still held by someone else after
+// refreshLockWaitTimeout — the caller is expected to fall back to reading
+// whatever that holder produced instead of blocking forever.
+func (s *Store) acquireRefreshLock(ctx context.Context, connID string) (bool, error) {
+	deadline := time.Now().Add(refreshLockWaitTimeout)
+	for {
+		acquired, err := s.tryAcquireRefreshLock(ctx, connID)
+		if err != nil {
+			return false, err
+		}
+		if acquired {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
+}
+
+// tryAcquireRefreshLock makes a single atomic attempt to claim connID's
+// refresh lock. It succeeds if no lock row exists, or if the existing row is
+// older than refreshLockStaleAfter (its holder is presumed dead). The
+// INSERT...ON CONFLICT...WHERE form is a single statement, so SQLite's own
+// locking (already tuned with busy_timeout in the DSN) makes the claim
+// atomic across every process sharing this database file.
+func (s *Store) tryAcquireRefreshLock(ctx context.Context, connID string) (bool, error) {
+	now := time.Now().UTC()
+	staleBefore := now.Add(-refreshLockStaleAfter).Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO oauth_refresh_locks (connection_id, locked_at) VALUES (?, ?)
+		 ON CONFLICT(connection_id) DO UPDATE SET locked_at = excluded.locked_at
+		 WHERE oauth_refresh_locks.locked_at < ?`,
+		connID, now.Format(time.RFC3339), staleBefore)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// releaseRefreshLock drops connID's refresh lock so the next caller (in this
+// process or another) doesn't have to wait out refreshLockStaleAfter.
+func (s *Store) releaseRefreshLock(ctx context.Context, connID string) {
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM oauth_refresh_locks WHERE connection_id = ?`, connID)
 }
 
 func envLookup(key string) string {

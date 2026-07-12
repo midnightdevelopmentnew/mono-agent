@@ -4,8 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -239,5 +245,121 @@ func TestOAuthClientPersistRoundTrip(t *testing.T) {
 	}
 	if id, _ := store.GetOAuthClient(ctx, "outlook", "work"); id != "client-work2" {
 		t.Fatalf("GetOAuthClient after overwrite: got %q", id)
+	}
+}
+
+
+// TestRefreshTokenSerializesAcrossStores verifies the fix for the
+// cross-process refresh race: two Store instances sharing one DB (standing
+// in for two OS processes — the CLI and a daemon, say — resolving the same
+// stale connection at once) must never both exchange the SAME stored
+// refresh_token. A provider that rotates single-use refresh tokens rejects
+// the second use of an already-consumed one and would otherwise leave one
+// caller with a dead token, permanently breaking the connection. It's fine
+// for the loser to perform its own subsequent exchange once it acquires the
+// lock (it re-reads first, so it uses the winner's already-rotated token,
+// which is a legitimate independent refresh) — what must never happen is
+// two exchanges submitting the identical refresh_token value.
+func TestRefreshTokenSerializesAcrossStores(t *testing.T) {
+	var mu sync.Mutex
+	var submitted []string
+	var exchanges int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&exchanges, 1)
+		_ = r.ParseForm()
+		rt := r.FormValue("refresh_token")
+
+		mu.Lock()
+		submitted = append(submitted, rt)
+		mu.Unlock()
+
+		// Hold the "network round trip" open long enough that a concurrent
+		// caller reliably arrives while this one still holds the lock.
+		time.Sleep(150 * time.Millisecond)
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token":"access-%d","refresh_token":"refresh-%d","expires_in":3600}`, n, n)
+	}))
+	defer srv.Close()
+
+	const platformID = "test-refresh-race-platform"
+	Registry[platformID] = PlatformDef{
+		ID:      platformID,
+		Name:    "Test Refresh Race Platform",
+		Methods: []AuthMethod{MethodOAuth},
+		OAuth:   &OAuthConfig{TokenURL: srv.URL, ClientID: "client", ClientSecret: "secret"},
+	}
+	t.Cleanup(func() { delete(Registry, platformID) })
+
+	db := newTestDB(t)
+	storeA := NewStore(db) // stands in for process A (e.g. the CLI)
+	storeB := NewStore(db) // stands in for process B (e.g. a daemon)
+
+	conn := &Connection{
+		Platform: platformID,
+		Method:   MethodOAuth,
+		Data:     map[string]interface{}{"refresh_token": "old-refresh", "access_token": "old-access"},
+	}
+	if err := storeA.Save(context.Background(), conn); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	connA, err := storeA.Get(context.Background(), conn.ID)
+	if err != nil || connA == nil {
+		t.Fatalf("Get connA: %v", err)
+	}
+	connB, err := storeB.Get(context.Background(), conn.ID)
+	if err != nil || connB == nil {
+		t.Fatalf("Get connB: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errs[0] = storeA.RefreshToken(context.Background(), connA)
+	}()
+	go func() {
+		defer wg.Done()
+		time.Sleep(20 * time.Millisecond) // let A acquire the lock first
+		errs[1] = storeB.RefreshToken(context.Background(), connB)
+	}()
+	wg.Wait()
+
+	if errs[0] != nil {
+		t.Fatalf("storeA.RefreshToken: %v", errs[0])
+	}
+	if errs[1] != nil {
+		t.Fatalf("storeB.RefreshToken: %v", errs[1])
+	}
+
+	// The invariant the lock protects: no submitted refresh_token value is
+	// ever reused. Whether 1 or 2 exchanges happened depends on scheduling
+	// (the loser may acquire the lock after the winner releases and perform
+	// its own legitimate follow-up refresh using the now-rotated token), but
+	// a repeated value means both callers read the old token before either
+	// wrote back — exactly the pre-fix race.
+	mu.Lock()
+	defer mu.Unlock()
+	if len(submitted) < 1 {
+		t.Fatalf("token endpoint was never called")
+	}
+	seen := map[string]bool{}
+	for _, rt := range submitted {
+		if seen[rt] {
+			t.Fatalf("refresh_token %q was submitted more than once — the race was not serialized: %v", rt, submitted)
+		}
+		seen[rt] = true
+	}
+
+	final, err := storeA.Get(context.Background(), conn.ID)
+	if err != nil || final == nil {
+		t.Fatalf("Get final: %v", err)
+	}
+	lastAccess := fmt.Sprintf("access-%d", len(submitted))
+	if final.Data["access_token"] != lastAccess {
+		t.Fatalf("final access_token = %v, want %v (the last exchange's result, not clobbered by an earlier writer)", final.Data["access_token"], lastAccess)
 	}
 }
