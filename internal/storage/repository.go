@@ -1033,6 +1033,106 @@ func (d *Database) DeletePersonMessage(id string) error {
 }
 
 // ---------------------------------------------------------------------------
+// Person Status Updates
+// ---------------------------------------------------------------------------
+
+// AddPersonStatusUpdate appends a new status-update entry for a person — a
+// manually-written personal note, unrelated to PersonMessage.Status.
+// profileID scopes the write; the update is rejected if personID does not
+// belong to that profile.
+func (d *Database) AddPersonStatusUpdate(personID, profileID, text string) (*PersonStatusUpdate, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fmt.Errorf("status text must not be empty")
+	}
+
+	var exists int
+	err := d.DB.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personID, profileID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("person %s not found", personID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("checking person %s: %w", personID, err)
+	}
+
+	u := &PersonStatusUpdate{
+		ID:        NewID(),
+		PersonID:  personID,
+		Text:      text,
+		CreatedAt: time.Now().UTC(),
+	}
+	_, err = d.DB.Exec(
+		`INSERT INTO person_status_updates (id, person_id, profile_id, text, created_at) VALUES (?,?,?,?,?)`,
+		u.ID, u.PersonID, profileID, u.Text, u.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("saving status update for person %s: %w", personID, err)
+	}
+	return u, nil
+}
+
+// GetLatestPersonStatusUpdate returns the most recent status update for a
+// person within profileID, or (nil, nil) if none exists yet.
+func (d *Database) GetLatestPersonStatusUpdate(personID, profileID string) (*PersonStatusUpdate, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	u := &PersonStatusUpdate{}
+	err := d.DB.QueryRow(`
+		SELECT su.id, su.person_id, su.text, su.created_at
+		FROM person_status_updates su
+		JOIN people p ON p.id = su.person_id
+		WHERE su.person_id = ? AND COALESCE(p.profile_id,'default') = ?
+		ORDER BY su.created_at DESC LIMIT 1`, personID, profileID,
+	).Scan(&u.ID, &u.PersonID, &u.Text, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting latest status update for person %s: %w", personID, err)
+	}
+	return u, nil
+}
+
+// ListPersonStatusUpdates returns every status update for a person within
+// profileID, newest first. limit <= 0 means no cap.
+func (d *Database) ListPersonStatusUpdates(personID, profileID string, limit int) ([]*PersonStatusUpdate, error) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	query := `
+		SELECT su.id, su.person_id, su.text, su.created_at
+		FROM person_status_updates su
+		JOIN people p ON p.id = su.person_id
+		WHERE su.person_id = ? AND COALESCE(p.profile_id,'default') = ?
+		ORDER BY su.created_at DESC`
+	args := []interface{}{personID, profileID}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := d.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing status updates for person %s: %w", personID, err)
+	}
+	defer rows.Close()
+
+	var updates []*PersonStatusUpdate
+	for rows.Next() {
+		u := &PersonStatusUpdate{}
+		if err := rows.Scan(&u.ID, &u.PersonID, &u.Text, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scanning status update row: %w", err)
+		}
+		updates = append(updates, u)
+	}
+	return updates, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
 // Social Lists
 // ---------------------------------------------------------------------------
 

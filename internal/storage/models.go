@@ -105,6 +105,17 @@ type PersonMessage struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// PersonStatusUpdate represents a single manually-written status/note entry
+// about a person — a personal-CRM-style update (e.g. "Just closed the Q1
+// deal"), entirely unrelated to PersonMessage.Status (which tracks
+// draft/sent/failed for outbound messages). Append-only: no edit, no delete.
+type PersonStatusUpdate struct {
+	ID        string    `json:"id"`
+	PersonID  string    `json:"person_id"`
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // SocialList represents a row in the social_lists table.
 type SocialList struct {
 	ID        string    `json:"id"`
