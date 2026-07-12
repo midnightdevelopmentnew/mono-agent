@@ -264,18 +264,27 @@ func newListDeleteCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Delete items first.
-			itemResult, _ := db.DB.Exec("DELETE FROM social_list_items WHERE list_id = ?", listID)
-			itemCount, _ := itemResult.RowsAffected()
-
-			result, err := db.DB.Exec("DELETE FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID)
+			// Verify the list exists and belongs to the active profile before
+			// deleting anything — social_list_items has no profile_id, so an
+			// unscoped item delete would wipe another profile's list items.
+			var existingID string
+			err = db.DB.QueryRow("SELECT id FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID).Scan(&existingID)
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("list %q not found", listID)
+			}
 			if err != nil {
-				return fmt.Errorf("deleting list: %w", err)
+				return fmt.Errorf("checking list: %w", err)
 			}
 
-			affected, _ := result.RowsAffected()
-			if affected == 0 {
-				return fmt.Errorf("list %q not found", listID)
+			// Delete items first (ownership already verified via the list).
+			itemResult, err := db.DB.Exec("DELETE FROM social_list_items WHERE list_id = ?", listID)
+			if err != nil {
+				return fmt.Errorf("deleting list items: %w", err)
+			}
+			itemCount, _ := itemResult.RowsAffected()
+
+			if _, err := db.DB.Exec("DELETE FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID); err != nil {
+				return fmt.Errorf("deleting list: %w", err)
 			}
 
 			fmt.Fprintf(os.Stdout, "Deleted list %s and %d item(s).\n", listID, itemCount)

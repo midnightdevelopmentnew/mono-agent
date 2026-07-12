@@ -3,11 +3,48 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// TestOpenAIStreamLargeLine verifies a single SSE data line larger than the
+// default 64KB bufio.Scanner limit is streamed intact rather than aborting.
+func TestOpenAIStreamLargeLine(t *testing.T) {
+	big := strings.Repeat("x", 200*1024) // >64KB
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		payload, _ := json.Marshal(map[string]interface{}{
+			"choices": []map[string]interface{}{{
+				"delta": map[string]interface{}{"content": big},
+			}},
+		})
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+		flusher.Flush()
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer srv.Close()
+
+	client := NewOpenAIClient("test-key", srv.URL, "")
+	var accumulated string
+	err := client.StreamComplete(context.Background(), CompletionRequest{
+		Model:    "gpt-4o",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	}, func(chunk StreamChunk) {
+		accumulated += chunk.Content
+	})
+	if err != nil {
+		t.Fatalf("StreamComplete: %v", err)
+	}
+	if len(accumulated) != len(big) {
+		t.Errorf("accumulated len = %d, want %d (large SSE line truncated)", len(accumulated), len(big))
+	}
+}
 
 func TestOpenAIComplete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

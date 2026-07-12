@@ -77,7 +77,7 @@ func (n *HuggingFaceNode) generateImage(ctx context.Context, apiKey string, conf
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return item, fmt.Errorf("huggingface generate_image: %w", err)
 	}
@@ -140,7 +140,7 @@ func (n *HuggingFaceNode) generateText(ctx context.Context, apiKey string, confi
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return item, fmt.Errorf("huggingface generate_text: %w", err)
 	}

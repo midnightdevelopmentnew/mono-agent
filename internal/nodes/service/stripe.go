@@ -53,7 +53,7 @@ func stripeGet(ctx context.Context, endpoint, apiKey string, params map[string]i
 	req.SetBasicAuth(apiKey, "")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("stripe GET %s: %w", fullURL, err)
 	}
@@ -87,7 +87,7 @@ func stripePost(ctx context.Context, endpoint, apiKey string, params map[string]
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("stripe POST %s: %w", fullURL, err)
 	}
@@ -116,7 +116,7 @@ func stripeDelete(ctx context.Context, endpoint, apiKey string) (map[string]inte
 	req.SetBasicAuth(apiKey, "")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("stripe DELETE %s: %w", fullURL, err)
 	}

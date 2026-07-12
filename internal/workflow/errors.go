@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrQueueFull          = errors.New("workflow: execution queue is full")
+	ErrQueueClosed        = errors.New("workflow: execution queue is closed")
 	ErrWorkflowNotFound   = errors.New("workflow: workflow not found")
 	ErrExecutionNotFound  = errors.New("workflow: execution not found")
 	ErrCycleDetected      = errors.New("workflow: cycle detected in workflow graph")

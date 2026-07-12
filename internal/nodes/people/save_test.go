@@ -145,6 +145,50 @@ func TestPeopleSaveNode_SkipsItemWithoutURL(t *testing.T) {
 	}
 }
 
+func TestPeopleSaveNode_PreservesVerifiedWhenKeyAbsent(t *testing.T) {
+	db := setupTestDB(t)
+	defer db.Close()
+	SetGlobalPeopleDB(db)
+
+	node := &PeopleSaveNode{}
+
+	// First save: is_verified=true (e.g. a profile scrape).
+	_, err := node.Execute(context.Background(), workflow.NodeInput{Items: []workflow.Item{
+		workflow.NewItem(map[string]interface{}{
+			"profile_url": "https://www.linkedin.com/in/verified-vera/",
+			"full_name":   "Verified Vera",
+			"platform":    "linkedin",
+			"is_verified": true,
+		}),
+	}}, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("first execute: %v", err)
+	}
+
+	var verified int
+	db.QueryRow("SELECT is_verified FROM people WHERE platform_username = 'verified-vera'").Scan(&verified)
+	if verified != 1 {
+		t.Fatalf("after first save: expected is_verified=1, got %d", verified)
+	}
+
+	// Second save: same person, no is_verified key (e.g. browser/LinkedIn extract).
+	_, err = node.Execute(context.Background(), workflow.NodeInput{Items: []workflow.Item{
+		workflow.NewItem(map[string]interface{}{
+			"profile_url": "https://www.linkedin.com/in/verified-vera/",
+			"full_name":   "Verified Vera",
+			"platform":    "linkedin",
+		}),
+	}}, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("second execute: %v", err)
+	}
+
+	db.QueryRow("SELECT is_verified FROM people WHERE platform_username = 'verified-vera'").Scan(&verified)
+	if verified != 1 {
+		t.Fatalf("after second save without is_verified key: expected preserved is_verified=1, got %d", verified)
+	}
+}
+
 func TestPeopleSaveNode_ConfigPlatformOverride(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

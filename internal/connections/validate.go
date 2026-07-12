@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -54,8 +55,16 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		if cs == "" {
 			return "", fmt.Errorf("validate %s: missing connection_string", c.Platform)
 		}
-		end := min(len(cs), 30)
-		return cs[:end] + "...", nil
+		// The connection string embeds the DB password; never return it
+		// verbatim — AccountID/Label survive Redact() and reach `connect
+		// list --json` and GUI output. url.URL.Redacted() masks the
+		// password while keeping the useful host/user/db identifier.
+		if u, err := url.Parse(cs); err == nil && u.Host != "" {
+			return u.Redacted(), nil
+		}
+		// Unparseable (e.g. key=value DSN) — a generic label rather than
+		// risk leaking a password embedded somewhere in the raw string.
+		return c.Platform + " database", nil
 	default:
 		return "", nil
 	}

@@ -2,6 +2,7 @@ package ai
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -20,6 +21,17 @@ type AIProvider struct {
 	LastTested   string `json:"last_tested"`
 	ProfileID    string `json:"profile_id,omitempty"`
 	CreatedAt    string `json:"created_at"`
+}
+
+// MarshalJSON omits the plaintext APIKey from any serialized projection so the
+// stored provider secret never crosses an output boundary (GUI IPC responses,
+// CLI JSON). The key is still read from and written to SQLite via the struct
+// field directly, so provider clients continue to authenticate normally.
+func (p AIProvider) MarshalJSON() ([]byte, error) {
+	type alias AIProvider
+	safe := alias(p)
+	safe.APIKey = ""
+	return json.Marshal(safe)
 }
 
 // ChatMessage represents a single message in an AI chat conversation.

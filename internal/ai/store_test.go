@@ -2,10 +2,37 @@ package ai
 
 import (
 	"database/sql"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
 )
+
+// TestProviderJSONOmitsAPIKey is a regression test: serializing an AIProvider
+// (as ListAIProviders/SaveAIProvider do for the GUI) must never leak the
+// plaintext API key.
+func TestProviderJSONOmitsAPIKey(t *testing.T) {
+	p := AIProvider{
+		ID:         "p1",
+		Name:       "My OpenAI",
+		ProviderID: "openai",
+		Tier:       "known",
+		APIKey:     "sk-supersecret",
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(b), "sk-supersecret") {
+		t.Errorf("serialized provider leaked API key: %s", b)
+	}
+	// A slice (as returned by ListProviders) must also be redacted.
+	b2, _ := json.Marshal([]AIProvider{p})
+	if strings.Contains(string(b2), "sk-supersecret") {
+		t.Errorf("serialized provider slice leaked API key: %s", b2)
+	}
+}
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()

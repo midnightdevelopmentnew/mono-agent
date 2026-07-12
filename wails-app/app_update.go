@@ -102,6 +102,13 @@ func (a *App) AppSelfUpdate() UpdateResult {
 	}
 }
 
+// shQuote wraps a string in single quotes for safe use as a POSIX shell word,
+// escaping any embedded single quotes. Single-quoted strings undergo no
+// $-expansion or command substitution, unlike Go's %q double-quoted form.
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func (a *App) updateAppMacOS(exe, zipPath, newVersion string) UpdateResult {
 	// exe = /path/to/MonoAgent.app/Contents/MacOS/monoagent-ui
 	// .app bundle is 3 levels up
@@ -128,14 +135,17 @@ func (a *App) updateAppMacOS(exe, zipPath, newVersion string) UpdateResult {
 	}
 
 	scriptPath := filepath.Join(os.TempDir(), "monoagent-app-update.sh")
+	// Single-quote every path: %q produces double-quoted strings that bash
+	// still subjects to $-expansion and backtick command substitution, so a
+	// path containing $ or ` would operate on the wrong target or execute code.
 	script := fmt.Sprintf(`#!/bin/bash
 sleep 2
-rm -rf %q
-cp -r %q %q
-rm -rf %q
-open %q
-rm -f %q
-`, appBundle, newApp, appBundle, extractDir, appBundle, scriptPath)
+rm -rf %s
+cp -r %s %s
+rm -rf %s
+open %s
+rm -f %s
+`, shQuote(appBundle), shQuote(newApp), shQuote(appBundle), shQuote(extractDir), shQuote(appBundle), shQuote(scriptPath))
 
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		os.RemoveAll(extractDir)

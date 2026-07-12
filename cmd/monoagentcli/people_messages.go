@@ -493,6 +493,9 @@ func newPeopleMessagesSendDraftCmd(cfg *globalConfig) *cobra.Command {
 			if msg == nil {
 				return fmt.Errorf("message %s not found", args[0])
 			}
+			if err := assertMessageInProfile(db.DB, args[0], cfg.ProfileID); err != nil {
+				return err
+			}
 			if msg.Status != "draft" {
 				return fmt.Errorf("message %s is not a draft (status: %s)", args[0], msg.Status)
 			}
@@ -537,6 +540,9 @@ func newPeopleMessagesRejectDraftCmd(cfg *globalConfig) *cobra.Command {
 			if msg == nil {
 				return fmt.Errorf("message %s not found", args[0])
 			}
+			if err := assertMessageInProfile(db.DB, args[0], cfg.ProfileID); err != nil {
+				return err
+			}
 			if connectionID, cErr := draftMessageConnectionID(msg); cErr == nil && msg.ExternalID != "" {
 				config := map[string]interface{}{"operation": "delete_message", "message_id": msg.ExternalID}
 				_, _ = runOutlookNode(cmd, cfg, db.DB, connectionID, config) // best-effort
@@ -550,6 +556,28 @@ func newPeopleMessagesRejectDraftCmd(cfg *globalConfig) *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// assertMessageInProfile fails if the message does not belong to the active
+// profile. GetPersonMessage/UpdatePersonMessageStatus/DeletePersonMessage look
+// up by bare ID with no profile predicate, so without this check a draft owned
+// by one profile could be sent or discarded from another.
+func assertMessageInProfile(db *sql.DB, msgID, profileID string) error {
+	if profileID == "" {
+		profileID = "default"
+	}
+	var owner string
+	err := db.QueryRow("SELECT COALESCE(profile_id,'default') FROM person_messages WHERE id = ?", msgID).Scan(&owner)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("message %s not found", msgID)
+	}
+	if err != nil {
+		return err
+	}
+	if owner != profileID {
+		return fmt.Errorf("message %s not found", msgID)
+	}
+	return nil
 }
 
 // draftMessageConnectionID extracts the connection_id stashed in a draft

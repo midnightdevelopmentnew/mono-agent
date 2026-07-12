@@ -128,6 +128,9 @@ type WorkflowExecution struct {
 	WorkflowID     string                 `json:"workflow_id" db:"workflow_id"`
 	Status         string                 `json:"status" db:"status"` // QUEUED, RUNNING, SUCCESS, FAILED, CANCELLED
 	TriggerType    string                 `json:"trigger_type" db:"trigger_type"`
+	// TriggerNodeID is the trigger node that fired this run (in-memory only; not
+	// persisted). Empty means every trigger node fires (manual/retry runs).
+	TriggerNodeID  string                 `json:"-" db:"-"`
 	TriggerData    map[string]interface{} `json:"trigger_data" db:"-"`
 	TriggerDataRaw string                 `json:"-" db:"trigger_data"`
 	StartedAt      *time.Time             `json:"started_at" db:"started_at"`

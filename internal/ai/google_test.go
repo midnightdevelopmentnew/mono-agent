@@ -6,8 +6,30 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// TestGoogleErrorScrubsAPIKey verifies a transport failure (whose *url.Error
+// message embeds the request URL, including ?key=...) does not leak the API key.
+func TestGoogleErrorScrubsAPIKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	addr := srv.URL
+	srv.Close() // force connection-refused so err is a *url.Error carrying the URL
+
+	const key = "AIzaSecretKey123"
+	client := NewGoogleClient(key, addr)
+	_, err := client.Complete(context.Background(), CompletionRequest{
+		Model:    "gemini-2.0-flash",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err == nil {
+		t.Fatal("expected transport error, got nil")
+	}
+	if strings.Contains(err.Error(), key) {
+		t.Errorf("error leaked API key: %v", err)
+	}
+}
 
 func TestGoogleComplete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

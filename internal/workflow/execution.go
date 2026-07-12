@@ -125,7 +125,15 @@ func RunExecution(
 		// Determine input items.
 		var inputItems []Item
 		if triggerNodeIDs[node.ID] {
-			inputItems = triggerItems
+			// Only the trigger node that actually fired receives the trigger
+			// payload. When TriggerNodeID is empty (manual/retry runs) every
+			// trigger node fires. Other trigger nodes get no items, so their
+			// downstream branch is skipped by the empty-input guard above.
+			if exec.TriggerNodeID == "" || node.ID == exec.TriggerNodeID {
+				inputItems = triggerItems
+			} else {
+				inputItems = []Item{}
+			}
 		} else {
 			inputItems = pendingInputs[node.ID]
 		}

@@ -23,6 +23,13 @@ func (n *ShopifyNode) Type() string { return "service.shopify" }
 // ("mystore.myshopify.com"); either form works.
 func shopifyRequest(ctx context.Context, method, shop, accessToken, path string, body interface{}) (map[string]interface{}, error) {
 	shop = strings.TrimSuffix(shop, ".myshopify.com")
+	// Validate the shop name so it cannot escape the .myshopify.com host pin:
+	// a value like "evil.com/x?" would otherwise redirect the request (and the
+	// access token) to an attacker-controlled host. Shop names are limited to
+	// letters, digits, and hyphens.
+	if !shopifyValidShop(shop) {
+		return nil, fmt.Errorf("shopify: invalid shop_domain %q", shop)
+	}
 	fullURL := fmt.Sprintf("https://%s.myshopify.com/admin/api/2024-01%s", shop, path)
 	var bodyReader io.Reader
 	if body != nil {
@@ -43,7 +50,7 @@ func shopifyRequest(ctx context.Context, method, shop, accessToken, path string,
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("shopify %s %s: %w", method, fullURL, err)
 	}
@@ -222,6 +229,22 @@ func (n *ShopifyNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	}
 
 	return []workflow.NodeOutput{{Handle: "main", Items: items}}, nil
+}
+
+// shopifyValidShop reports whether shop is a valid Shopify store name: a
+// non-empty string of letters, digits, and hyphens only (no '/', '?', '#', '@',
+// ':', or dots that could redirect the request to another host).
+func shopifyValidShop(shop string) bool {
+	if shop == "" {
+		return false
+	}
+	for _, r := range shop {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // shopifyExtractList extracts a named list from a Shopify response and converts to Items.

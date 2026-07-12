@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -453,12 +454,13 @@ func (b *InstagramBot) InteractWithPosts(ctx context.Context, page *rod.Page, ke
 			break
 		}
 
-		if err := b.interactWithSinglePost(ctx, page, postURL, commentText); err != nil {
+		commented, err := b.interactWithSinglePost(ctx, page, postURL, commentText)
+		if err != nil {
 			continue
 		}
 
 		likedCount++
-		if commentText != "" {
+		if commented {
 			commentedCount++
 		}
 
@@ -518,12 +520,13 @@ func (b *InstagramBot) InteractWithUserPosts(ctx context.Context, page *rod.Page
 			break
 		}
 
-		if err := b.interactWithSinglePost(ctx, page, postURL, commentText); err != nil {
+		commented, err := b.interactWithSinglePost(ctx, page, postURL, commentText)
+		if err != nil {
 			continue
 		}
 
 		likedCount++
-		if commentText != "" {
+		if commented {
 			commentedCount++
 		}
 
@@ -1282,7 +1285,7 @@ func (b *InstagramBot) LikeComment(ctx context.Context, page *rod.Page, postURL,
 		const prev = document.querySelector('[data-monoagent-comment-like]');
 		if (prev) prev.removeAttribute('data-monoagent-comment-like');
 
-		const targetAuthor = '%s'.toLowerCase();
+		const targetAuthor = %s.toLowerCase();
 
 		// Return true if el is a COMMENT like button (not post action bar).
 		// Heuristic: walk up to find a container that also contains a "Reply" button.
@@ -1345,7 +1348,7 @@ func (b *InstagramBot) LikeComment(ctx context.Context, page *rod.Page, postURL,
 
 		toMark.setAttribute('data-monoagent-comment-like', 'true');
 		return 'marked';
-	}`, strings.ReplaceAll(commentAuthor, "'", "\\'")))
+	}`, strconv.Quote(commentAuthor)))
 	if err != nil {
 		return fmt.Errorf("instagram: failed to evaluate comment like script on %s: %w", postURL, err)
 	}
@@ -1403,7 +1406,7 @@ func (b *InstagramBot) ReplyToComment(ctx context.Context, page *rod.Page, postU
 		const prev = document.querySelector('[data-monoagent-reply-btn]');
 		if (prev) prev.removeAttribute('data-monoagent-reply-btn');
 
-		const targetAuthor = '%s'.toLowerCase();
+		const targetAuthor = %s.toLowerCase();
 
 		// Reply buttons: [role="button"] with text "Reply" and no SVG.
 		const replyBtns = Array.from(document.querySelectorAll('[role="button"]')).filter(el =>
@@ -1447,7 +1450,7 @@ func (b *InstagramBot) ReplyToComment(ctx context.Context, page *rod.Page, postU
 
 		toMark.setAttribute('data-monoagent-reply-btn', 'true');
 		return 'marked';
-	}`, strings.ReplaceAll(commentAuthor, "'", "\\'")))
+	}`, strconv.Quote(commentAuthor)))
 	if err != nil {
 		return fmt.Errorf("instagram: failed to find reply button on %s: %w", postURL, err)
 	}
@@ -1505,10 +1508,13 @@ func (b *InstagramBot) ReplyToComment(ctx context.Context, page *rod.Page, postU
 
 // interactWithSinglePost navigates to a post, likes it, and optionally
 // comments on it. Used by InteractWithPosts and InteractWithUserPosts.
-func (b *InstagramBot) interactWithSinglePost(ctx context.Context, page *rod.Page, postURL, commentText string) error {
+// The returned bool reports whether a comment was actually posted (false when
+// no comment was requested or the comment failed), so callers do not overcount
+// commented posts.
+func (b *InstagramBot) interactWithSinglePost(ctx context.Context, page *rod.Page, postURL, commentText string) (bool, error) {
 	// Like the post (handles navigation internally).
 	if err := b.LikePost(ctx, page, postURL); err != nil {
-		return fmt.Errorf("like failed on %s: %w", postURL, err)
+		return false, fmt.Errorf("like failed on %s: %w", postURL, err)
 	}
 
 	// Comment if text is provided.
@@ -1517,11 +1523,12 @@ func (b *InstagramBot) interactWithSinglePost(ctx context.Context, page *rod.Pag
 		// navigates again to be safe.
 		if err := b.CommentPost(ctx, page, postURL, commentText); err != nil {
 			// Comment failure is not fatal for the interaction.
-			return nil
+			return false, nil
 		}
+		return true, nil
 	}
 
-	return nil
+	return false, nil
 }
 
 // ---------------------------------------------------------------------------

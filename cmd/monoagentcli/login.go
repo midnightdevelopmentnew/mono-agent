@@ -147,13 +147,27 @@ func newLoginCmd(cfg *globalConfig) *cobra.Command {
 						}
 
 						expiry := time.Now().Add(30 * 24 * time.Hour) // 30 days
-						_, dbErr := db.DB.Exec(
-							`INSERT OR REPLACE INTO crawler_sessions (username, platform, cookies_json, expiry, profile_id)
-							 VALUES (?, ?, ?, ?, ?)`,
-							username, strings.ToLower(platform), string(cookiesJSON), expiry, cfg.ProfileID,
+						// Upsert scoped to the active profile. INSERT OR REPLACE would key
+						// only on UNIQUE(username, platform) and silently delete another
+						// profile's saved session for the same account, so update our own
+						// row if present and otherwise insert.
+						plat := strings.ToLower(platform)
+						res, dbErr := db.DB.Exec(
+							`UPDATE crawler_sessions SET cookies_json = ?, expiry = ?
+							 WHERE username = ? AND platform = ? AND COALESCE(profile_id,'default') = ?`,
+							string(cookiesJSON), expiry, username, plat, cfg.ProfileID,
 						)
 						if dbErr != nil {
 							return fmt.Errorf("saving session: %w", dbErr)
+						}
+						if n, _ := res.RowsAffected(); n == 0 {
+							if _, dbErr := db.DB.Exec(
+								`INSERT INTO crawler_sessions (username, platform, cookies_json, expiry, profile_id)
+								 VALUES (?, ?, ?, ?, ?)`,
+								username, plat, string(cookiesJSON), expiry, cfg.ProfileID,
+							); dbErr != nil {
+								return fmt.Errorf("saving session: %w", dbErr)
+							}
 						}
 
 						fmt.Fprintf(os.Stderr, "Login successful for %s (user: %s). Session saved.\n", platform, username)

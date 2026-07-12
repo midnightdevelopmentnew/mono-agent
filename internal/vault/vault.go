@@ -95,15 +95,32 @@ func Register(ctx context.Context, db *sql.DB, src, source, workflowID, executio
 		return "", fmt.Errorf("vault.Register: ensure vault dir: %w", err)
 	}
 
-	// Begin an exclusive transaction to prevent TOCTOU in seq allocation.
-	tx, err := db.BeginTx(ctx, nil)
+	// Take a dedicated connection and open an IMMEDIATE transaction so the
+	// write lock is acquired up front. database/sql's default BeginTx starts a
+	// DEFERRED (reader) transaction under SQLite, which lets two concurrent
+	// Registers both read the same MAX(seq) and race on the same destPath; the
+	// loser's cleanup would then delete the winner's committed vault file.
+	// BEGIN IMMEDIATE serializes seq allocation across connections/processes
+	// (waiting up to busy_timeout for a concurrent writer).
+	conn, err := db.Conn(ctx)
 	if err != nil {
+		return "", fmt.Errorf("vault.Register: get conn: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return "", fmt.Errorf("vault.Register: begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			// Use a fresh context so rollback still runs if ctx was cancelled.
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
 
 	var seq int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM vault_images`).Scan(&seq); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM vault_images`).Scan(&seq); err != nil {
 		return "", fmt.Errorf("vault.Register: get next seq: %w", err)
 	}
 
@@ -138,7 +155,7 @@ func Register(ctx context.Context, db *sql.DB, src, source, workflowID, executio
 
 	profileID := ProfileIDFromContext(ctx)
 
-	_, err = tx.ExecContext(ctx, `
+	_, err = conn.ExecContext(ctx, `
 		INSERT INTO vault_images (id, seq, path, filename, size_bytes, source, workflow_id, execution_id, profile_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, seq, destPath, destFilename, fi.Size(), source,
@@ -148,10 +165,11 @@ func Register(ctx context.Context, db *sql.DB, src, source, workflowID, executio
 		os.Remove(destPath) // best-effort cleanup
 		return "", fmt.Errorf("vault.Register: insert: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		os.Remove(destPath)
 		return "", fmt.Errorf("vault.Register: commit: %w", err)
 	}
+	committed = true
 	return id, nil
 }
 

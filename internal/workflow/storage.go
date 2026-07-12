@@ -171,9 +171,9 @@ func (s *SQLiteWorkflowStore) GetWorkflow(ctx context.Context, id string) (*Work
 	var isActive int
 	var createdAt, updatedAt sqliteTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, is_active, version, created_at, updated_at
+		SELECT id, name, description, is_active, version, profile_id, created_at, updated_at
 		FROM workflows WHERE id = ?`, id,
-	).Scan(&w.ID, &w.Name, &w.Description, &isActive, &w.Version, &createdAt, &updatedAt)
+	).Scan(&w.ID, &w.Name, &w.Description, &isActive, &w.Version, &w.ProfileID, &createdAt, &updatedAt)
 	w.CreatedAt = createdAt.Time
 	w.UpdatedAt = updatedAt.Time
 	if err == sql.ErrNoRows {

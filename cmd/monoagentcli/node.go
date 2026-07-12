@@ -566,7 +566,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				if !cfg.Verbose {
 					extLogger = extLogger.Level(zerolog.WarnLevel)
 				}
-				extServer := extension.NewServer(":9222", extLogger)
+				extServer := extension.NewServer("127.0.0.1:9222", extLogger)
 				extServer.StartAsync(context.Background())
 				_ = extServer.WaitForConnection(30 * time.Second)
 

@@ -91,6 +91,10 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 	}
 	defer dlResp.Body.Close()
 
+	if dlResp.StatusCode != 200 {
+		return fmt.Errorf("download failed: GitHub returned %d for %s", dlResp.StatusCode, downloadURL)
+	}
+
 	tmp, err := os.CreateTemp("", "monoagentcli-update-*")
 	if err != nil {
 		return fmt.Errorf("temp file: %w", err)

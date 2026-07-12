@@ -75,6 +75,9 @@ func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	}
 
 	transport := &http.Transport{}
+	// Close idle keep-alive connections when the node finishes; otherwise a
+	// fresh transport per execution leaks pooled connections and their goroutines.
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   time.Duration(timeoutSecs) * time.Second,
 		Transport: transport,
@@ -82,6 +85,21 @@ func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	if !followRedirects {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
+		}
+	} else if sensitiveHeaders := sensitiveRedirectHeaders(config, authType); len(sensitiveHeaders) > 0 {
+		// Go strips Authorization/Cookie-class headers on cross-host redirects
+		// but forwards custom headers (e.g. an API key header) verbatim. Strip
+		// our own credential-bearing headers when the redirect leaves the host.
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				for _, h := range sensitiveHeaders {
+					req.Header.Del(h)
+				}
+			}
+			return nil
 		}
 	}
 
@@ -116,6 +134,26 @@ func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		outputs = append(outputs, workflow.NodeOutput{Handle: "error", Items: errorItems})
 	}
 	return outputs, nil
+}
+
+// sensitiveRedirectHeaders returns the names of request headers this node sets
+// that may carry credentials and must not follow a cross-host redirect: the
+// configured API-key header plus any explicitly supplied custom headers.
+func sensitiveRedirectHeaders(config map[string]interface{}, authType string) []string {
+	var names []string
+	if authType == "api_key" {
+		if in, _ := config["auth_api_key_in"].(string); in == "header" {
+			if name, _ := config["auth_api_key_name"].(string); name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	if headers, ok := config["headers"].(map[string]interface{}); ok {
+		for k := range headers {
+			names = append(names, k)
+		}
+	}
+	return names
 }
 
 func (n *RequestNode) executePaginated(

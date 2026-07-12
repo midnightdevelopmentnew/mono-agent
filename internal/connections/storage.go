@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -93,6 +94,11 @@ CREATE INDEX IF NOT EXISTS idx_connections_profile  ON connections(profile_id);
 // Store provides CRUD operations for connections.
 type Store struct {
 	db *sql.DB
+	// refreshMu serializes token refreshes within this process so two
+	// concurrent resolvers can't both exchange the same refresh_token — with
+	// providers that rotate single-use refresh tokens the loser would persist
+	// a dead token and permanently break the connection.
+	refreshMu sync.Mutex
 }
 
 // NewStore creates a new Store backed by the given database.
@@ -212,6 +218,19 @@ func (s *Store) ensureFreshToken(ctx context.Context, conn *Connection) (*Connec
 // and reports exactly why it failed when it does — used by `connect refresh`
 // and anywhere else that needs real feedback instead of a silent no-op.
 func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
+	// Serialize refreshes so overlapping callers don't each exchange the same
+	// stored refresh_token. After acquiring the lock, re-read the latest
+	// tokens: a refresh that just completed in another goroutine may have
+	// rotated the refresh_token, and exchanging the now-consumed one would
+	// permanently break the connection.
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	if conn.ID != "" {
+		if latest, err := s.Get(ctx, conn.ID); err == nil && latest != nil && latest.Data != nil {
+			conn.Data = latest.Data
+		}
+	}
+
 	refreshToken, _ := conn.Data["refresh_token"].(string)
 	if refreshToken == "" {
 		return fmt.Errorf("no refresh_token stored for this connection — reconnect with the full OAuth flow instead")

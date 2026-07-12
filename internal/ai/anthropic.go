@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -44,6 +45,18 @@ type anthropicRequest struct {
 type anthropicMsg struct {
 	Role    string               `json:"role"`
 	Content json.RawMessage      `json:"content"`
+}
+
+// anthropicBlock is a single content block used when a message carries
+// structured content (tool_use / tool_result) rather than a plain string.
+type anthropicBlock struct {
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Content   string          `json:"content,omitempty"`
 }
 
 type anthropicTool struct {
@@ -112,7 +125,7 @@ func (c *AnthropicClient) Complete(ctx context.Context, req CompletionRequest) (
 		return CompletionResponse{}, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/messages", bytes.NewReader(body))
 	if err != nil {
 		return CompletionResponse{}, fmt.Errorf("create request: %w", err)
 	}
@@ -149,7 +162,7 @@ func (c *AnthropicClient) StreamComplete(ctx context.Context, req CompletionRequ
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/messages", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -175,6 +188,7 @@ func (c *AnthropicClient) StreamComplete(ctx context.Context, req CompletionRequ
 	toolCalls := make(map[int]*pendingToolCall)
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSEBufferSize)
 	var currentEvent string
 
 	for scanner.Scan() {
@@ -224,9 +238,16 @@ func (c *AnthropicClient) StreamComplete(ctx context.Context, req CompletionRequ
 			if err := json.Unmarshal([]byte(data), &md); err != nil {
 				continue
 			}
-			// Emit any completed tool calls
+			// Emit any completed tool calls in content-block index order
+			// (map iteration is nondeterministic).
+			indexes := make([]int, 0, len(toolCalls))
+			for idx := range toolCalls {
+				indexes = append(indexes, idx)
+			}
+			sort.Ints(indexes)
 			var tcs []ToolCall
-			for _, tc := range toolCalls {
+			for _, idx := range indexes {
+				tc := toolCalls[idx]
 				tcs = append(tcs, ToolCall{
 					ID:   tc.id,
 					Type: "function",
@@ -269,16 +290,46 @@ func (c *AnthropicClient) toWireRequest(req CompletionRequest, stream bool) anth
 			continue
 		}
 
-		// For tool role, Anthropic expects the role to be "user" with a tool_result content block,
-		// but for simplicity we pass the content as a string.
-		role := m.Role
-		if role == RoleTool {
-			role = RoleUser
+		// Tool results map to a user message carrying a tool_result block so the
+		// exchange is paired to the originating tool_use by id.
+		if m.Role == RoleTool {
+			block := anthropicBlock{
+				Type:      "tool_result",
+				ToolUseID: m.ToolCallID,
+				Content:   m.Content,
+			}
+			content, _ := json.Marshal([]anthropicBlock{block})
+			msgs = append(msgs, anthropicMsg{Role: RoleUser, Content: content})
+			continue
+		}
+
+		// Assistant turns that invoked tools must send tool_use blocks; the text
+		// block is included only when non-empty (Anthropic rejects empty content).
+		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 {
+			blocks := make([]anthropicBlock, 0, len(m.ToolCalls)+1)
+			if m.Content != "" {
+				blocks = append(blocks, anthropicBlock{Type: "text", Text: m.Content})
+			}
+			for _, tc := range m.ToolCalls {
+				input := json.RawMessage(tc.Function.Arguments)
+				if !json.Valid(input) {
+					input = json.RawMessage("{}")
+				}
+				blocks = append(blocks, anthropicBlock{
+					Type:  "tool_use",
+					ID:    tc.ID,
+					Name:  tc.Function.Name,
+					Input: input,
+				})
+			}
+			content, _ := json.Marshal(blocks)
+			msgs = append(msgs, anthropicMsg{Role: RoleAssistant, Content: content})
+			continue
 		}
 
 		contentBytes, _ := json.Marshal(m.Content)
 		msgs = append(msgs, anthropicMsg{
-			Role:    role,
+			Role:    m.Role,
 			Content: contentBytes,
 		})
 	}

@@ -86,12 +86,29 @@ func (eh *ErrorHandler) Handle(
 		return eh.handleOnFailure(def, result, execCtx)
 
 	case ErrorActionTryAlternative:
-		return &StepResult{
-			Success: false,
-			Retry:   true,
-			StepID:  result.StepID,
-			Error:   result.Error,
+		eh.mu.Lock()
+		count := eh.retryCounts[result.StepID]
+		eh.mu.Unlock()
+
+		maxRetries := def.MaxRetries
+		if maxRetries <= 0 {
+			maxRetries = 3
 		}
+
+		if count < maxRetries {
+			eh.mu.Lock()
+			eh.retryCounts[result.StepID]++
+			eh.mu.Unlock()
+
+			return &StepResult{
+				Success: false,
+				Retry:   true,
+				StepID:  result.StepID,
+				Error:   result.Error,
+			}
+		}
+		// Alternatives exhausted — fall through to onFailure.
+		return eh.handleOnFailure(def, result, execCtx)
 
 	case ErrorActionMarkFailed:
 		if execCtx != nil {

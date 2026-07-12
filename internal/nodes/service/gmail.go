@@ -139,7 +139,7 @@ func gmailRequest(ctx context.Context, method, url, accessToken string, body int
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("gmail %s %s: %w", method, url, err)
 	}
@@ -168,6 +168,12 @@ func gmailBuildRFC2822(from, to, subject, body, bodyType string) (string, error)
 		contentType = "text/html"
 	}
 
+	// Strip CR/LF from header values to prevent header injection: a value like
+	// "Invoice\r\nBcc: attacker@evil.com" would otherwise inject extra headers.
+	from = gmailSanitizeHeader(from)
+	to = gmailSanitizeHeader(to)
+	subject = gmailSanitizeHeader(subject)
+
 	var sb strings.Builder
 	if from != "" {
 		sb.WriteString("From: " + from + "\r\n")
@@ -185,6 +191,12 @@ func gmailBuildRFC2822(from, to, subject, body, bodyType string) (string, error)
 
 	encoded := base64.URLEncoding.EncodeToString([]byte(sb.String()))
 	return encoded, nil
+}
+
+// gmailSanitizeHeader removes CR and LF characters from an email header value
+// to prevent header injection (e.g. a smuggled "Bcc:" line).
+func gmailSanitizeHeader(s string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
 }
 
 // gmailURLEncode encodes a string for use in a URL query parameter.

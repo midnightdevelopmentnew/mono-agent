@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -63,8 +64,35 @@ func NewDatabase(dbPath string) (*Database, error) {
 // Migrations are applied in filename order (e.g. 001_initial.sql before
 // 002_add_feature.sql).
 func (d *Database) ApplyMigrations() error {
+	ctx := context.Background()
+
+	// Migrations run on a single dedicated connection with foreign key
+	// enforcement DISABLED. The DSN bakes foreign_keys(ON) into every pooled
+	// connection, but table-rebuild migrations (the standard SQLite
+	// "CREATE new / copy / DROP old / RENAME" recipe, e.g. migration 014)
+	// require FK enforcement OFF: dropping the old table fires an implicit
+	// DELETE that would cascade-delete child rows (person_messages, people_tags)
+	// or fail outright on NO-ACTION references (action_targets, posts). PRAGMA
+	// foreign_keys is a no-op inside a transaction, so it must be toggled here,
+	// outside any transaction, and it only affects the connection it runs on —
+	// hence a dedicated *sql.Conn used for the entire migration run.
+	conn, err := d.DB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring migration connection: %w", err)
+	}
+	defer func() {
+		// Restore FK enforcement before this connection returns to the pool,
+		// otherwise later queries reusing it would run with FKs disabled.
+		conn.ExecContext(ctx, "PRAGMA foreign_keys = ON")
+		conn.Close()
+	}()
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("disabling foreign keys for migrations: %w", err)
+	}
+
 	// Ensure the schema_migrations table itself exists before we query it.
-	_, err := d.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+	_, err = conn.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
 		applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	)`)
@@ -116,7 +144,7 @@ func (d *Database) ApplyMigrations() error {
 	for _, m := range migrations {
 		// Check if this version has already been applied.
 		var exists int
-		err := d.DB.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = ?", m.version).Scan(&exists)
+		err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", m.version).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("checking migration version %d: %w", m.version, err)
 		}
@@ -131,7 +159,7 @@ func (d *Database) ApplyMigrations() error {
 		}
 
 		// Execute the migration within a transaction.
-		tx, err := d.DB.Begin()
+		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("beginning transaction for migration %d: %w", m.version, err)
 		}

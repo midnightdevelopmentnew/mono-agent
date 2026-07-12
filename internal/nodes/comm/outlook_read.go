@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/textproto"
 	"strings"
@@ -98,7 +99,22 @@ func fetchOutlookMail(ctx context.Context, host string, port int, username, pass
 	tc := textproto.NewConn(conn)
 	defer tc.Close() // also closes the underlying conn
 
+	// Close the connection when the workflow context is cancelled so blocked
+	// reads unblock instead of hanging the node goroutine indefinitely.
+	ctxDone := make(chan struct{})
+	defer close(ctxDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-ctxDone:
+		}
+	}()
+
 	readLine := func() (string, error) {
+		// Idle read deadline: a stalled server (e.g. terminating tag never
+		// arrives) fails the read instead of blocking forever.
+		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		line, err := tc.ReadLine()
 		return line, err
 	}
@@ -241,7 +257,8 @@ func fetchOutlookMail(ctx context.Context, host string, port int, username, pass
 			}
 			if bodySize > 0 {
 				buf := make([]byte, bodySize)
-				if _, rerr := tc.R.Read(buf); rerr == nil {
+				_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+				if _, rerr := io.ReadFull(tc.R, buf); rerr == nil {
 					bodyText := string(buf)
 					if len(bodyText) > 2048 {
 						bodyText = bodyText[:2048] + "…"

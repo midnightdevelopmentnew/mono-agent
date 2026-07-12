@@ -132,7 +132,7 @@ func (n *PeopleSaveNode) Execute(
 		website, _ := data["website"].(string)
 		jobTitle := firstString(data, "job_title", "position", "headline")
 		introduction, _ := data["introduction"].(string)
-		isVerified, _ := data["is_verified"].(bool)
+		isVerified := nullableBool(data, "is_verified")
 
 		followerCount := toNumericString(data, "follower_count", "followers_count", "followersCount")
 		followingCount := toNumericString(data, "following_count")
@@ -243,4 +243,13 @@ func nullableInt(n int64) interface{} {
 		return nil
 	}
 	return n
+}
+
+// nullableBool binds the bool value only when the key is present; otherwise it
+// binds NULL so the upsert's COALESCE preserves the existing stored flag.
+func nullableBool(m map[string]interface{}, key string) interface{} {
+	if v, ok := m[key].(bool); ok {
+		return v
+	}
+	return nil
 }

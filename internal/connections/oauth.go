@@ -59,12 +59,29 @@ func RunOAuthFlow(ctx context.Context, cfg OAuthConfig, timeout time.Duration, p
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
+	// Sends must never block: codeCh/errCh are cap-1 and read exactly once,
+	// so a second /callback request (browser retry, prefetch, stray local
+	// request) would otherwise wedge its handler forever on the send and
+	// hang srv.Shutdown — and thus RunOAuthFlow — indefinitely.
+	sendErr := func(e error) {
+		select {
+		case errCh <- e:
+		default:
+		}
+	}
+	sendCode := func(c string) {
+		select {
+		case codeCh <- c:
+		default:
+		}
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 
 		if gotState := q.Get("state"); gotState != state {
-			errCh <- fmt.Errorf("state mismatch: got %q, want %q", gotState, state)
+			sendErr(fmt.Errorf("state mismatch: got %q, want %q", gotState, state))
 			http.Error(w, "state mismatch", http.StatusBadRequest)
 			return
 		}
@@ -72,9 +89,9 @@ func RunOAuthFlow(ctx context.Context, cfg OAuthConfig, timeout time.Duration, p
 		if providerErr := q.Get("error"); providerErr != "" {
 			desc := q.Get("error_description")
 			if desc != "" {
-				errCh <- fmt.Errorf("provider error: %s — %s", providerErr, desc)
+				sendErr(fmt.Errorf("provider error: %s — %s", providerErr, desc))
 			} else {
-				errCh <- fmt.Errorf("provider error: %s", providerErr)
+				sendErr(fmt.Errorf("provider error: %s", providerErr))
 			}
 			http.Error(w, providerErr, http.StatusBadRequest)
 			return
@@ -82,14 +99,14 @@ func RunOAuthFlow(ctx context.Context, cfg OAuthConfig, timeout time.Duration, p
 
 		code := q.Get("code")
 		if code == "" {
-			errCh <- fmt.Errorf("missing code in callback")
+			sendErr(fmt.Errorf("missing code in callback"))
 			http.Error(w, "missing code", http.StatusBadRequest)
 			return
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, `<!DOCTYPE html><html><body><h2>&#x2713; Connected! You can close this tab.</h2></body></html>`)
-		codeCh <- code
+		sendCode(code)
 	})
 
 	srv := &http.Server{
@@ -99,7 +116,7 @@ func RunOAuthFlow(ctx context.Context, cfg OAuthConfig, timeout time.Duration, p
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- fmt.Errorf("http server: %w", err)
+			sendErr(fmt.Errorf("http server: %w", err))
 		}
 	}()
 
@@ -232,6 +249,11 @@ func PostTokenRequestWithAudienceFallback(tokenURL string, form url.Values) ([]b
 	return body, status, nil
 }
 
+// tokenHTTPClient bounds every token exchange/refresh so a blackholed
+// provider token endpoint can't hang the caller (workflow node, connect
+// flow) forever — http.DefaultClient has no timeout.
+var tokenHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 func postForm(tokenURL string, form url.Values) ([]byte, int, error) {
 	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -240,7 +262,7 @@ func postForm(tokenURL string, form url.Values) ([]byte, int, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := tokenHTTPClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}

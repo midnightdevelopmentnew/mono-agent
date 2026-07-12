@@ -63,9 +63,39 @@ func TestWorkflowFileStore_RoundTrip(t *testing.T) {
 	if err := store.DeleteWorkflow(ctx, wf.ID); err != nil {
 		t.Fatalf("DeleteWorkflow: %v", err)
 	}
-	_, statErr := os.Stat(store.filePath(wf.ID))
+	p, _ := store.filePath(wf.ID)
+	_, statErr := os.Stat(p)
 	if !os.IsNotExist(statErr) {
 		t.Fatal("expected file to be deleted")
+	}
+}
+
+func TestWorkflowFileStore_RejectsPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := NewWorkflowFileStore(dir)
+	ctx := context.Background()
+
+	for _, id := range []string{
+		"../evil",
+		"../../etc/passwd",
+		"sub/evil",
+		"..",
+	} {
+		wf := &Workflow{ID: id, Name: "evil"}
+		if err := store.SaveWorkflow(ctx, wf); err == nil {
+			t.Errorf("SaveWorkflow(%q): expected error, got nil", id)
+		}
+		if _, err := store.GetWorkflow(ctx, id); err == nil {
+			t.Errorf("GetWorkflow(%q): expected error, got nil", id)
+		}
+		if err := store.DeleteWorkflow(ctx, id); err == nil {
+			t.Errorf("DeleteWorkflow(%q): expected error, got nil", id)
+		}
+	}
+
+	// A traversal write must not create any file outside the store dir.
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("expected no files written, got %d", len(entries))
 	}
 }
 

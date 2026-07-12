@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -19,6 +21,7 @@ type Server struct {
 	addr    string
 	conn    *websocket.Conn
 	connMu  sync.Mutex
+	writeMu sync.Mutex // serializes writes; gorilla/websocket forbids concurrent writers
 	pending map[string]chan *Response
 	pendMu  sync.Mutex
 
@@ -32,7 +35,46 @@ type Server struct {
 }
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: checkOrigin,
+}
+
+// checkOrigin restricts the extension control channel to same-machine callers:
+// native clients that send no Origin, the browser extension itself
+// (chrome-extension:// / moz-extension://), and loopback origins. Arbitrary
+// websites the user visits carry a public Origin and are rejected, so a page
+// cannot open ws://127.0.0.1:9222/monoagent and impersonate the extension.
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if u.Scheme == "chrome-extension" || u.Scheme == "moz-extension" {
+		return true
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
+// loopbackAddr forces a missing or wildcard host to bind to loopback only, so
+// the unauthenticated extension control channel is never reachable from other
+// hosts on the network.
+func loopbackAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // NewServer creates a new extension WebSocket server. Addr should be a
@@ -54,8 +96,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/monoagent", s.handleWS)
 
+	addr := loopbackAddr(s.addr)
 	s.server = &http.Server{
-		Addr:    s.addr,
+		Addr:    addr,
 		Handler: mux,
 	}
 
@@ -66,7 +109,7 @@ func (s *Server) Start(ctx context.Context) error {
 		_ = s.server.Shutdown(shutCtx)
 	}()
 
-	s.logger.Info().Str("addr", s.addr).Msg("extension server listening")
+	s.logger.Info().Str("addr", addr).Msg("extension server listening")
 	err := s.server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
@@ -132,7 +175,10 @@ func (s *Server) SendCommand(cmd *Command, timeout time.Duration) (*Response, er
 		return nil, fmt.Errorf("no extension connected")
 	}
 
-	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+	s.writeMu.Lock()
+	err = conn.WriteMessage(websocket.TextMessage, data)
+	s.writeMu.Unlock()
+	if err != nil {
 		return nil, fmt.Errorf("write command: %w", err)
 	}
 

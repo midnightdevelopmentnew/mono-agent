@@ -121,8 +121,27 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 	session.Stdout = &stdoutBuf
 	session.Stderr = &stderrBuf
 
+	// Run the command in a goroutine so we can honor the workflow context and
+	// the configured timeout. session.Run itself has no deadline, so without
+	// this a hung remote command would block the node forever and ignore
+	// cancellation.
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	runErrCh := make(chan error, 1)
+	go func() { runErrCh <- session.Run(command) }()
+
 	exitCode := 0
-	runErr := session.Run(command)
+	var runErr error
+	select {
+	case runErr = <-runErrCh:
+	case <-ctx.Done():
+		session.Close()
+		return nil, fmt.Errorf("http.ssh: cancelled: %w", ctx.Err())
+	case <-timer.C:
+		session.Close()
+		return nil, fmt.Errorf("http.ssh: command timed out after %s", timeout)
+	}
 	if runErr != nil {
 		if exitErr, ok := runErr.(*ssh.ExitError); ok {
 			exitCode = exitErr.ExitStatus()

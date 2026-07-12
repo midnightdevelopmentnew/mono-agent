@@ -123,6 +123,9 @@ func (n *MongoDBNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{item}}}, nil
 
 	case "update_one":
+		if len(filter) == 0 {
+			return nil, fmt.Errorf("db.mongodb: 'filter' is required for update_one (refusing to match all documents)")
+		}
 		result, err := coll.UpdateOne(ctx, filter, update)
 		if err != nil {
 			return nil, fmt.Errorf("db.mongodb: update_one failed: %w", err)
@@ -135,6 +138,9 @@ func (n *MongoDBNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{item}}}, nil
 
 	case "update_many":
+		if len(filter) == 0 {
+			return nil, fmt.Errorf("db.mongodb: 'filter' is required for update_many (refusing to match all documents)")
+		}
 		result, err := coll.UpdateMany(ctx, filter, update)
 		if err != nil {
 			return nil, fmt.Errorf("db.mongodb: update_many failed: %w", err)
@@ -147,6 +153,9 @@ func (n *MongoDBNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{item}}}, nil
 
 	case "delete_one":
+		if len(filter) == 0 {
+			return nil, fmt.Errorf("db.mongodb: 'filter' is required for delete_one (refusing to match all documents)")
+		}
 		result, err := coll.DeleteOne(ctx, filter)
 		if err != nil {
 			return nil, fmt.Errorf("db.mongodb: delete_one failed: %w", err)
@@ -157,6 +166,9 @@ func (n *MongoDBNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{item}}}, nil
 
 	case "delete_many":
+		if len(filter) == 0 {
+			return nil, fmt.Errorf("db.mongodb: 'filter' is required for delete_many (refusing to match all documents)")
+		}
 		result, err := coll.DeleteMany(ctx, filter)
 		if err != nil {
 			return nil, fmt.Errorf("db.mongodb: delete_many failed: %w", err)

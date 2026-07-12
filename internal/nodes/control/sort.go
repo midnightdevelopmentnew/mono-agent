@@ -52,6 +52,14 @@ func (n *SortNode) Execute(ctx context.Context, input workflow.NodeInput, config
 		vi := getField(items[i], field)
 		vj := getField(items[j], field)
 
+		// For descending order, compare the operands in reverse rather than
+		// negating the result — negating reports i<j and j<i both true for
+		// equal keys, violating strict weak ordering and destroying the
+		// stability that sort.SliceStable provides for ties.
+		if order == "desc" {
+			vi, vj = vj, vi
+		}
+
 		var less bool
 		switch sortType {
 		case "number":
@@ -75,9 +83,6 @@ func (n *SortNode) Execute(ctx context.Context, input workflow.NodeInput, config
 			less = fmt.Sprintf("%v", vi) < fmt.Sprintf("%v", vj)
 		}
 
-		if order == "desc" {
-			return !less
-		}
 		return less
 	})
 

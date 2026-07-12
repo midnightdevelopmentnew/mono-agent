@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,8 +65,16 @@ func NewWorkflowFileStore(dir string) (*WorkflowFileStore, error) {
 	return &WorkflowFileStore{dir: dir}, nil
 }
 
-func (s *WorkflowFileStore) filePath(id string) string {
-	return filepath.Join(s.dir, id+".json")
+// filePath maps a workflow ID to its on-disk JSON file. The ID must be a plain
+// filename component: IDs containing path separators, "..", or that resolve to
+// anything other than themselves are rejected to prevent path traversal outside
+// the store directory (e.g. an imported workflow whose "id" is "../../etc/foo").
+func (s *WorkflowFileStore) filePath(id string) (string, error) {
+	if id == "" || id == "." || id == ".." ||
+		strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
+		return "", fmt.Errorf("file_store: invalid workflow id %q", id)
+	}
+	return filepath.Join(s.dir, id+".json"), nil
 }
 
 // SaveWorkflow writes or updates a workflow JSON file.
@@ -129,13 +138,31 @@ func (s *WorkflowFileStore) SaveWorkflow(ctx context.Context, wf *Workflow) erro
 	if err != nil {
 		return fmt.Errorf("file_store: marshal %s: %w", wf.ID, err)
 	}
-	return os.WriteFile(s.filePath(wf.ID), data, 0o644)
+	path, err := s.filePath(wf.ID)
+	if err != nil {
+		return err
+	}
+	// Write atomically: write to a temp file then rename over the target, so a
+	// crash mid-write cannot truncate/corrupt an existing workflow definition.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("file_store: write %s: %w", wf.ID, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("file_store: rename %s: %w", wf.ID, err)
+	}
+	return nil
 }
 
 // GetWorkflow reads a workflow JSON file by ID.
 // Returns nil, nil if not found.
 func (s *WorkflowFileStore) GetWorkflow(ctx context.Context, id string) (*Workflow, error) {
-	data, err := os.ReadFile(s.filePath(id))
+	path, err := s.filePath(id)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -174,7 +201,11 @@ func (s *WorkflowFileStore) ListWorkflows(ctx context.Context) ([]*Workflow, err
 
 // DeleteWorkflow removes the workflow JSON file.
 func (s *WorkflowFileStore) DeleteWorkflow(ctx context.Context, id string) error {
-	err := os.Remove(s.filePath(id))
+	path, err := s.filePath(id)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil
 	}

@@ -155,11 +155,19 @@ func (m *Manager) Test(ctx context.Context, id string) error {
 	}
 
 	if accountID != "" {
-		conn.AccountID = accountID
-		p, ok := Get(conn.Platform)
-		if ok {
-			conn.Label = fmt.Sprintf("%s – %s", p.Name, accountID)
+		label := conn.Label
+		if p, ok := Get(conn.Platform); ok {
+			label = fmt.Sprintf("%s – %s", p.Name, accountID)
 		}
+		// Re-read before saving: ValidateConnection did a network round-trip
+		// during which a concurrent refresh may have rotated the tokens.
+		// Saving the pre-validation Data blob would clobber them; only the
+		// account_id/label should change here.
+		if latest, err := m.store.Get(ctx, id); err == nil && latest != nil {
+			conn = latest
+		}
+		conn.AccountID = accountID
+		conn.Label = label
 		if err := m.store.Save(ctx, conn); err != nil {
 			return fmt.Errorf("test: update account: %w", err)
 		}

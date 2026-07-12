@@ -37,3 +37,30 @@ func TestNodesRequireConnectionString(t *testing.T) {
 		}
 	}
 }
+
+// TestMongoDBRefusesMatchAllMutations is a regression test: destructive
+// operations (delete_one/delete_many/update_one/update_many) must refuse a
+// missing/empty 'filter' instead of treating an empty bson.D{} as match-all,
+// which MongoDB would use to wipe/mutate the entire collection. The guard must
+// fire before any network round-trip, mirroring the SQL nodes' refusal to run
+// DELETE without a WHERE clause.
+func TestMongoDBRefusesMatchAllMutations(t *testing.T) {
+	node := &MongoDBNode{}
+	for _, op := range []string{"delete_one", "delete_many", "update_one", "update_many"} {
+		config := map[string]interface{}{
+			"operation":         op,
+			"connection_string": "mongodb://localhost:27017",
+			"database":          "d",
+			"collection":        "c",
+			// no "filter" provided -> would resolve to bson.D{} (match all)
+		}
+		_, err := node.Execute(context.Background(), workflow.NodeInput{}, config)
+		if err == nil {
+			t.Errorf("%s: expected error when 'filter' is missing, got nil", op)
+			continue
+		}
+		if !strings.Contains(err.Error(), "filter") {
+			t.Errorf("%s: expected error mentioning 'filter', got: %v", op, err)
+		}
+	}
+}

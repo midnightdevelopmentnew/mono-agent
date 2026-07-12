@@ -180,7 +180,7 @@ func driveRequest(ctx context.Context, method, url, accessToken string, body int
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("google_drive %s %s: %w", method, url, err)
 	}
@@ -209,7 +209,7 @@ func driveDownload(ctx context.Context, url, accessToken string) ([]byte, error)
 		return nil, fmt.Errorf("google_drive: creating download request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("google_drive: downloading file: %w", err)
 	}
@@ -276,7 +276,7 @@ func driveUploadFile(ctx context.Context, accessToken, filePath, fileName, mimeT
 	req.Header.Set("Content-Type", "multipart/related; boundary="+w.Boundary())
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("uploading file: %w", err)
 	}

@@ -591,7 +591,7 @@ func executeAction(
 	var rodBrowser *rod.Browser
 
 	extLogger := logger.With().Str("component", "extension").Logger()
-	extServer := extension.NewServer(":9222", extLogger)
+	extServer := extension.NewServer("127.0.0.1:9222", extLogger)
 	extServer.StartAsync(execCtx)
 	_ = extServer.WaitForConnection(15 * time.Second)
 
@@ -749,7 +749,9 @@ func executeAction(
 	}
 
 	if execErr != nil {
-		if failed > 0 && extracted == 0 {
+		// Any executor error with no successfully extracted items is a failure,
+		// even when the executor never got far enough to record a failed item.
+		if extracted == 0 {
 			finalState = "FAILED"
 		}
 		fmt.Fprintf(os.Stderr, "  Execution error: %v\n", execErr)

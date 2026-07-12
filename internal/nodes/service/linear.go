@@ -171,7 +171,7 @@ func (n *LinearNode) linearGraphQL(ctx context.Context, token, query string, var
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP POST %s: %w", linearGraphQLURL, err)
 	}

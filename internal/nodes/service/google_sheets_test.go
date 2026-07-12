@@ -1,8 +1,72 @@
 package service
 
 import (
+	"encoding/base64"
+	"strings"
 	"testing"
+
+	"monoagent/internal/workflow"
 )
+
+func TestSheetsItemsToRows_HeaderOptIn(t *testing.T) {
+	items := []workflow.Item{
+		workflow.NewItem(map[string]interface{}{"a": "1", "b": "2"}),
+	}
+
+	// Without header (default for append): only the data row, no header row.
+	rows := sheetsItemsToRows(items, false)
+	if len(rows) != 1 {
+		t.Fatalf("withHeader=false: expected 1 row, got %d", len(rows))
+	}
+	if rows[0][0] != "1" {
+		t.Errorf("withHeader=false: first row should be data, got %v", rows[0])
+	}
+
+	// With header opt-in: header row prepended.
+	rows = sheetsItemsToRows(items, true)
+	if len(rows) != 2 {
+		t.Fatalf("withHeader=true: expected 2 rows, got %d", len(rows))
+	}
+	if rows[0][0] != "a" || rows[0][1] != "b" {
+		t.Errorf("withHeader=true: first row should be header, got %v", rows[0])
+	}
+}
+
+func TestGmailSanitizeHeader_StripsCRLF(t *testing.T) {
+	got := gmailSanitizeHeader("Invoice\r\nBcc: attacker@evil.com")
+	if strings.ContainsAny(got, "\r\n") {
+		t.Fatalf("sanitized header still contains CR/LF: %q", got)
+	}
+
+	raw, err := gmailBuildRFC2822("", "victim@example.com", "Invoice\r\nBcc: attacker@evil.com", "hi", "text")
+	if err != nil {
+		t.Fatalf("build error: %v", err)
+	}
+	decoded, err := base64.URLEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	for _, line := range strings.Split(string(decoded), "\r\n") {
+		if strings.HasPrefix(line, "Bcc:") {
+			t.Errorf("injected Bcc header survived as its own line:\n%s", decoded)
+		}
+	}
+}
+
+func TestShopifyValidShop(t *testing.T) {
+	valid := []string{"mystore", "my-store", "Store123"}
+	for _, s := range valid {
+		if !shopifyValidShop(s) {
+			t.Errorf("shopifyValidShop(%q) = false, want true", s)
+		}
+	}
+	invalid := []string{"", "evil.com/x?", "evil.com", "store/path", "store?q=1", "a@b", "sub.domain"}
+	for _, s := range invalid {
+		if shopifyValidShop(s) {
+			t.Errorf("shopifyValidShop(%q) = true, want false", s)
+		}
+	}
+}
 
 func TestSheetsValuesToItems_RowIndex(t *testing.T) {
 	values := []interface{}{

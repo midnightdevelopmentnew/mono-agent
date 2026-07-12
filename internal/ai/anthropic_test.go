@@ -208,6 +208,155 @@ func TestAnthropicToolCalls(t *testing.T) {
 	}
 }
 
+// TestAnthropicBaseURLNoDoubleVersion guards the /v1/v1/messages regression:
+// the default base URL includes /v1, so the adapter must append the
+// unversioned /messages path.
+func TestAnthropicBaseURLNoDoubleVersion(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"content":     []map[string]interface{}{{"type": "text", "text": "ok"}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]interface{}{"input_tokens": 1, "output_tokens": 1},
+		})
+	}))
+	defer srv.Close()
+
+	client := NewAnthropicClient("test-key", srv.URL+"/v1")
+	if _, err := client.Complete(context.Background(), CompletionRequest{
+		Model:    "claude-sonnet-4-6",
+		Messages: []Message{{Role: RoleUser, Content: "Hi"}},
+	}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if gotPath != "/v1/messages" {
+		t.Errorf("request path = %q, want %q", gotPath, "/v1/messages")
+	}
+}
+
+// TestAnthropicToolResultWireFormat verifies that an assistant tool-call turn
+// (with empty text) and a tool result are serialized as proper tool_use /
+// tool_result content blocks, never as an empty-string message that Anthropic
+// would reject.
+func TestAnthropicToolResultWireFormat(t *testing.T) {
+	var reqBody map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &reqBody)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"content":     []map[string]interface{}{{"type": "text", "text": "done"}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]interface{}{"input_tokens": 1, "output_tokens": 1},
+		})
+	}))
+	defer srv.Close()
+
+	client := NewAnthropicClient("test-key", srv.URL)
+	_, err := client.Complete(context.Background(), CompletionRequest{
+		Model: "claude-sonnet-4-6",
+		Messages: []Message{
+			{Role: RoleUser, Content: "make a workflow"},
+			{Role: RoleAssistant, Content: "", ToolCalls: []ToolCall{{
+				ID: "tu1", Type: "function",
+				Function: ToolCallFunc{Name: "create_workflow", Arguments: `{"name":"x"}`},
+			}}},
+			{Role: RoleTool, Content: `{"workflow_id":"w1"}`, ToolCallID: "tu1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	messages, _ := reqBody["messages"].([]interface{})
+	if len(messages) != 3 {
+		t.Fatalf("messages len = %d, want 3", len(messages))
+	}
+
+	asst, _ := messages[1].(map[string]interface{})
+	if asst["role"] != "assistant" {
+		t.Errorf("messages[1].role = %v, want assistant", asst["role"])
+	}
+	blocks, ok := asst["content"].([]interface{})
+	if !ok {
+		t.Fatalf("assistant content is not a block array: %v", asst["content"])
+	}
+	foundToolUse := false
+	for _, b := range blocks {
+		bm, _ := b.(map[string]interface{})
+		if bm["type"] == "tool_use" {
+			foundToolUse = true
+			if bm["name"] != "create_workflow" {
+				t.Errorf("tool_use name = %v, want create_workflow", bm["name"])
+			}
+			if bm["id"] != "tu1" {
+				t.Errorf("tool_use id = %v, want tu1", bm["id"])
+			}
+		}
+	}
+	if !foundToolUse {
+		t.Error("assistant message missing tool_use block")
+	}
+
+	toolMsg, _ := messages[2].(map[string]interface{})
+	if toolMsg["role"] != "user" {
+		t.Errorf("tool-result message role = %v, want user", toolMsg["role"])
+	}
+	trBlocks, ok := toolMsg["content"].([]interface{})
+	if !ok || len(trBlocks) == 0 {
+		t.Fatalf("tool-result content is not a block array: %v", toolMsg["content"])
+	}
+	tr, _ := trBlocks[0].(map[string]interface{})
+	if tr["type"] != "tool_result" {
+		t.Errorf("block type = %v, want tool_result", tr["type"])
+	}
+	if tr["tool_use_id"] != "tu1" {
+		t.Errorf("tool_use_id = %v, want tu1", tr["tool_use_id"])
+	}
+}
+
+// TestAnthropicStreamToolCallOrder verifies streamed tool calls are emitted in
+// content-block index order rather than nondeterministic map order.
+func TestAnthropicStreamToolCallOrder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		events := []string{
+			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"a\",\"name\":\"first\"}}\n",
+			"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"b\",\"name\":\"second\"}}\n",
+			"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n",
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n",
+		}
+		for _, ev := range events {
+			fmt.Fprint(w, ev+"\n")
+			flusher.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	client := NewAnthropicClient("test-key", srv.URL)
+	var got []ToolCall
+	err := client.StreamComplete(context.Background(), CompletionRequest{
+		Model:    "claude-sonnet-4-6",
+		Messages: []Message{{Role: RoleUser, Content: "go"}},
+	}, func(chunk StreamChunk) {
+		if len(chunk.ToolCalls) > 0 {
+			got = chunk.ToolCalls
+		}
+	})
+	if err != nil {
+		t.Fatalf("StreamComplete: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("tool calls = %d, want 2", len(got))
+	}
+	if got[0].Function.Name != "first" || got[1].Function.Name != "second" {
+		t.Errorf("tool order = [%s, %s], want [first, second]", got[0].Function.Name, got[1].Function.Name)
+	}
+}
+
 func TestAnthropicStreamComplete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

@@ -12,7 +12,10 @@ type ExecutionRequest struct {
 	WorkflowID  string
 	ExecutionID string
 	TriggerType string
-	TriggerData map[string]interface{}
+	// TriggerNodeID identifies which trigger node fired. Empty means "all trigger
+	// nodes" (manual/retry runs), preserving legacy fan-out behaviour.
+	TriggerNodeID string
+	TriggerData   map[string]interface{}
 }
 
 // ExecutionQueue manages a bounded channel of pending workflow execution requests.
@@ -24,6 +27,9 @@ type ExecutionQueue struct {
 	cancelFuncs sync.Map // executionID → context.CancelFunc
 	handler     func(ctx context.Context, req ExecutionRequest)
 	logger      zerolog.Logger
+
+	mu     sync.Mutex // guards closed and serialises sends against Stop's close
+	closed bool
 }
 
 // NewExecutionQueue creates a queue with the given buffer capacity and worker count.
@@ -95,20 +101,37 @@ func (q *ExecutionQueue) dispatch(ctx context.Context, req ExecutionRequest, wor
 
 // Stop closes the channel and blocks until all in-flight workers have exited.
 func (q *ExecutionQueue) Stop() {
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
+	q.closed = true
 	close(q.ch)
+	q.mu.Unlock()
 	q.wg.Wait()
 }
 
-// Enqueue adds a request to the queue. Returns ErrQueueFull if the buffer is full.
+// Enqueue adds a request to the queue. Returns ErrQueueFull if the buffer is
+// full, or ErrQueueClosed if the queue has been stopped. The closed check and
+// the (non-blocking) send are serialised under mu against Stop's close, so a
+// trigger firing during shutdown can never panic with send-on-closed-channel.
 func (q *ExecutionQueue) Enqueue(req ExecutionRequest) error {
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return ErrQueueClosed
+	}
 	select {
 	case q.ch <- req:
+		q.mu.Unlock()
 		q.logger.Debug().
 			Str("execution_id", req.ExecutionID).
 			Str("workflow_id", req.WorkflowID).
 			Msg("execution request enqueued")
 		return nil
 	default:
+		q.mu.Unlock()
 		q.logger.Warn().
 			Str("execution_id", req.ExecutionID).
 			Str("workflow_id", req.WorkflowID).

@@ -436,7 +436,10 @@ func newActionDeleteCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			// Delete targets first (action_targets has no profile_id; ownership is via the action).
-			targetResult, _ := db.DB.Exec("DELETE FROM action_targets WHERE action_id = ?", actionID)
+			targetResult, err := db.DB.Exec("DELETE FROM action_targets WHERE action_id = ?", actionID)
+			if err != nil {
+				return fmt.Errorf("deleting action targets: %w", err)
+			}
 			targetCount, _ := targetResult.RowsAffected()
 
 			result, err := db.DB.Exec("DELETE FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -82,7 +83,54 @@ type Heading struct {
 // Shared HTTP client
 // ---------------------------------------------------------------------------
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+	// Re-validate every redirect hop so a public URL cannot redirect into an
+	// internal/loopback address (SSRF).
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
+		return validateFetchURL(req.URL.String())
+	},
+}
+
+// validateFetchURL rejects URLs that are not plain http(s) or that resolve to a
+// non-public address (loopback, private, link-local, unspecified, multicast).
+// This is the SSRF guard for FetchPage, whose target URL can originate from
+// untrusted workflow input.
+func validateFetchURL(pageURL string) error {
+	u, err := url.Parse(pageURL)
+	if err != nil {
+		return fmt.Errorf("invalid url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported url scheme %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("url has no host")
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("resolve host %q: %w", host, err)
+	}
+	for _, ip := range ips {
+		if isBlockedIP(ip) {
+			return fmt.Errorf("access to non-public address %s is not allowed", ip)
+		}
+	}
+	return nil
+}
+
+// isBlockedIP reports whether ip is a non-public address that must not be
+// fetched. IsPrivate covers RFC 1918 / RFC 4193; IsLinkLocalUnicast covers
+// 169.254.0.0/16 (incl. the 169.254.169.254 cloud metadata endpoint) and
+// fe80::/10.
+func isBlockedIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast()
+}
 
 // ---------------------------------------------------------------------------
 // FetchPage
@@ -95,6 +143,10 @@ func FetchPage(ctx context.Context, pageURL string, opts FetchOptions) (FetchRes
 	}
 	if opts.RenderMode == "" {
 		opts.RenderMode = "auto"
+	}
+
+	if err := validateFetchURL(pageURL); err != nil {
+		return FetchResult{}, err
 	}
 
 	switch opts.RenderMode {
@@ -164,9 +216,12 @@ func fetchBrowser(ctx context.Context, pageURL string, opts FetchOptions) (Fetch
 		return FetchResult{}, fmt.Errorf("chrome not found")
 	}
 
-	u := launcher.New().Bin(path).Headless(true).MustLaunch()
+	l := launcher.New().Bin(path).Headless(true)
+	u := l.MustLaunch()
 	browser := rod.New().ControlURL(u)
 	if err := browser.Connect(); err != nil {
+		l.Kill()
+		l.Cleanup()
 		return FetchResult{}, fmt.Errorf("connect browser: %w", err)
 	}
 	defer browser.MustClose()

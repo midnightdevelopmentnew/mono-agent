@@ -36,6 +36,7 @@ type App struct {
 	db      *sql.DB
 	dbPath  string
 	logs    []LogEntry
+	logsMu  sync.Mutex
 	connMgr     *connections.Manager
 	aiStore     *ai.AIStore
 	chatService *aichat.ChatService
@@ -163,10 +164,12 @@ func (a *App) emitLog(source, level, message string) {
 		Level:   level,
 		Message: message,
 	}
+	a.logsMu.Lock()
 	a.logs = append(a.logs, entry)
 	if len(a.logs) > 500 {
 		a.logs = a.logs[len(a.logs)-500:]
 	}
+	a.logsMu.Unlock()
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, "log:entry", entry)
 	}
@@ -1385,6 +1388,9 @@ func nodeTypeToPlatform(nodeType string) string {
 // ExecuteAction runs a legacy action by spawning the CLI subprocess.
 // stdout/stderr are streamed to the UI log panel in real time.
 func (a *App) ExecuteAction(id string) error {
+	if a.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
 	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return err
@@ -1439,11 +1445,17 @@ type LogEntry struct {
 }
 
 func (a *App) GetLogs() []LogEntry {
-	return a.logs
+	a.logsMu.Lock()
+	defer a.logsMu.Unlock()
+	out := make([]LogEntry, len(a.logs))
+	copy(out, a.logs)
+	return out
 }
 
 func (a *App) ClearLogs() {
+	a.logsMu.Lock()
 	a.logs = make([]LogEntry, 0, 200)
+	a.logsMu.Unlock()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2574,25 +2586,12 @@ func (a *App) RunNode(req NodeRunRequest) NodeRunResult {
 		req.NodeType = mapped
 	}
 
-	// Resolve credential_id → merge connection data into config.
-	if credID, ok := req.Config["credential_id"].(string); ok && credID != "" {
-		if a.connMgr != nil {
-			credData, err := a.getResourceCredentialData(context.Background(), credID)
-			if err != nil {
-				platform := nodeTypeToPlatform(req.NodeType)
-				if platform != "" {
-					credData, err = a.getResourceCredentialData(context.Background(), platform)
-				}
-				if err != nil {
-					return NodeRunResult{Error: fmt.Sprintf("resolve credential %s: %v", credID, err)}
-				}
-			}
-			for k, v := range credData {
-				req.Config[k] = v
-			}
-			delete(req.Config, "credential_id")
-		}
-	}
+	// Extract credential_id and pass it to the CLI via --credential so the
+	// subprocess resolves the stored tokens internally against the same DB.
+	// Never merge plaintext credential data into --config: process arguments
+	// are world-readable to other local processes (ps / /proc/<pid>/cmdline).
+	credID, _ := req.Config["credential_id"].(string)
+	delete(req.Config, "credential_id")
 
 	cliBin, err := findMonoAgentCLI()
 	if err != nil {
@@ -2618,12 +2617,17 @@ func (a *App) RunNode(req NodeRunRequest) NodeRunResult {
 	}
 
 	start := time.Now()
-	cmd := exec.Command(cliBin,
+	args := []string{
+		"--profile", a.activeProfileID,
 		"node", "run", req.NodeType,
 		"--config", string(configBytes),
 		"--input", string(inputBytes),
 		"--output", "json",
-	)
+	}
+	if credID != "" {
+		args = append(args, "--credential", credID)
+	}
+	cmd := exec.Command(cliBin, args...)
 	out, runErr := cmd.Output()
 	elapsed := time.Since(start).Milliseconds()
 

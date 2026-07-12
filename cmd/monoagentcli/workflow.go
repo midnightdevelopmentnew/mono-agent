@@ -61,7 +61,7 @@ func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEn
 
 	// Start extension server and try to use Chrome extension first.
 	extLogger := logger.With().Str("component", "extension").Logger()
-	extServer := extension.NewServer(":9222", extLogger)
+	extServer := extension.NewServer("127.0.0.1:9222", extLogger)
 	extServer.StartAsync(context.Background())
 	_ = extServer.WaitForConnection(30 * time.Second)
 

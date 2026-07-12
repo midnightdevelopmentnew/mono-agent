@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +31,18 @@ type GoogleClient struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+}
+
+// scrubErr removes the API key from an error message. Gemini authenticates via
+// a `key=` URL query parameter, and transport failures surface as *url.Error
+// whose Error() embeds the full request URL — leaking the key into errors shown
+// to the user and persisted in workflow run records.
+func (c *GoogleClient) scrubErr(err error) error {
+	if err == nil || c.apiKey == "" {
+		return err
+	}
+	msg := strings.ReplaceAll(err.Error(), c.apiKey, "REDACTED")
+	return errors.New(msg)
 }
 
 // NewGoogleClient creates a GoogleClient.
@@ -121,7 +134,7 @@ func (c *GoogleClient) Complete(ctx context.Context, req CompletionRequest) (Com
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return CompletionResponse{}, fmt.Errorf("do request: %w", err)
+		return CompletionResponse{}, fmt.Errorf("do request: %w", c.scrubErr(err))
 	}
 	defer resp.Body.Close()
 
@@ -169,7 +182,7 @@ func (c *GoogleClient) StreamComplete(ctx context.Context, req CompletionRequest
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("do request: %w", err)
+		return fmt.Errorf("do request: %w", c.scrubErr(err))
 	}
 	defer resp.Body.Close()
 
@@ -179,6 +192,7 @@ func (c *GoogleClient) StreamComplete(ctx context.Context, req CompletionRequest
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSEBufferSize)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {

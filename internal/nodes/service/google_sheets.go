@@ -99,8 +99,10 @@ func (n *GoogleSheetsNode) Execute(ctx context.Context, input workflow.NodeInput
 	case "append_rows":
 		values := sheetsExtractValues(config)
 		if len(values) == 0 && len(input.Items) > 0 {
-			// Auto-build rows from pipeline items.
-			values = sheetsItemsToRows(input.Items, true)
+			// Auto-build rows from pipeline items. Only emit a header row when the
+			// caller opts in via use_header_row; appending a header unconditionally
+			// interleaves duplicate header rows into the sheet on recurring runs.
+			values = sheetsItemsToRows(input.Items, useHeaderRow)
 		}
 		url := baseURL + "/values/" + sheetsEncodeRange(rangeStr) + ":append?valueInputOption=" + valueInputOption
 		body := map[string]interface{}{
@@ -235,7 +237,7 @@ func sheetsRequest(ctx context.Context, method, url, accessToken string, body in
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("google_sheets %s %s: %w", method, url, err)
 	}

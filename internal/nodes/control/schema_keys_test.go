@@ -66,6 +66,36 @@ func TestSortUsesDirectionKey(t *testing.T) {
 	}
 }
 
+// TestSortDescPreservesTieOrder is a regression test: descending sort must
+// keep the input order of items with equal keys. Previously desc was `return
+// !less`, which reported both i<j and j<i for equal keys, violating strict
+// weak ordering and causing sort.SliceStable to reorder tied runs.
+func TestSortDescPreservesTieOrder(t *testing.T) {
+	node := &SortNode{}
+	out, err := node.Execute(context.Background(), workflow.NodeInput{
+		Items: []workflow.Item{
+			{JSON: map[string]interface{}{"k": 1.0, "id": "a"}},
+			{JSON: map[string]interface{}{"k": 1.0, "id": "b"}},
+			{JSON: map[string]interface{}{"k": 2.0, "id": "c"}},
+		},
+	}, map[string]interface{}{"field": "k", "type": "number", "direction": "desc"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	items := out[0].Items
+	got := []string{
+		items[0].JSON["id"].(string),
+		items[1].JSON["id"].(string),
+		items[2].JSON["id"].(string),
+	}
+	want := []string{"c", "a", "b"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("desc tie order = %v, want %v", got, want)
+		}
+	}
+}
+
 // TestAggregateAcceptsFlatSchemaShape is a regression test: core.aggregate.json
 // exposes flat "operation"/"field"/"output_field" fields, but the code
 // previously required an "operations" array of objects that the schema never

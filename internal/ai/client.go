@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+// maxSSEBufferSize is the maximum size of a single SSE `data:` line the
+// streaming adapters will buffer. The default bufio.Scanner limit is 64KB,
+// which some providers (notably Google, which sends whole parts per line)
+// exceed on large tool-call payloads, aborting the stream with ErrTooLong.
+const maxSSEBufferSize = 10 * 1024 * 1024
+
 // Role constants
 const (
 	RoleSystem    = "system"

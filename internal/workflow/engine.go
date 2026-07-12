@@ -320,10 +320,11 @@ func (e *WorkflowEngine) handleTrigger(workflowID string, nodeID string, items [
 	}
 
 	req := ExecutionRequest{
-		WorkflowID:  workflowID,
-		ExecutionID: exec.ID,
-		TriggerType: triggerType,
-		TriggerData: triggerData,
+		WorkflowID:    workflowID,
+		ExecutionID:   exec.ID,
+		TriggerType:   triggerType,
+		TriggerNodeID: nodeID,
+		TriggerData:   triggerData,
 	}
 
 	if err := e.queue.Enqueue(req); err != nil {
@@ -381,6 +382,9 @@ func (e *WorkflowEngine) handleExecution(ctx context.Context, req ExecutionReque
 		_ = e.store.SetExecutionFinished(ctx, req.ExecutionID, "FAILED", "could not load execution record")
 		return
 	}
+	// TriggerNodeID isn't persisted; carry it from the request so RunExecution
+	// only fires the branch of the trigger node that actually fired.
+	exec.TriggerNodeID = req.TriggerNodeID
 
 	// 4. Execute via runExecution (defined in execution.go).
 	runErr := e.runExecution(ctx, exec, wf, dag)

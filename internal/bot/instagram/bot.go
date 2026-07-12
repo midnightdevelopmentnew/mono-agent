@@ -600,7 +600,7 @@ func (b *InstagramBot) GetUserInfo(ctx context.Context, page *rod.Page, username
 	}
 
 	// Strategy 2: Navigate to profile page and extract from rendered content.
-	profileURL := fmt.Sprintf("https://www.instagram.com/%s/", username)
+	profileURL := fmt.Sprintf("https://www.instagram.com/%s/", url.PathEscape(username))
 	if navErr := page.Navigate(profileURL); navErr != nil {
 		return nil, fmt.Errorf("instagram: failed to navigate to profile: %w", navErr)
 	}
@@ -643,7 +643,7 @@ func (b *InstagramBot) fetchProfileViaJS(page *rod.Page, username string) (map[s
 		})
 		.then(function(data) { return JSON.stringify(data); })
 		.catch(function(err) { return JSON.stringify({error: err.message}); });
-	}`, username)
+	}`, url.QueryEscape(username))
 
 	res, err := page.Timeout(10 * time.Second).Eval(script)
 	if err != nil {

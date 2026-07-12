@@ -82,7 +82,7 @@ func (n *NotionNode) notionRequest(ctx context.Context, method, url, token strin
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP %s %s: %w", method, url, err)
 	}

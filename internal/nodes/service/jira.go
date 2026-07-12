@@ -94,7 +94,7 @@ func (n *JiraNode) jiraRequest(ctx context.Context, method, url, email, apiToken
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP %s %s: %w", method, url, err)
 	}

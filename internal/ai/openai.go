@@ -154,6 +154,7 @@ func (c *OpenAIClient) StreamComplete(ctx context.Context, req CompletionRequest
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSEBufferSize)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {

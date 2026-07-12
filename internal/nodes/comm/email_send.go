@@ -133,13 +133,13 @@ func (n *EmailSendNode) Execute(ctx context.Context, input workflow.NodeInput, c
 func buildMIMEMessage(from string, to, cc []string, subject, body, bodyType string, attachments []string) ([]byte, error) {
 	var buf bytes.Buffer
 
-	// Headers
-	buf.WriteString("From: " + from + "\r\n")
-	buf.WriteString("To: " + strings.Join(to, ", ") + "\r\n")
+	// Headers. Strip CR/LF from header values to prevent SMTP header injection.
+	buf.WriteString("From: " + sanitizeHeader(from) + "\r\n")
+	buf.WriteString("To: " + sanitizeHeader(strings.Join(to, ", ")) + "\r\n")
 	if len(cc) > 0 {
-		buf.WriteString("Cc: " + strings.Join(cc, ", ") + "\r\n")
+		buf.WriteString("Cc: " + sanitizeHeader(strings.Join(cc, ", ")) + "\r\n")
 	}
-	buf.WriteString("Subject: " + subject + "\r\n")
+	buf.WriteString("Subject: " + sanitizeHeader(subject) + "\r\n")
 	buf.WriteString("MIME-Version: 1.0\r\n")
 
 	if len(attachments) == 0 {
@@ -207,6 +207,12 @@ func buildMIMEMessage(from string, to, cc []string, subject, body, bodyType stri
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// sanitizeHeader strips CR and LF characters so untrusted values cannot inject
+// additional SMTP headers or a second message body.
+func sanitizeHeader(s string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
 }
 
 // toStringSlice coerces a config value (string or []string or []interface{}) to []string.
