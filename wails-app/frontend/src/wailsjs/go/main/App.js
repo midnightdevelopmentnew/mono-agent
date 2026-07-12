@@ -10,6 +10,10 @@ export function AddPersonMessage(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['main']['App']['AddPersonMessage'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function AddPersonStatus(arg1, arg2) {
+  return window['go']['main']['App']['AddPersonStatus'](arg1, arg2);
+}
+
 export function AddPersonTag(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddPersonTag'](arg1, arg2, arg3);
 }
@@ -158,6 +162,10 @@ export function GetHILItems() {
   return window['go']['main']['App']['GetHILItems']();
 }
 
+export function GetLatestPersonStatus(arg1) {
+  return window['go']['main']['App']['GetLatestPersonStatus'](arg1);
+}
+
 export function GetLogs() {
   return window['go']['main']['App']['GetLogs']();
 }
@@ -192,6 +200,10 @@ export function GetPersonMessages(arg1) {
 
 export function GetPersonPosts(arg1) {
   return window['go']['main']['App']['GetPersonPosts'](arg1);
+}
+
+export function GetPersonStatusHistory(arg1, arg2) {
+  return window['go']['main']['App']['GetPersonStatusHistory'](arg1, arg2);
 }
 
 export function GetPersonTags(arg1) {

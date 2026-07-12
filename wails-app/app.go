@@ -892,6 +892,42 @@ func (a *App) RejectDraftPersonMessage(personMessageID string) error {
 	return db.DeletePersonMessage(personMessageID)
 }
 
+// GetLatestPersonStatus returns the most recent status update for a person,
+// or nil if none exists yet — the GUI equivalent of `people status get`.
+func (a *App) GetLatestPersonStatus(personId string) *storage.PersonStatusUpdate {
+	if a.db == nil {
+		return nil
+	}
+	u, err := (&storage.Database{DB: a.db}).GetLatestPersonStatusUpdate(personId, a.activeProfileID)
+	if err != nil {
+		return nil
+	}
+	return u
+}
+
+// AddPersonStatus appends a new status update for a person, delegating to
+// the same storage.PersonStatusUpdate repo used by `monoagentcli people status set`.
+func (a *App) AddPersonStatus(personId, text string) (*storage.PersonStatusUpdate, error) {
+	if a.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	return (&storage.Database{DB: a.db}).AddPersonStatusUpdate(personId, a.activeProfileID, text)
+}
+
+// GetPersonStatusHistory returns every status update for a person, newest
+// first — the GUI equivalent of `people status history`. limit <= 0 means
+// no cap.
+func (a *App) GetPersonStatusHistory(personId string, limit int) []*storage.PersonStatusUpdate {
+	if a.db == nil {
+		return nil
+	}
+	updates, err := (&storage.Database{DB: a.db}).ListPersonStatusUpdates(personId, a.activeProfileID, limit)
+	if err != nil {
+		return nil
+	}
+	return updates
+}
+
 // GetPersonPosts returns all scraped posts for a person, with we_liked/we_commented flags.
 func (a *App) GetPersonPosts(personID string) []PostSummary {
 	if a.db == nil {
