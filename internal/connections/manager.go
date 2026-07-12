@@ -335,6 +335,12 @@ func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID strin
 	if clientSecret != "" {
 		cfg.ClientSecret = clientSecret
 	}
+	if cfg.ClientID == "" {
+		if dbID, dbSecret := m.store.GetOAuthClient(ctx, platformID, profileID); dbID != "" {
+			cfg.ClientID = dbID
+			cfg.ClientSecret = dbSecret
+		}
+	}
 	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
 	if cfg.ClientID == "" {
 		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
@@ -353,6 +359,12 @@ func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID strin
 	result, err := RunOAuthFlow(ctx, cfg, 5*time.Minute, progress)
 	if err != nil {
 		return nil, err
+	}
+
+	// Persist the client credentials that just worked so silent token refresh
+	// works in any later process without env vars or manual set-oauth-client.
+	if err := m.store.SaveOAuthClient(ctx, platformID, profileID, cfg.ClientID, cfg.ClientSecret); err != nil && progress != nil {
+		progress(fmt.Sprintf("warning: could not persist OAuth client credentials for silent refresh: %v", err), "error")
 	}
 
 	conn.Data["access_token"] = result.AccessToken
@@ -411,7 +423,13 @@ func (m *Manager) connectOAuth(ctx context.Context, p PlatformDef, conn *Connect
 
 	cfg := *p.OAuth // copy
 
-	// Look up env vars MONOAGENT_{UPPERCASE_PLATFORM}_CLIENT_ID and _CLIENT_SECRET
+	// Stored per-profile credentials first (set via `connect set-oauth-client`
+	// or persisted by a previous successful connect), then env vars
+	// MONOAGENT_{UPPERCASE_PLATFORM}_CLIENT_ID and _CLIENT_SECRET.
+	if dbID, dbSecret := m.store.GetOAuthClient(ctx, p.ID, conn.ProfileID); dbID != "" {
+		cfg.ClientID = dbID
+		cfg.ClientSecret = dbSecret
+	}
 	envPrefix := "MONOAGENT_" + strings.ToUpper(strings.ReplaceAll(p.ID, "-", "_")) + "_"
 	if cfg.ClientID == "" {
 		cfg.ClientID = os.Getenv(envPrefix + "CLIENT_ID")
@@ -427,6 +445,14 @@ func (m *Manager) connectOAuth(ctx context.Context, p PlatformDef, conn *Connect
 	result, err := RunOAuthFlow(ctx, cfg, timeout, nil)
 	if err != nil {
 		return fmt.Errorf("connectOAuth: %w", err)
+	}
+
+	// Persist the client credentials that just worked so silent token refresh
+	// (connect refresh, ensureFreshToken on use) works in any later process
+	// without this env var — without this, the token silently dies after ~1h
+	// and only a full interactive re-login can revive it.
+	if err := m.store.SaveOAuthClient(ctx, p.ID, conn.ProfileID, cfg.ClientID, cfg.ClientSecret); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not persist OAuth client credentials for silent refresh: %v\n", err)
 	}
 
 	// Populate conn.Data

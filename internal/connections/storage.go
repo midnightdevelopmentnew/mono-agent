@@ -231,12 +231,7 @@ func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 	if credProfileID == "" {
 		credProfileID = "default"
 	}
-	var dbClientID, dbClientSecret string
-	_ = s.db.QueryRowContext(ctx,
-		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
-		conn.Platform, credProfileID,
-	).Scan(&dbClientID, &dbClientSecret)
-	if dbClientID != "" {
+	if dbClientID, dbClientSecret := s.GetOAuthClient(ctx, conn.Platform, credProfileID); dbClientID != "" {
 		cfg.ClientID = dbClientID
 		cfg.ClientSecret = dbClientSecret
 	}
@@ -290,6 +285,51 @@ func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 
 func envLookup(key string) string {
 	return os.Getenv(key)
+}
+
+// GetOAuthClient returns the OAuth app client_id/client_secret stored for
+// platform under profileID (set via `connect set-oauth-client`, the GUI, or
+// auto-persisted by a successful connect). Returns empty strings when none
+// are stored (including when the table doesn't exist yet).
+func (s *Store) GetOAuthClient(ctx context.Context, platform, profileID string) (clientID, clientSecret string) {
+	if profileID == "" {
+		profileID = "default"
+	}
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
+		platform, profileID,
+	).Scan(&clientID, &clientSecret)
+	return clientID, clientSecret
+}
+
+// SaveOAuthClient persists the OAuth app credentials for platform/profileID
+// so silent token refresh keeps working in any later process without a
+// MONOAGENT_<PLATFORM>_CLIENT_ID env var. Called automatically after every
+// successful OAuth connect with whatever client credentials actually worked.
+func (s *Store) SaveOAuthClient(ctx context.Context, platform, profileID, clientID, clientSecret string) error {
+	if profileID == "" {
+		profileID = "default"
+	}
+	// Same schema as migration 013 — created here too because Store is also
+	// used against databases initialized via EnsureTable alone (tests, embedders).
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS platform_oauth_credentials (
+    platform      TEXT NOT NULL,
+    profile_id    TEXT NOT NULL DEFAULT 'default',
+    client_id     TEXT NOT NULL,
+    client_secret TEXT NOT NULL DEFAULT '',
+    updated_at    TEXT NOT NULL,
+    PRIMARY KEY (platform, profile_id)
+)`); err != nil {
+		return fmt.Errorf("connections.SaveOAuthClient: ensure table: %w", err)
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO platform_oauth_credentials (platform, profile_id, client_id, client_secret, updated_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		platform, profileID, clientID, clientSecret, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("connections.SaveOAuthClient: %w", err)
+	}
+	return nil
 }
 
 // ListAll returns all connections ordered by platform then created_at.

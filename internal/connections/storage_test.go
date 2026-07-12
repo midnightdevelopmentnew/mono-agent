@@ -203,3 +203,41 @@ func TestConnectionRedactStripsCredentialData(t *testing.T) {
 		t.Fatalf("RedactAll() leaked credential material into JSON output: %s", b2)
 	}
 }
+
+// TestOAuthClientPersistRoundTrip verifies that the OAuth app credentials a
+// successful connect persists (SaveOAuthClient) are what the silent-refresh
+// path reads back (GetOAuthClient), scoped per profile — the missing link
+// behind "connect refresh: missing ClientID" an hour after a working login.
+func TestOAuthClientPersistRoundTrip(t *testing.T) {
+	db := newTestDB(t)
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Nothing stored yet.
+	if id, _ := store.GetOAuthClient(ctx, "outlook", "default"); id != "" {
+		t.Fatalf("GetOAuthClient on empty store: got %q, want empty", id)
+	}
+
+	if err := store.SaveOAuthClient(ctx, "outlook", "", "client-default", "sec1"); err != nil {
+		t.Fatalf("SaveOAuthClient: %v", err)
+	}
+	if err := store.SaveOAuthClient(ctx, "outlook", "work", "client-work", ""); err != nil {
+		t.Fatalf("SaveOAuthClient(work): %v", err)
+	}
+
+	// Empty profileID normalizes to "default" on both read and write.
+	if id, sec := store.GetOAuthClient(ctx, "outlook", ""); id != "client-default" || sec != "sec1" {
+		t.Fatalf("GetOAuthClient(default): got %q/%q", id, sec)
+	}
+	if id, _ := store.GetOAuthClient(ctx, "outlook", "work"); id != "client-work" {
+		t.Fatalf("GetOAuthClient(work): got %q", id)
+	}
+
+	// Re-connect with a different app registration overwrites in place.
+	if err := store.SaveOAuthClient(ctx, "outlook", "work", "client-work2", "s"); err != nil {
+		t.Fatalf("SaveOAuthClient(overwrite): %v", err)
+	}
+	if id, _ := store.GetOAuthClient(ctx, "outlook", "work"); id != "client-work2" {
+		t.Fatalf("GetOAuthClient after overwrite: got %q", id)
+	}
+}
