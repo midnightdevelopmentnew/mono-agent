@@ -27,6 +27,7 @@ func newPeopleCmd(cfg *globalConfig) *cobra.Command {
 		newPeopleDeleteCmd(cfg),
 		newPeopleImportCmd(cfg),
 		newPeopleMessagesCmd(cfg),
+		newPeopleStatusCmd(cfg),
 	)
 
 	return cmd
