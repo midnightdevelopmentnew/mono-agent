@@ -554,6 +554,71 @@ function MessagesSection({ personId, personLabel, personPlatform }) {
   )
 }
 
+// Quote-box showing a person's latest manually-written status update (e.g.
+// "Just closed the Q1 deal"), with an inline form to post a new one. The
+// "History" link is wired up by StatusHistoryModal in a later change.
+function StatusSection({ personId, platformColor }) {
+  const [latest, setLatest]   = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [text, setText]       = useState('')
+  const [posting, setPosting] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const reload = () => api.getLatestPersonStatus(personId).then(setLatest)
+
+  useEffect(() => {
+    setLoading(true)
+    reload().catch(() => {}).finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personId])
+
+  const post = async () => {
+    const value = text.trim()
+    if (!value || posting) return
+    setPosting(true)
+    try {
+      const created = await api.addPersonStatus(personId, value)
+      if (created) {
+        setLatest(created)
+        setText('')
+      }
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  if (loading) return null
+
+  return (
+    <div className="profile-status-box" style={{ '--platform-color': platformColor }}>
+      {latest ? (
+        <p className="profile-status-quote">&ldquo;{latest.text}&rdquo;</p>
+      ) : (
+        <p className="profile-status-empty">No status yet</p>
+      )}
+      <div className="profile-status-meta">
+        {latest && <span>{latest.created_at.slice(0, 16).replace('T', ' ')}</span>}
+        <button className="profile-status-history-link" onClick={() => setHistoryOpen(true)}>
+          History →
+        </button>
+      </div>
+      <div className="profile-status-form">
+        <input
+          className="profile-status-input"
+          placeholder="Post a status update…"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') post() }}
+          disabled={posting}
+        />
+        <button className="btn btn-secondary btn-sm" onClick={post} disabled={posting || !text.trim()}>
+          Post
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Strips HTML tags for the plain-text preview snippet; full HTML is
 // rendered properly in MessageDetailModal via a sandboxed iframe.
 function stripHTML(body) {
@@ -693,6 +758,7 @@ export default function Profile({ id, onBack, onOpenURL, onOpenPost }) {
               {person.introduction && (
                 <p className="profile-bio">{person.introduction}</p>
               )}
+              <StatusSection personId={id} platformColor={platformColor} />
               <div className="profile-links">
                 {person.website && (
                   <button className="profile-meta-link" onClick={() => onOpenURL(person.website)}>

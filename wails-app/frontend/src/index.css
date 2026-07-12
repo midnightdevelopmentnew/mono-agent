@@ -966,6 +966,76 @@ body {
   background: var(--cyan-glow);
 }
 
+/* Status update quote box */
+.profile-status-box {
+  margin: 4px 0 10px;
+  padding: 10px 14px;
+  background: var(--elevated);
+  border-left: 3px solid var(--platform-color, var(--cyan));
+  border-radius: 0 6px 6px 0;
+  max-width: 540px;
+}
+
+.profile-status-quote {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text);
+  line-height: 1.5;
+  margin: 0 0 4px;
+}
+
+.profile-status-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0 0 4px;
+}
+
+.profile-status-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.profile-status-history-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--cyan-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.profile-status-history-link:hover {
+  color: var(--cyan);
+  text-decoration: underline;
+}
+
+.profile-status-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  max-width: 540px;
+}
+
+.profile-status-input {
+  flex: 1;
+  background: var(--elevated);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+.profile-status-input:focus {
+  border-color: var(--cyan-dim);
+}
+
 /* Stats row */
 .profile-stats {
   position: relative;
