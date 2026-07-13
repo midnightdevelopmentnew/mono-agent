@@ -72,6 +72,14 @@ func (a *App) startup(ctx context.Context) {
 	db := sdb.DB
 	a.db = db
 
+	// Automatic, idempotent check-and-migrate: encrypt any connections rows
+	// left over from before the secrets vault shipped. Cheap (a single COUNT
+	// query) once everything is already encrypted, and self-healing if a
+	// plaintext row is ever reintroduced.
+	if _, _, err := connections.EncryptPlaintextConnections(ctx, db); err != nil {
+		runtime.LogErrorf(ctx, "connections migration error: %v", err)
+	}
+
 	// Ensure vault directory exists.
 	vaultDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "vault")
 	if err := os.MkdirAll(vaultDir, 0700); err != nil {

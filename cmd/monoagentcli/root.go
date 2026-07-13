@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"monoagent/internal/connections"
 	"monoagent/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -115,6 +117,14 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	if err := db.ApplyMigrations(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	// Automatic, idempotent check-and-migrate: encrypt any connections rows
+	// left over from before the secrets vault shipped. Cheap (a single COUNT
+	// query) once everything is already encrypted, and self-healing if a
+	// plaintext row is ever reintroduced. Non-fatal — a failure here must not
+	// block the CLI from starting.
+	if _, _, err := connections.EncryptPlaintextConnections(context.Background(), db.DB); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: connections migration: %v\n", err)
 	}
 	// Resolve active profile if not overridden on the command line.
 	if cfg.ProfileID == "" {
