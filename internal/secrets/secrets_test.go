@@ -2,7 +2,9 @@ package secrets
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"monoagent/internal/storage"
@@ -93,5 +95,54 @@ func TestDecryptEntry_NotFoundErrors(t *testing.T) {
 	ctx := context.Background()
 	if _, err := DecryptEntry(ctx, db.DB, "default", "sec-999"); err == nil {
 		t.Fatal("expected error for missing entry, got nil")
+	}
+}
+
+// TestAdd_ConcurrentCallsGetDistinctSeqs exercises the race Add's seq
+// allocation used to have: a separate SELECT COALESCE(MAX(seq),0)+1 followed
+// by an INSERT lets two concurrent Add calls compute the same next seq/id,
+// and the second INSERT then fails on the primary key. Mirroring
+// vault.Register's fix (BEGIN IMMEDIATE to serialize seq allocation across
+// concurrent callers), every concurrent Add here must succeed with a
+// distinct, gapless id and seq.
+func TestAdd_ConcurrentCallsGetDistinctSeqs(t *testing.T) {
+	db := newSecretsTestDB(t)
+	ctx := context.Background()
+
+	const numGoroutines = 20
+	ids := make([]string, numGoroutines)
+	errs := make([]error, numGoroutines)
+
+	var wg sync.WaitGroup
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			start.Wait()
+			ids[i], errs[i] = Add(ctx, db.DB, "default", "secret", fmt.Sprintf("key-%d", i), "value", "", "", "")
+		}(i)
+	}
+	start.Done()
+	wg.Wait()
+
+	seen := make(map[string]bool, numGoroutines)
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d: Add: %v", i, err)
+		}
+		if seen[ids[i]] {
+			t.Fatalf("goroutine %d: duplicate id %q returned by a concurrent Add", i, ids[i])
+		}
+		seen[ids[i]] = true
+	}
+
+	entries, err := List(ctx, db.DB, "default")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != numGoroutines {
+		t.Fatalf("expected %d entries, got %d", numGoroutines, len(entries))
 	}
 }

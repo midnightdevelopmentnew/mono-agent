@@ -9,13 +9,32 @@ import (
 	"time"
 )
 
-// dekCache memoizes getOrCreateDEK per *sql.DB: unlike the KEK, a process
+// dekEntry holds the memoized result of one db's fetchOrCreateDEK call,
+// guarded by its own sync.Once so that call runs at most once no matter how
+// many goroutines race on it — mirroring keyring.go's process-wide
+// kekOnce/kekCache/kekErr, but scoped per-DB since (unlike the KEK) the DEK
+// is per-db, not process-wide.
+type dekEntry struct {
+	once sync.Once
+	dek  []byte
+	err  error
+}
+
+// dekEntries memoizes getOrCreateDEK per *sql.DB: unlike the KEK, a process
 // may legitimately hold several distinct DBs open at once (e.g. a test suite
 // opening multiple in-memory SQLite databases), each with its own DEK, so
-// the cache is keyed by the *sql.DB pointer rather than shared process-wide.
+// entries are keyed by the *sql.DB pointer rather than shared process-wide.
+// Only the map lookup/insert itself is guarded by dekEntriesMu — a short
+// critical section; the expensive fetchOrCreateDEK call runs inside that
+// db's own dekEntry.once.Do, outside the mutex. Without this, two goroutines
+// racing on the very first use of a given db (e.g. two workflow executions
+// resolving @secret: refs concurrently) could both see sql.ErrNoRows on the
+// SELECT and both attempt to INSERT the id=1 singleton vault_keys row; the
+// loser's INSERT would fail and that call would return a spurious error
+// instead of the real DEK.
 var (
-	dekCacheMu sync.Mutex
-	dekCache   = map[*sql.DB][]byte{}
+	dekEntriesMu sync.Mutex
+	dekEntries   = map[*sql.DB]*dekEntry{}
 )
 
 // getOrCreateDEK returns the unwrapped 32-byte Data Encryption Key, reading
@@ -24,22 +43,18 @@ var (
 // if this is the first use. The result is cached per db so repeated calls
 // within a process skip the keychain/table round trip.
 func getOrCreateDEK(ctx context.Context, db *sql.DB) ([]byte, error) {
-	dekCacheMu.Lock()
-	if cached, ok := dekCache[db]; ok {
-		dekCacheMu.Unlock()
-		return cached, nil
+	dekEntriesMu.Lock()
+	entry, ok := dekEntries[db]
+	if !ok {
+		entry = &dekEntry{}
+		dekEntries[db] = entry
 	}
-	dekCacheMu.Unlock()
+	dekEntriesMu.Unlock()
 
-	dek, err := fetchOrCreateDEK(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-
-	dekCacheMu.Lock()
-	dekCache[db] = dek
-	dekCacheMu.Unlock()
-	return dek, nil
+	entry.once.Do(func() {
+		entry.dek, entry.err = fetchOrCreateDEK(ctx, db)
+	})
+	return entry.dek, entry.err
 }
 
 func fetchOrCreateDEK(ctx context.Context, db *sql.DB) ([]byte, error) {

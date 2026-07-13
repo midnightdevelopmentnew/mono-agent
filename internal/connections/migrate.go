@@ -87,7 +87,26 @@ func EncryptPlaintextConnections(ctx context.Context, db *sql.DB) (migrated, tot
 			fmt.Fprintf(os.Stderr, "warning: skipping connection %s: refresh lock held by another process; will retry next startup\n", conns[i].ID)
 			continue
 		}
-		err := store.Save(ctx, &conns[i])
+		// The lock only serializes against another RefreshToken's write, not
+		// against a read that already happened before we got here: our
+		// pre-loop ListAll snapshot could be stale by the time we reach this
+		// row, e.g. a RefreshToken in another process ran (and released the
+		// lock) between our snapshot and our acquireRefreshLock call above.
+		// Mirror Store.RefreshToken's own pattern (storage.go) and re-read
+		// fresh from the DB now that we hold the lock, so we always re-save
+		// whatever is currently on disk rather than what we saw earlier.
+		fresh, getErr := store.Get(ctx, conns[i].ID)
+		if getErr != nil {
+			store.releaseRefreshLock(context.WithoutCancel(ctx), conns[i].ID)
+			fmt.Fprintf(os.Stderr, "warning: failed to re-read connection %s: %v\n", conns[i].ID, getErr)
+			continue
+		}
+		if fresh == nil {
+			// Deleted concurrently — nothing left to migrate.
+			store.releaseRefreshLock(context.WithoutCancel(ctx), conns[i].ID)
+			continue
+		}
+		err := store.Save(ctx, fresh)
 		store.releaseRefreshLock(context.WithoutCancel(ctx), conns[i].ID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to re-encrypt connection %s: %v\n", conns[i].ID, err)

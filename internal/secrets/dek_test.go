@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"monoagent/internal/storage"
@@ -84,5 +85,58 @@ func TestGetOrCreateDEK_DifferentDBsGetIndependentDEKs(t *testing.T) {
 	}
 	if string(dekA) != string(dekA2) {
 		t.Fatal("db A's second call must return the same cached DEK")
+	}
+}
+
+// TestGetOrCreateDEK_ConcurrentFirstUseIsRaceFree exercises the TOCTOU race
+// this function used to have: without a per-db sync.Once serializing the
+// expensive fetchOrCreateDEK path (SELECT vault_keys, then INSERT if
+// missing), many goroutines racing on the very first use of a fresh db —
+// e.g. concurrent workflow executions all resolving @secret: refs against
+// the same db for the first time — could all see sql.ErrNoRows, all
+// generate a different random DEK, and all attempt to INSERT the id=1
+// singleton row; every loser's INSERT would fail, turning a routine
+// concurrent first-use path into spurious secret-resolution errors. Run with
+// -race to also confirm there's no data race on the shared entry.
+func TestGetOrCreateDEK_ConcurrentFirstUseIsRaceFree(t *testing.T) {
+	keyring.MockInit()
+	db := newDEKTestDB(t)
+	ctx := context.Background()
+
+	const numGoroutines = 20
+	deks := make([][]byte, numGoroutines)
+	errs := make([]error, numGoroutines)
+
+	var wg sync.WaitGroup
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			start.Wait() // line every goroutine up to maximize the race window
+			deks[i], errs[i] = getOrCreateDEK(ctx, db.DB)
+		}(i)
+	}
+	start.Done()
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d: getOrCreateDEK: %v", i, err)
+		}
+	}
+	for i := 1; i < numGoroutines; i++ {
+		if string(deks[i]) != string(deks[0]) {
+			t.Fatalf("goroutine %d got a different DEK than goroutine 0 — first-use race produced divergent keys", i)
+		}
+	}
+
+	var count int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM vault_keys`).Scan(&count); err != nil {
+		t.Fatalf("counting vault_keys rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 vault_keys row after concurrent first use, got %d", count)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestEncryptPlaintextConnections_NoOpWhenAlreadyEncrypted verifies the cheap
@@ -169,5 +170,82 @@ func TestEncryptPlaintextConnections_SkipsRowLockedByAnotherProcess(t *testing.T
 	}
 	if !strings.Contains(rawData, "plaintext-token") {
 		t.Fatal("locked-row should remain unmigrated (plaintext) since its lock was held")
+	}
+}
+
+// TestEncryptPlaintextConnections_DoesNotOverwriteConcurrentRefresh exercises
+// the race the round-1 fix missed: the migration's pre-loop ListAll snapshot
+// goes stale if a concurrent RefreshToken (in another process, sharing this
+// DB) rotates the row's tokens after the snapshot but before the migration
+// reaches that row and acquires the (by-then-free) refresh lock. A migration
+// that re-saves the stale snapshot instead of re-reading fresh data would
+// silently clobber the freshly-rotated tokens with the old ones.
+func TestEncryptPlaintextConnections_DoesNotOverwriteConcurrentRefresh(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+
+	_, err := db.Exec(`
+		INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
+		VALUES ('conn-1', 'x', 'oauth', 'Test', '', '{"access_token":"stale-token"}', 'active', '', 'default', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("seeding plaintext connection: %v", err)
+	}
+
+	// Simulate another process already mid-refresh: it holds the lock before
+	// the migration ever gets to this row, so the migration's ListAll
+	// snapshot (taken next, once EncryptPlaintextConnections starts) will
+	// capture "stale-token" — the pre-refresh data.
+	acquired, err := store.acquireRefreshLock(ctx, "conn-1")
+	if err != nil {
+		t.Fatalf("acquireRefreshLock: %v", err)
+	}
+	if !acquired {
+		t.Fatal("expected to acquire the lock as the simulated other process")
+	}
+
+	migDone := make(chan struct{})
+	var migrated, total int
+	var migErr error
+	go func() {
+		migrated, total, migErr = EncryptPlaintextConnections(ctx, db)
+		close(migDone)
+	}()
+
+	// Give the migration time to run its pre-loop ListAll (capturing the
+	// stale snapshot) and start blocking on acquireRefreshLock's poll loop
+	// for conn-1, since we still hold the lock.
+	time.Sleep(50 * time.Millisecond)
+
+	// While still holding the lock (as the simulated other process), rotate
+	// the connection's tokens directly — this is what a concurrent
+	// RefreshToken's own Save would do. Using store.Save directly (rather
+	// than RefreshToken) avoids deadlocking on the lock we're holding.
+	fresh, err := store.Get(ctx, "conn-1")
+	if err != nil || fresh == nil {
+		t.Fatalf("Get conn-1: %v", err)
+	}
+	fresh.Data["access_token"] = "freshly-rotated-token"
+	if err := store.Save(ctx, fresh); err != nil {
+		t.Fatalf("simulating concurrent refresh save: %v", err)
+	}
+
+	// Release the lock so the blocked migration can proceed.
+	store.releaseRefreshLock(ctx, "conn-1")
+
+	<-migDone
+	if migErr != nil {
+		t.Fatalf("EncryptPlaintextConnections: %v", migErr)
+	}
+	if total != 1 || migrated != 1 {
+		t.Fatalf("expected total=1 migrated=1, got total=%d migrated=%d", total, migrated)
+	}
+
+	final, err := store.Get(ctx, "conn-1")
+	if err != nil || final == nil {
+		t.Fatalf("Get conn-1 after migration: %v", err)
+	}
+	if got := final.Data["access_token"]; got != "freshly-rotated-token" {
+		t.Fatalf("migration overwrote the freshly-rotated token with a stale snapshot: access_token=%v", got)
 	}
 }

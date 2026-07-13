@@ -41,14 +41,39 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username
 		}
 	}
 
+	// Take a dedicated connection and open an IMMEDIATE transaction so the
+	// write lock is acquired up front. database/sql's default BeginTx starts
+	// a DEFERRED (reader) transaction under SQLite, which lets two
+	// concurrent Adds both read the same MAX(seq) and race on the same
+	// id/seq; the loser's INSERT then fails on the primary key. BEGIN
+	// IMMEDIATE serializes seq allocation across connections/processes
+	// (waiting up to busy_timeout for a concurrent writer) — same pattern as
+	// vault.Register (internal/vault/vault.go).
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return "", fmt.Errorf("secrets.Add: get conn: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return "", fmt.Errorf("secrets.Add: begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			// Use a fresh context so rollback still runs if ctx was cancelled.
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
 	var seq int
-	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM vault_secrets`).Scan(&seq); err != nil {
+	if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM vault_secrets`).Scan(&seq); err != nil {
 		return "", fmt.Errorf("secrets.Add: next seq: %w", err)
 	}
 	id := fmt.Sprintf("sec-%03d", seq)
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err = db.ExecContext(ctx, `
+	_, err = conn.ExecContext(ctx, `
 		INSERT INTO vault_secrets (id, seq, profile_id, kind, name, username, url, ciphertext, nonce, notes_ciphertext, notes_nonce, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, seq, profileID, kind, name, nullStr(username), nullStr(url), ciphertext, nonce, notesCiphertext, notesNonce, now, now,
@@ -56,6 +81,10 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username
 	if err != nil {
 		return "", fmt.Errorf("secrets.Add: insert: %w", err)
 	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return "", fmt.Errorf("secrets.Add: commit: %w", err)
+	}
+	committed = true
 	return id, nil
 }
 
