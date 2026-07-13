@@ -37,11 +37,22 @@ var (
 	dekEntries   = map[*sql.DB]*dekEntry{}
 )
 
+// fetchDEK is the function getOrCreateDEK invokes to actually resolve the
+// DEK on first use. It is a package-level variable (rather than a direct
+// call to fetchOrCreateDEK) purely so tests can substitute a stub that
+// fails on demand to exercise the retry-after-failure path below.
+var fetchDEK = fetchOrCreateDEK
+
 // getOrCreateDEK returns the unwrapped 32-byte Data Encryption Key, reading
 // and unwrapping the singleton vault_keys row if present, or generating a
 // new DEK (wrapped under the KEK from the OS keychain) and persisting it
-// if this is the first use. The result is cached per db so repeated calls
-// within a process skip the keychain/table round trip.
+// if this is the first use. A successful result is cached per db so
+// repeated calls within a process skip the keychain/table round trip. A
+// failed attempt is NOT cached: all callers racing on that one attempt
+// observe the same error (via the shared sync.Once), but the next call
+// after it completes gets a fresh attempt instead of being stuck forever
+// with a stale transient error (e.g. a momentarily locked keychain or a
+// SQLITE_BUSY on vault_keys).
 func getOrCreateDEK(ctx context.Context, db *sql.DB) ([]byte, error) {
 	dekEntriesMu.Lock()
 	entry, ok := dekEntries[db]
@@ -52,8 +63,17 @@ func getOrCreateDEK(ctx context.Context, db *sql.DB) ([]byte, error) {
 	dekEntriesMu.Unlock()
 
 	entry.once.Do(func() {
-		entry.dek, entry.err = fetchOrCreateDEK(ctx, db)
+		entry.dek, entry.err = fetchDEK(ctx, db)
 	})
+
+	if entry.err != nil {
+		dekEntriesMu.Lock()
+		if dekEntries[db] == entry {
+			delete(dekEntries, db)
+		}
+		dekEntriesMu.Unlock()
+	}
+
 	return entry.dek, entry.err
 }
 

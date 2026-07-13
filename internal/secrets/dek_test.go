@@ -2,9 +2,13 @@ package secrets
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"monoagent/internal/storage"
 
@@ -138,5 +142,120 @@ func TestGetOrCreateDEK_ConcurrentFirstUseIsRaceFree(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected exactly 1 vault_keys row after concurrent first use, got %d", count)
+	}
+}
+
+// TestGetOrCreateDEK_FailedAttemptIsNotCached exercises the regression this
+// change fixes: a transient failure on the very first getOrCreateDEK call
+// for a db (e.g. a locked keychain or a busy vault_keys table) must not be
+// memoized forever. The next call after the failure should retry from
+// scratch and succeed, rather than replaying the stale cached error.
+func TestGetOrCreateDEK_FailedAttemptIsNotCached(t *testing.T) {
+	keyring.MockInit()
+	db := newDEKTestDB(t)
+	ctx := context.Background()
+
+	injectedErr := errors.New("injected transient failure")
+
+	orig := fetchDEK
+	t.Cleanup(func() { fetchDEK = orig })
+
+	fetchDEK = func(ctx context.Context, db *sql.DB) ([]byte, error) {
+		return nil, injectedErr
+	}
+
+	_, err := getOrCreateDEK(ctx, db.DB)
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("first call: expected injected error, got %v", err)
+	}
+
+	// Restore the real fetch behavior; the NEXT call must retry from
+	// scratch instead of replaying the cached failure.
+	fetchDEK = orig
+
+	dek, err := getOrCreateDEK(ctx, db.DB)
+	if err != nil {
+		t.Fatalf("second call after failure: expected success, got error: %v", err)
+	}
+	if len(dek) != 32 {
+		t.Fatalf("expected 32-byte DEK, got %d bytes", len(dek))
+	}
+}
+
+// TestGetOrCreateDEK_ConcurrentFailureIsSharedThenRetried proves the
+// race-fix property from the previous commit survives this change: every
+// goroutine racing on the single in-flight (failing) first attempt must
+// observe the identical error together — the fix only changes what happens
+// on the NEXT call, after that attempt has completed.
+func TestGetOrCreateDEK_ConcurrentFailureIsSharedThenRetried(t *testing.T) {
+	keyring.MockInit()
+	db := newDEKTestDB(t)
+	ctx := context.Background()
+
+	injectedErr := errors.New("injected transient failure")
+
+	orig := fetchDEK
+	t.Cleanup(func() { fetchDEK = orig })
+
+	const numGoroutines = 20
+
+	// arrived is used to hold the winning goroutine's fetchDEK call open
+	// until every other goroutine has entered getOrCreateDEK and picked up
+	// the same (not-yet-deleted) entry. Without this, the fast injected
+	// failure could resolve — and its entry get evicted from the map —
+	// before slower goroutines even do their initial map lookup, causing
+	// them to create fresh entries and refetch instead of sharing the one
+	// in-flight attempt, which would defeat the point of this test.
+	var arrived sync.WaitGroup
+	arrived.Add(numGoroutines)
+
+	var calls int32
+	fetchDEK = func(ctx context.Context, db *sql.DB) ([]byte, error) {
+		atomic.AddInt32(&calls, 1)
+		arrived.Wait()
+		// Give the other goroutines, which have all signaled arrived but
+		// may not yet have completed their own (uncontended, near-instant)
+		// map lookup, a moment to actually pick up this entry before it
+		// can be evicted below on error.
+		time.Sleep(50 * time.Millisecond)
+		return nil, injectedErr
+	}
+
+	errs := make([]error, numGoroutines)
+
+	var wg sync.WaitGroup
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			start.Wait()
+			arrived.Done()
+			_, errs[i] = getOrCreateDEK(ctx, db.DB)
+		}(i)
+	}
+	start.Done()
+	wg.Wait()
+
+	for i, err := range errs {
+		if !errors.Is(err, injectedErr) {
+			t.Fatalf("goroutine %d: expected injected error, got %v", i, err)
+		}
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("expected exactly 1 fetch attempt for the concurrent failing first use, got %d", got)
+	}
+
+	// Now that the failing attempt is done, the next call must retry
+	// from scratch and succeed once the fetch behavior is restored.
+	fetchDEK = orig
+
+	dek, err := getOrCreateDEK(ctx, db.DB)
+	if err != nil {
+		t.Fatalf("call after concurrent failure: expected success, got error: %v", err)
+	}
+	if len(dek) != 32 {
+		t.Fatalf("expected 32-byte DEK, got %d bytes", len(dek))
 	}
 }
