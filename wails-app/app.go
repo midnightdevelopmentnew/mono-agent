@@ -23,6 +23,7 @@ import (
 	"monoagent/internal/ai"
 	aichat "monoagent/internal/ai/chat"
 	"monoagent/internal/connections"
+	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 	"monoagent/internal/vault"
 	"monoagent/internal/workflow"
@@ -3395,6 +3396,34 @@ func (a *App) GetVaultImage(id string) (map[string]interface{}, error) {
 		"label": label, "created_at": createdAt,
 		"url": "/vault-image/" + filename,
 	}, nil
+}
+
+// ── Secrets Vault ────────────────────────────────────────────────────────────
+
+func (a *App) ListSecrets() ([]secrets.Entry, error) {
+	entries, err := secrets.List(context.Background(), a.db, a.activeProfileID)
+	if err != nil {
+		return nil, err
+	}
+	if entries == nil {
+		entries = []secrets.Entry{}
+	}
+	return entries, nil
+}
+
+func (a *App) AddSecret(kind, name, value, username, url, notes string) (string, error) {
+	return secrets.Add(context.Background(), a.db, a.activeProfileID, kind, name, value, username, url, notes)
+}
+
+// RevealSecret returns the plaintext value for id. This is the GUI's only
+// decrypt entrypoint, calling the identical secrets.DecryptEntry function
+// the CLI's `secret reveal --reveal` command calls.
+func (a *App) RevealSecret(id string) (string, error) {
+	return secrets.DecryptEntry(context.Background(), a.db, a.activeProfileID, id)
+}
+
+func (a *App) DeleteSecret(id string) error {
+	return secrets.Delete(context.Background(), a.db, a.activeProfileID, id)
 }
 
 // GetVaultImageData reads a vault image from disk and returns it as a base64

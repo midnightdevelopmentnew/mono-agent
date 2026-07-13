@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   LayoutDashboard, Users,
-  Terminal, PlayCircle, Link2, Brain, Settings, Image, UserCheck, Mail,
+  Terminal, PlayCircle, Link2, Brain, Settings, Image, UserCheck, Mail, KeyRound,
   ChevronDown, Plus, Check
 } from 'lucide-react'
 import { GetVersion } from '../wailsjs/go/main/App'
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { id: 'communications', label: 'Communications', icon: Mail,      section: 'DATA' },
   { id: 'connections', label: 'Connections', icon: Link2,           section: 'DATA' },
   { id: 'vault',       label: 'Images',      icon: Image,           section: 'DATA' },
+  { id: 'secretsVault', label: 'Vault',      icon: KeyRound,        section: 'DATA' },
   { id: 'ai',          label: 'AI',          icon: Brain,          section: 'DATA' },
   { id: 'logs',        label: 'Live Logs',   icon: Terminal,        section: 'DEBUG' },
   { id: 'settings',    label: 'Settings',    icon: Settings,        section: 'SYSTEM' },

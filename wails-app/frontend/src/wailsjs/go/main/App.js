@@ -18,6 +18,10 @@ export function AddPersonTag(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddPersonTag'](arg1, arg2, arg3);
 }
 
+export function AddSecret(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['AddSecret'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
@@ -80,6 +84,10 @@ export function DeleteAction(arg1) {
 
 export function DeleteCredential(arg1) {
   return window['go']['main']['App']['DeleteCredential'](arg1);
+}
+
+export function DeleteSecret(arg1) {
+  return window['go']['main']['App']['DeleteSecret'](arg1);
 }
 
 export function DeleteSession(arg1) {
@@ -302,6 +310,10 @@ export function ListResources(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ListResources'](arg1, arg2, arg3, arg4);
 }
 
+export function ListSecrets() {
+  return window['go']['main']['App']['ListSecrets']();
+}
+
 export function ListWorkflowTemplates() {
   return window['go']['main']['App']['ListWorkflowTemplates']();
 }
@@ -336,6 +348,10 @@ export function RemoveConnection(arg1) {
 
 export function RemovePersonTag(arg1, arg2) {
   return window['go']['main']['App']['RemovePersonTag'](arg1, arg2);
+}
+
+export function RevealSecret(arg1) {
+  return window['go']['main']['App']['RevealSecret'](arg1);
 }
 
 export function RunNode(arg1) {

@@ -3,6 +3,7 @@
 import {storage} from '../models';
 import {main} from '../models';
 import {connections} from '../models';
+import {secrets} from '../models';
 import {workflow} from '../models';
 
 export function AddActionTarget(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -12,6 +13,8 @@ export function AddPersonMessage(arg1:string,arg2:string,arg3:string,arg4:string
 export function AddPersonStatus(arg1:string,arg2:string):Promise<storage.PersonStatusUpdate>;
 
 export function AddPersonTag(arg1:string,arg2:string,arg3:string):Promise<main.TagInfo>;
+
+export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<string>;
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -44,6 +47,8 @@ export function DeleteAIProvider(arg1:string):Promise<string>;
 export function DeleteAction(arg1:string):Promise<void>;
 
 export function DeleteCredential(arg1:string):Promise<void>;
+
+export function DeleteSecret(arg1:string):Promise<void>;
 
 export function DeleteSession(arg1:number):Promise<void>;
 
@@ -155,6 +160,8 @@ export function ListPlatformsJSON(arg1:string):Promise<string>;
 
 export function ListResources(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.ResourceListResult>;
 
+export function ListSecrets():Promise<Array<secrets.Entry>>;
+
 export function ListWorkflowTemplates():Promise<Array<workflow.Template>>;
 
 export function ListWorkflows():Promise<Array<main.WorkflowSummary>>;
@@ -172,6 +179,8 @@ export function RejectHIL(arg1:string):Promise<void>;
 export function RemoveConnection(arg1:string):Promise<string>;
 
 export function RemovePersonTag(arg1:string,arg2:string):Promise<void>;
+
+export function RevealSecret(arg1:string):Promise<string>;
 
 export function RunNode(arg1:main.NodeRunRequest):Promise<main.NodeRunResult>;
 
