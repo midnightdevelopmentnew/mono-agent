@@ -156,3 +156,24 @@ func TestApplyMigration014PreservesChildRows(t *testing.T) {
 		t.Fatalf("posts lost by migration 014: got %d, want 1", n)
 	}
 }
+
+func TestApplyMigrations_CreatesVaultSecretsTables(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "migrate-vault-secrets.db")
+	db, err := NewDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabase: %v", err)
+	}
+	defer db.DB.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+	for _, table := range []string{"vault_secrets", "vault_keys"} {
+		var name string
+		err := db.DB.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table,
+		).Scan(&name)
+		if err != nil {
+			t.Fatalf("table %s not created: %v", table, err)
+		}
+	}
+}
