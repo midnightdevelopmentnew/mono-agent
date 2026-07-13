@@ -53,3 +53,36 @@ func TestGetOrCreateDEK_PersistsAcrossCalls(t *testing.T) {
 		t.Fatalf("expected exactly 1 vault_keys row, got %d", count)
 	}
 }
+
+// TestGetOrCreateDEK_DifferentDBsGetIndependentDEKs verifies the per-*sql.DB
+// cache doesn't leak a DEK across distinct databases: two separate temp
+// SQLite files, both sharing the same (mocked, process-wide) KEK, must each
+// get their own independently-generated DEK.
+func TestGetOrCreateDEK_DifferentDBsGetIndependentDEKs(t *testing.T) {
+	keyring.MockInit()
+	ctx := context.Background()
+
+	dbA := newDEKTestDB(t)
+	dbB := newDEKTestDB(t)
+
+	dekA, err := getOrCreateDEK(ctx, dbA.DB)
+	if err != nil {
+		t.Fatalf("getOrCreateDEK (db A): %v", err)
+	}
+	dekB, err := getOrCreateDEK(ctx, dbB.DB)
+	if err != nil {
+		t.Fatalf("getOrCreateDEK (db B): %v", err)
+	}
+	if string(dekA) == string(dekB) {
+		t.Fatal("expected distinct DEKs for distinct databases, got the same key")
+	}
+
+	// Confirm the cache is stable per-db across repeated calls too.
+	dekA2, err := getOrCreateDEK(ctx, dbA.DB)
+	if err != nil {
+		t.Fatalf("getOrCreateDEK (db A, second call): %v", err)
+	}
+	if string(dekA) != string(dekA2) {
+		t.Fatal("db A's second call must return the same cached DEK")
+	}
+}
