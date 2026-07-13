@@ -11,9 +11,9 @@ import (
 
 // dekEntry holds the memoized result of one db's fetchOrCreateDEK call,
 // guarded by its own sync.Once so that call runs at most once no matter how
-// many goroutines race on it — mirroring keyring.go's process-wide
-// kekOnce/kekCache/kekErr, but scoped per-DB since (unlike the KEK) the DEK
-// is per-db, not process-wide.
+// many goroutines race on it. This is the same retry-on-failure/
+// share-in-flight-result pattern keyring.go's getOrCreateKEK uses, scoped
+// per-DB since (unlike the KEK) the DEK is per-db, not process-wide.
 type dekEntry struct {
 	once sync.Once
 	dek  []byte

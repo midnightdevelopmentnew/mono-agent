@@ -22,11 +22,27 @@ const (
 // called repeatedly, e.g. while migrating many connections). A fresh
 // process (e.g. a new CLI invocation) still re-fetches once, which is
 // correct.
+//
+// A failed attempt is NOT cached: kekMu only guards the kekOnce pointer
+// itself (a short critical section), while the expensive fetchKEK call runs
+// inside that attempt's own sync.Once.Do, outside the mutex, so all callers
+// racing on one in-flight attempt observe the identical shared result. If
+// that attempt fails, the pointer is swapped for a fresh *sync.Once so the
+// next call gets a real retry instead of being stuck forever with a stale
+// transient error (e.g. a momentarily locked keychain) — mirroring the
+// retry-after-failure behavior dek.go's per-db getOrCreateDEK uses.
 var (
-	kekOnce  sync.Once
+	kekMu    sync.Mutex
+	kekOnce  = &sync.Once{}
 	kekCache []byte
 	kekErr   error
 )
+
+// fetchKEK is the function getOrCreateKEK invokes to actually resolve the
+// KEK on first use. It is a package-level variable (rather than a direct
+// call to fetchOrCreateKEK) purely so tests can substitute a stub that
+// fails on demand to exercise the retry-after-failure path below.
+var fetchKEK = fetchOrCreateKEK
 
 // getOrCreateKEK returns the 32-byte Key Encryption Key stored in the OS
 // keychain (macOS Keychain / Linux Secret Service / Windows Credential
@@ -34,9 +50,22 @@ var (
 // one on first use. The KEK never touches disk; only the DEK it wraps does
 // (see dek.go).
 func getOrCreateKEK() ([]byte, error) {
-	kekOnce.Do(func() {
-		kekCache, kekErr = fetchOrCreateKEK()
+	kekMu.Lock()
+	once := kekOnce
+	kekMu.Unlock()
+
+	once.Do(func() {
+		kekCache, kekErr = fetchKEK()
 	})
+
+	if kekErr != nil {
+		kekMu.Lock()
+		if kekOnce == once {
+			kekOnce = &sync.Once{}
+		}
+		kekMu.Unlock()
+	}
+
 	return kekCache, kekErr
 }
 
