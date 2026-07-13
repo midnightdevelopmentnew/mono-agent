@@ -3,15 +3,26 @@ package connections
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 
+	"github.com/zalando/go-keyring"
 	_ "modernc.org/sqlite"
 )
 
 // newManagerDB opens an in-memory SQLite database and returns a Manager backed by it.
 func newManagerDB(t *testing.T) (*Manager, *sql.DB) {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(ON)")
+	keyring.MockInit()
+	// cache=shared: a plain ":memory:" DSN gives each pooled connection its
+	// own separate database, which broke the moment scanConnections started
+	// issuing a nested query (secrets.DecryptBlob's vault_keys lookup) while
+	// the outer *sql.Rows was still open — that nested query needs a second
+	// connection to see the same in-memory database as the first. The DSN is
+	// keyed by test name so distinct tests don't share the same underlying
+	// shared-cache database.
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_pragma=foreign_keys(ON)", t.Name())
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("newManagerDB: open: %v", err)
 	}
@@ -20,6 +31,16 @@ func newManagerDB(t *testing.T) (*Manager, *sql.DB) {
 	mgr, err := NewManager(db)
 	if err != nil {
 		t.Fatalf("newManagerDB: NewManager: %v", err)
+	}
+	const createVaultKeysTable = `
+CREATE TABLE IF NOT EXISTS vault_keys (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    wrapped_dek   BLOB NOT NULL,
+    wrapped_nonce BLOB NOT NULL,
+    created_at    TEXT NOT NULL
+);`
+	if _, err := db.Exec(createVaultKeysTable); err != nil {
+		t.Fatalf("newManagerDB: create vault_keys: %v", err)
 	}
 	return mgr, db
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"monoagent/internal/connections"
 	"monoagent/internal/storage"
 
 	"github.com/zalando/go-keyring"
@@ -127,6 +129,51 @@ func TestSecretReveal_RequiresConfirmationFlag(t *testing.T) {
 	}
 	if _, err := runSecretCmd(t, dbPath, "reveal", "x"); err == nil {
 		t.Fatal("expected error when --reveal flag is omitted")
+	}
+}
+
+func TestSecretEncryptConnections_MigratesPlaintextRow(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabase: %v", err)
+	}
+	// The connections table isn't part of the SQL migrations (Store.EnsureTable
+	// creates it lazily on first use by `connect`/the GUI); ensure it exists
+	// here so the raw INSERT below has somewhere to land.
+	if err := connections.NewStore(db.DB).EnsureTable(context.Background()); err != nil {
+		t.Fatalf("EnsureTable: %v", err)
+	}
+	// Insert a connection row the old way: raw plaintext JSON in `data`,
+	// bypassing Store.Save so this test can be sure it starts unencrypted.
+	_, err = db.DB.Exec(`
+		INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
+		VALUES ('conn-1', 'x', 'oauth', 'Test', '', '{"access_token":"plaintext-token"}', 'active', '', 'default', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("seeding plaintext connection: %v", err)
+	}
+	db.DB.Close()
+
+	out, err := runSecretCmd(t, dbPath, "encrypt-connections")
+	if err != nil {
+		t.Fatalf("secret encrypt-connections: %v (%s)", err, out)
+	}
+
+	db2, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabase: %v", err)
+	}
+	defer db2.DB.Close()
+	var rawData string
+	if err := db2.DB.QueryRow(`SELECT data FROM connections WHERE id = 'conn-1'`).Scan(&rawData); err != nil {
+		t.Fatalf("reading migrated row: %v", err)
+	}
+	if strings.Contains(rawData, "plaintext-token") {
+		t.Fatal("connections.data must not contain plaintext after encrypt-connections")
+	}
+	if !strings.HasPrefix(rawData, "vaultenc:v1:") {
+		t.Fatalf("expected vaultenc-prefixed ciphertext, got: %s", rawData)
 	}
 }
 

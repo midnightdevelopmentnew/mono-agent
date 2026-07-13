@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"monoagent/internal/connections"
 	"monoagent/internal/secrets"
 
 	"github.com/olekukonko/tablewriter"
@@ -28,6 +29,7 @@ func newSecretCmd(cfg *globalConfig) *cobra.Command {
 		newSecretGetCmd(cfg),
 		newSecretRevealCmd(cfg),
 		newSecretRmCmd(cfg),
+		newSecretEncryptConnectionsCmd(cfg),
 	)
 	return cmd
 }
@@ -248,6 +250,69 @@ func newSecretRmCmd(cfg *globalConfig) *cobra.Command {
 				return fmt.Errorf("deleting secret: %w", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Deleted %q.\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newSecretEncryptConnectionsCmd(cfg *globalConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "encrypt-connections",
+		Short: "One-time migration: encrypt any existing plaintext connection credentials in place",
+		Long:  "Existing connections created before the secrets vault shipped store OAuth tokens/API keys as plaintext JSON. This re-saves every connection through the same Save path new connections already use, which now encrypts the data column automatically. Safe to run repeatedly — already-encrypted rows are re-encrypted (a no-op in effect) rather than skipped, since Save always re-applies the current encryption path.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.DB.Close()
+
+			store := connections.NewStore(db.DB)
+			if err := store.EnsureTable(cmd.Context()); err != nil {
+				return fmt.Errorf("ensuring connections table: %w", err)
+			}
+
+			// Store.ListAll filters to an exact profile_id match, so there is
+			// no single call that returns connections across every profile —
+			// find the distinct profile IDs first and migrate each in turn.
+			rows, err := db.DB.QueryContext(cmd.Context(), `SELECT DISTINCT COALESCE(profile_id,'default') FROM connections`)
+			if err != nil {
+				return fmt.Errorf("listing connection profiles: %w", err)
+			}
+			var profileIDs []string
+			for rows.Next() {
+				var profileID string
+				if err := rows.Scan(&profileID); err != nil {
+					rows.Close()
+					return fmt.Errorf("scanning profile id: %w", err)
+				}
+				profileIDs = append(profileIDs, profileID)
+			}
+			if err := rows.Close(); err != nil {
+				return fmt.Errorf("listing connection profiles: %w", err)
+			}
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("listing connection profiles: %w", err)
+			}
+
+			var conns []connections.Connection
+			for _, profileID := range profileIDs {
+				profileConns, err := store.ListAll(cmd.Context(), profileID)
+				if err != nil {
+					return fmt.Errorf("listing connections for profile %q: %w", profileID, err)
+				}
+				conns = append(conns, profileConns...)
+			}
+
+			migrated := 0
+			for i := range conns {
+				if err := store.Save(cmd.Context(), &conns[i]); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: failed to re-encrypt connection %s: %v\n", conns[i].ID, err)
+					continue
+				}
+				migrated++
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Encrypted %d of %d connection(s).\n", migrated, len(conns))
 			return nil
 		},
 	}

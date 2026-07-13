@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"monoagent/internal/secrets"
+
 	"github.com/google/uuid"
 )
 
@@ -159,6 +161,10 @@ func (s *Store) Save(ctx context.Context, c *Connection) error {
 	if err != nil {
 		return fmt.Errorf("connections.Save: marshal data: %w", err)
 	}
+	encodedData, err := secrets.EncryptBlob(ctx, s.db, dataBytes)
+	if err != nil {
+		return fmt.Errorf("connections.Save: encrypting data: %w", err)
+	}
 
 	if c.ProfileID == "" {
 		c.ProfileID = "default"
@@ -174,7 +180,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 	_, err = s.db.ExecContext(ctx, q,
 		c.ID, c.Platform, string(c.Method), c.Label, c.AccountID,
-		string(dataBytes), c.Status, c.LastTested, c.ProfileID, c.CreatedAt, c.UpdatedAt,
+		encodedData, c.Status, c.LastTested, c.ProfileID, c.CreatedAt, c.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("connections.Save: %w", err)
@@ -187,7 +193,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
          FROM connections WHERE id = ?`, id)
-	return scanConnection(row)
+	return scanConnection(ctx, s.db, row)
 }
 
 // GetOrResolve looks up a connection by ID, falling back to platform name lookup
@@ -455,7 +461,7 @@ func (s *Store) ListAll(ctx context.Context, profileID string) ([]Connection, er
 		return nil, fmt.Errorf("connections.ListAll: %w", err)
 	}
 	defer rows.Close()
-	out, err := scanConnections(rows)
+	out, err := scanConnections(ctx, s.db, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -486,7 +492,7 @@ func (s *Store) ListByPlatform(ctx context.Context, platform, profileID string) 
 		return nil, fmt.Errorf("connections.ListByPlatform: %w", err)
 	}
 	defer rows.Close()
-	return scanConnections(rows)
+	return scanConnections(ctx, s.db, rows)
 }
 
 // Delete removes a connection by ID, scoped to profileID. Returns an error if the row does not exist.
@@ -529,7 +535,7 @@ func (s *Store) MarkTested(ctx context.Context, id, status string) error {
 }
 
 // scanConnection reads a single Connection from a *sql.Row.
-func scanConnection(row *sql.Row) (*Connection, error) {
+func scanConnection(ctx context.Context, db *sql.DB, row *sql.Row) (*Connection, error) {
 	var c Connection
 	var dataJSON, method string
 	err := row.Scan(&c.ID, &c.Platform, &method, &c.Label, &c.AccountID,
@@ -541,14 +547,18 @@ func scanConnection(row *sql.Row) (*Connection, error) {
 		return nil, fmt.Errorf("scanConnection: %w", err)
 	}
 	c.Method = AuthMethod(method)
-	if err := json.Unmarshal([]byte(dataJSON), &c.Data); err != nil {
+	decoded, err := secrets.DecryptBlob(ctx, db, dataJSON)
+	if err != nil {
+		return nil, fmt.Errorf("scanConnection: decrypting data: %w", err)
+	}
+	if err := json.Unmarshal(decoded, &c.Data); err != nil {
 		return nil, fmt.Errorf("scanConnection: unmarshal data: %w", err)
 	}
 	return &c, nil
 }
 
 // scanConnections reads all Connection rows from a *sql.Rows result set.
-func scanConnections(rows *sql.Rows) ([]Connection, error) {
+func scanConnections(ctx context.Context, db *sql.DB, rows *sql.Rows) ([]Connection, error) {
 	var out []Connection
 	for rows.Next() {
 		var c Connection
@@ -560,7 +570,11 @@ func scanConnections(rows *sql.Rows) ([]Connection, error) {
 			return nil, fmt.Errorf("scanConnections: %w", err)
 		}
 		c.Method = AuthMethod(method)
-		if err := json.Unmarshal([]byte(dataJSON), &c.Data); err != nil {
+		decoded, err := secrets.DecryptBlob(ctx, db, dataJSON)
+		if err != nil {
+			return nil, fmt.Errorf("scanConnections: decrypting data: %w", err)
+		}
+		if err := json.Unmarshal(decoded, &c.Data); err != nil {
 			return nil, fmt.Errorf("scanConnections: unmarshal data: %w", err)
 		}
 		out = append(out, c)
