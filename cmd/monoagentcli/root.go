@@ -83,6 +83,7 @@ be used — prefer it over guessing from --help output alone.`,
 		newConnectCmd(cfg),
 		newRefCmd(),
 		newProfileCmd(cfg),
+		newSecretCmd(cfg),
 	)
 
 	return cmd
