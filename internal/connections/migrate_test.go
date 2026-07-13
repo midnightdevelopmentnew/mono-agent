@@ -120,3 +120,54 @@ func TestEncryptPlaintextConnections_ContinuesPastPerRowFailure(t *testing.T) {
 		t.Fatalf("expected good-row to be migrated, got: %s", goodData)
 	}
 }
+
+// TestEncryptPlaintextConnections_SkipsRowLockedByAnotherProcess verifies
+// that a connection whose refresh lock is already held (simulating a
+// concurrent RefreshToken in another process) is skipped by the migration
+// rather than blocked on or clobbered, and correctly reported as
+// not-migrated-this-pass so the next startup's pass can retry it.
+func TestEncryptPlaintextConnections_SkipsRowLockedByAnotherProcess(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+
+	if err := store.EnsureTable(ctx); err != nil {
+		t.Fatalf("EnsureTable: %v", err)
+	}
+	_, err := db.Exec(`
+		INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
+		VALUES ('locked-row', 'x', 'oauth', 'Locked', '', '{"access_token":"plaintext-token"}', 'active', '', 'default', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("seeding plaintext connection: %v", err)
+	}
+
+	// Simulate another process (e.g. a concurrent RefreshToken) already
+	// holding the refresh lock for this connection.
+	acquired, err := store.acquireRefreshLock(ctx, "locked-row")
+	if err != nil {
+		t.Fatalf("acquireRefreshLock: %v", err)
+	}
+	if !acquired {
+		t.Fatal("expected to acquire the lock as the simulated other process")
+	}
+	defer store.releaseRefreshLock(ctx, "locked-row")
+
+	migrated, total, err := EncryptPlaintextConnections(ctx, db)
+	if err != nil {
+		t.Fatalf("EncryptPlaintextConnections: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total=1, got %d", total)
+	}
+	if migrated != 0 {
+		t.Fatalf("expected migrated=0 (row is locked by another process), got %d", migrated)
+	}
+
+	var rawData string
+	if err := db.QueryRow(`SELECT data FROM connections WHERE id = 'locked-row'`).Scan(&rawData); err != nil {
+		t.Fatalf("reading locked-row: %v", err)
+	}
+	if !strings.Contains(rawData, "plaintext-token") {
+		t.Fatal("locked-row should remain unmigrated (plaintext) since its lock was held")
+	}
+}

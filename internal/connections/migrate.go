@@ -71,7 +71,25 @@ func EncryptPlaintextConnections(ctx context.Context, db *sql.DB) (migrated, tot
 	}
 
 	for i := range conns {
-		if err := store.Save(ctx, &conns[i]); err != nil {
+		// Guard against a concurrent RefreshToken (CLI, daemon, or GUI, any of
+		// which may share this DB) rotating this connection's tokens between
+		// our snapshot read above and this Save: without the same refresh
+		// lock RefreshToken itself uses, our Save could overwrite a
+		// freshly-rotated access_token/refresh_token with the stale
+		// pre-refresh values, permanently breaking providers that rotate
+		// single-use refresh tokens.
+		acquired, lockErr := store.acquireRefreshLock(ctx, conns[i].ID)
+		if lockErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to acquire refresh lock for connection %s: %v\n", conns[i].ID, lockErr)
+			continue
+		}
+		if !acquired {
+			fmt.Fprintf(os.Stderr, "warning: skipping connection %s: refresh lock held by another process; will retry next startup\n", conns[i].ID)
+			continue
+		}
+		err := store.Save(ctx, &conns[i])
+		store.releaseRefreshLock(context.WithoutCancel(ctx), conns[i].ID)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to re-encrypt connection %s: %v\n", conns[i].ID, err)
 			continue
 		}
