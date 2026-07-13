@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,6 +75,48 @@ func TestSecretAddListGetReveal(t *testing.T) {
 	}
 	if !strings.Contains(revealOut, "sk-test123") {
 		t.Fatalf("expected reveal output to contain plaintext, got: %s", revealOut)
+	}
+}
+
+// TestSecretAdd_ReadsValueFromStdinWhenFlagOmitted covers the fallback path
+// in newSecretAddCmd that reads the secret value from stdin (via
+// bufio.NewReader(os.Stdin).ReadString('\n') + strings.TrimRight) when
+// --value is not passed, so real interactive use never needs to put a
+// secret on the command line. It redirects os.Stdin for the duration of the
+// `add` call, matching the os.Pipe idiom used by captureStdout in
+// people_status_test.go, then round-trips the value through `reveal` to
+// prove it was read and trimmed correctly (not just "did not error").
+func TestSecretAdd_ReadsValueFromStdinWhenFlagOmitted(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	orig := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = orig }()
+
+	go func() {
+		io.WriteString(w, "stdin-secret-value\n")
+		w.Close()
+	}()
+
+	addOut, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "stdin-key")
+	os.Stdin = orig
+	if err != nil {
+		t.Fatalf("secret add: %v (%s)", err, addOut)
+	}
+
+	revealOut, err := runSecretCmd(t, dbPath, "reveal", "stdin-key", "--reveal")
+	if err != nil {
+		t.Fatalf("secret reveal: %v", err)
+	}
+	if !strings.Contains(revealOut, "stdin-secret-value") {
+		t.Fatalf("expected reveal output to contain the value read from stdin, got: %s", revealOut)
+	}
+	if strings.Contains(revealOut, "stdin-secret-value\n\n") {
+		t.Fatalf("stdin value was not trimmed correctly, got: %q", revealOut)
 	}
 }
 
