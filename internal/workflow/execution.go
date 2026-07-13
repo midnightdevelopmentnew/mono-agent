@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"monoagent/internal/connections"
+	"monoagent/internal/secrets"
 	"monoagent/internal/vault"
 	"github.com/rs/zerolog"
 )
@@ -268,6 +269,8 @@ func RunExecution(
 		// Resolve @img-NNN references to absolute vault file paths.
 		if vaultDB := vault.DBFromContext(ctx); vaultDB != nil {
 			_ = vault.ResolveConfig(ctx, vaultDB, resolvedConfig)
+			// Resolve @secret:<name> references to decrypted vault values.
+			_ = secrets.ResolveConfig(ctx, vaultDB, vault.ProfileIDFromContext(ctx), resolvedConfig)
 		}
 
 		// Extract retry policy and on_error behaviour from config.
