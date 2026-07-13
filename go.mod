@@ -22,6 +22,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/xuri/excelize/v2 v2.10.1
 	github.com/yuin/goldmark v1.7.16
+	github.com/zalando/go-keyring v0.2.6
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	golang.org/x/crypto v0.48.0
 	modernc.org/sqlite v1.46.1
@@ -72,7 +73,6 @@ require (
 	github.com/ysmood/got v0.40.0 // indirect
 	github.com/ysmood/gson v0.7.3 // indirect
 	github.com/ysmood/leakless v0.9.0 // indirect
-	github.com/zalando/go-keyring v0.2.6 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/image v0.39.0 // indirect
