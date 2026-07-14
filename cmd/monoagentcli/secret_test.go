@@ -122,6 +122,29 @@ func TestSecretAdd_ReadsValueFromStdinWhenFlagOmitted(t *testing.T) {
 	}
 }
 
+func TestSecretAdd_RejectsInvalidKind(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	_, err := runSecretCmd(t, dbPath, "add", "--kind", "bogus", "--name", "x", "--value", "y")
+	if err == nil {
+		t.Fatal("expected error for invalid --kind, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid kind") {
+		t.Fatalf("expected error to mention invalid kind, got: %v", err)
+	}
+
+	listOut, err := runSecretCmd(t, dbPath, "list")
+	if err != nil {
+		t.Fatalf("secret list: %v", err)
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal([]byte(listOut), &entries); err != nil {
+		t.Fatalf("unmarshal list output: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no entry to be created for invalid kind, got %d", len(entries))
+	}
+}
+
 func TestSecretReveal_RequiresConfirmationFlag(t *testing.T) {
 	dbPath := newSecretCLITestDB(t)
 	if _, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "x", "--value", "v"); err != nil {

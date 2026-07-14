@@ -24,6 +24,10 @@ type Entry struct {
 // Add creates a new vault_secrets entry, encrypting value (and notes, if
 // given) under the vault's DEK before storage.
 func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username, url, notes string) (string, error) {
+	if kind != "secret" && kind != "login" {
+		return "", fmt.Errorf("secrets.Add: invalid kind %q, must be \"secret\" or \"login\"", kind)
+	}
+
 	dek, err := getOrCreateDEK(ctx, db)
 	if err != nil {
 		return "", fmt.Errorf("secrets.Add: %w", err)

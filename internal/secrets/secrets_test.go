@@ -90,6 +90,21 @@ func TestDelete_RemovesEntry(t *testing.T) {
 	}
 }
 
+func TestAdd_RejectsInvalidKind(t *testing.T) {
+	db := newSecretsTestDB(t)
+	ctx := context.Background()
+	if _, err := Add(ctx, db.DB, "default", "bogus", "x", "y", "", "", ""); err == nil {
+		t.Fatal("expected error for invalid kind, got nil")
+	}
+	entries, err := List(ctx, db.DB, "default")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no row inserted for invalid kind, got %d entries", len(entries))
+	}
+}
+
 func TestDecryptEntry_NotFoundErrors(t *testing.T) {
 	db := newSecretsTestDB(t)
 	ctx := context.Background()
