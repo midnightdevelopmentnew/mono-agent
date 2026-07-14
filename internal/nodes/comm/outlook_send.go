@@ -16,13 +16,19 @@ import (
 //
 //	"email"       (string, required): Outlook/Hotmail sender address (also the SMTP username)
 //	"password"    (string, required): Account password or app password
-//	"to"          (string or []string, required): recipient(s)
+//	"to"          (string or []string, required): recipient(s); a string may
+//	              be comma/semicolon-separated for multiple addresses
 //	"cc"          (string or []string): CC recipients
 //	"bcc"         (string or []string): BCC recipients
 //	"subject"     (string, required): email subject
 //	"body"        (string, required): email body
 //	"body_type"   (string): "text" (default) or "html"
 //	"attachments" ([]string): file paths to attach
+//	"in_reply_to" (string): original message's Message-ID header (from
+//	              comm.outlook_read), to thread this as a reply instead of a
+//	              new message; auto-prefixes subject with "Re: "
+//	"references"  (string): thread's References header chain; defaults to
+//	              in_reply_to when omitted
 //
 // Uses Outlook SMTP: smtp-mail.outlook.com:587 with STARTTLS.
 type OutlookSendNode struct{}
@@ -84,12 +90,24 @@ func (n *OutlookSendNode) Execute(ctx context.Context, input workflow.NodeInput,
 		}
 	}
 
+	// Optional threading: pass the original message's Message-ID header (get
+	// it from comm.outlook_read) as in_reply_to to make this a reply on the
+	// same thread instead of a disconnected new message.
+	inReplyTo, _ := config["in_reply_to"].(string)
+	references, _ := config["references"].(string)
+	if references == "" {
+		references = inReplyTo
+	}
+	if inReplyTo != "" {
+		subject = prefixReplySubject(subject)
+	}
+
 	allRecipients := make([]string, 0, len(toAddrs)+len(ccAddrs)+len(bccAddrs))
 	allRecipients = append(allRecipients, toAddrs...)
 	allRecipients = append(allRecipients, ccAddrs...)
 	allRecipients = append(allRecipients, bccAddrs...)
 
-	msgBytes, err := buildMIMEMessage(email, toAddrs, ccAddrs, subject, body, bodyType, attachmentPaths)
+	msgBytes, err := buildMIMEMessage(email, toAddrs, ccAddrs, subject, body, bodyType, attachmentPaths, inReplyTo, references)
 	if err != nil {
 		return nil, fmt.Errorf("comm.outlook_send: build message: %w", err)
 	}

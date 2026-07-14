@@ -26,13 +26,19 @@ import (
 //	"username"   (string): SMTP auth username
 //	"password"   (string): SMTP auth password
 //	"from"       (string, required): sender address
-//	"to"         (string or []string, required): recipient(s)
+//	"to"         (string or []string, required): recipient(s); a string may
+//	             be comma/semicolon-separated for multiple addresses
 //	"cc"         (string or []string): CC recipients
 //	"bcc"        (string or []string): BCC recipients
 //	"subject"    (string, required): email subject
 //	"body"       (string, required): email body
 //	"body_type"  (string): "text" (default) or "html"
 //	"attachments" ([]string): file paths to attach
+//	"in_reply_to" (string): original message's Message-ID header (from
+//	              comm.email_read), to thread this as a reply instead of a
+//	              new message; auto-prefixes subject with "Re: "
+//	"references" (string): thread's References header chain; defaults to
+//	              in_reply_to when omitted
 type EmailSendNode struct{}
 
 func (n *EmailSendNode) Type() string { return "comm.email_send" }
@@ -99,6 +105,18 @@ func (n *EmailSendNode) Execute(ctx context.Context, input workflow.NodeInput, c
 		}
 	}
 
+	// Optional threading: pass the original message's Message-ID header (get
+	// it from comm.email_read) as in_reply_to to make this a reply on the
+	// same thread instead of a disconnected new message.
+	inReplyTo, _ := config["in_reply_to"].(string)
+	references, _ := config["references"].(string)
+	if references == "" {
+		references = inReplyTo
+	}
+	if inReplyTo != "" {
+		subject = prefixReplySubject(subject)
+	}
+
 	// Build all recipients for the SMTP envelope.
 	allRecipients := make([]string, 0, len(toAddrs)+len(ccAddrs)+len(bccAddrs))
 	allRecipients = append(allRecipients, toAddrs...)
@@ -106,7 +124,7 @@ func (n *EmailSendNode) Execute(ctx context.Context, input workflow.NodeInput, c
 	allRecipients = append(allRecipients, bccAddrs...)
 
 	// Build message.
-	msgBytes, err := buildMIMEMessage(from, toAddrs, ccAddrs, subject, body, bodyType, attachmentPaths)
+	msgBytes, err := buildMIMEMessage(from, toAddrs, ccAddrs, subject, body, bodyType, attachmentPaths, inReplyTo, references)
 	if err != nil {
 		return nil, fmt.Errorf("comm.email_send: build message: %w", err)
 	}
@@ -129,8 +147,16 @@ func (n *EmailSendNode) Execute(ctx context.Context, input workflow.NodeInput, c
 	return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{result}}}, nil
 }
 
-// buildMIMEMessage constructs a MIME email message with optional HTML body and file attachments.
-func buildMIMEMessage(from string, to, cc []string, subject, body, bodyType string, attachments []string) ([]byte, error) {
+// buildMIMEMessage constructs a MIME email message with optional HTML body
+// and file attachments. inReplyTo/references, when set, thread this message
+// as a reply: pass the original message's Message-ID header (e.g.
+// "<abc123@mail.example.com>") as inReplyTo, and that same value appended to
+// the original's own References header (space-separated) as references.
+// Most mail clients (Outlook, Gmail, Apple Mail, ...) group messages into
+// the same thread/conversation view using these two headers, regardless of
+// which server sent them — this is the raw-SMTP equivalent of what Graph's
+// createReply does automatically.
+func buildMIMEMessage(from string, to, cc []string, subject, body, bodyType string, attachments []string, inReplyTo, references string) ([]byte, error) {
 	var buf bytes.Buffer
 
 	// Headers. Strip CR/LF from header values to prevent SMTP header injection.
@@ -140,6 +166,12 @@ func buildMIMEMessage(from string, to, cc []string, subject, body, bodyType stri
 		buf.WriteString("Cc: " + sanitizeHeader(strings.Join(cc, ", ")) + "\r\n")
 	}
 	buf.WriteString("Subject: " + sanitizeHeader(subject) + "\r\n")
+	if inReplyTo != "" {
+		buf.WriteString("In-Reply-To: " + sanitizeHeader(inReplyTo) + "\r\n")
+	}
+	if references != "" {
+		buf.WriteString("References: " + sanitizeHeader(references) + "\r\n")
+	}
 	buf.WriteString("MIME-Version: 1.0\r\n")
 
 	if len(attachments) == 0 {
@@ -215,29 +247,60 @@ func sanitizeHeader(s string) string {
 	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
 }
 
-// toStringSlice coerces a config value (string or []string or []interface{}) to []string.
+// toStringSlice coerces a config value (string or []string or []interface{})
+// to []string. A string is split on commas/semicolons so
+// "a@x.com,b@x.com" becomes two recipients instead of one malformed
+// envelope address.
 func toStringSlice(v interface{}) []string {
 	if v == nil {
 		return nil
 	}
 	switch val := v.(type) {
 	case string:
-		if val == "" {
-			return nil
-		}
-		return []string{val}
+		return splitAddressList(val)
 	case []string:
-		return val
+		out := make([]string, 0, len(val))
+		for _, s := range val {
+			out = append(out, splitAddressList(s)...)
+		}
+		return out
 	case []interface{}:
 		out := make([]string, 0, len(val))
 		for _, item := range val {
-			if s, ok := item.(string); ok && s != "" {
-				out = append(out, s)
+			if s, ok := item.(string); ok {
+				out = append(out, splitAddressList(s)...)
 			}
 		}
 		return out
 	}
 	return nil
+}
+
+// splitAddressList splits a comma/semicolon-separated address string into
+// trimmed, non-empty addresses. A single address with no separators works
+// too — it comes back as a one-element slice.
+func splitAddressList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ';' })
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		addr := strings.TrimSpace(p)
+		if addr != "" {
+			out = append(out, addr)
+		}
+	}
+	return out
+}
+
+// prefixReplySubject adds a "Re: " prefix unless the subject already has one,
+// mirroring standard mail client behavior for replies.
+func prefixReplySubject(subject string) string {
+	if subject == "" || strings.HasPrefix(strings.ToLower(subject), "re:") {
+		return subject
+	}
+	return "Re: " + subject
 }
 
 func toStringInterfaceSlice(ss []string) []interface{} {

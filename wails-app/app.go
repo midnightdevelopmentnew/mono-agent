@@ -871,6 +871,17 @@ func (a *App) SendDraftPersonMessage(personMessageID string) (*storage.PersonMes
 		return nil, err
 	}
 	msg.Status = "sent"
+	// Graph reassigns a new message id when a draft is sent (moved into Sent
+	// Items), so the stored external_id must be updated to stay valid for a
+	// later reply/get_message/delete_message.
+	if len(result.Outputs) > 0 && len(result.Outputs[0].Items) > 0 {
+		if newID, ok := result.Outputs[0].Items[0]["message_id"].(string); ok && newID != "" && newID != msg.ExternalID {
+			if err := db.UpdatePersonMessageExternalID(personMessageID, newID); err != nil {
+				return nil, err
+			}
+			msg.ExternalID = newID
+		}
+	}
 	return msg, nil
 }
 

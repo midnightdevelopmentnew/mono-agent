@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"monoagent/internal/workflow"
 )
@@ -49,18 +50,18 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 		} else {
 			bodyType = "Text"
 		}
-		sendBody := map[string]interface{}{
-			"message": map[string]interface{}{
-				"subject": subject,
-				"body": map[string]interface{}{
-					"contentType": bodyType,
-					"content":     body,
-				},
-				"toRecipients": []map[string]interface{}{
-					{"emailAddress": map[string]interface{}{"address": to}},
-				},
-			},
+		message := map[string]interface{}{
+			"subject":      subject,
+			"body":         map[string]interface{}{"contentType": bodyType, "content": body},
+			"toRecipients": parseEmailAddresses(to),
 		}
+		if cc := parseEmailAddresses(strVal(config, "cc")); len(cc) > 0 {
+			message["ccRecipients"] = cc
+		}
+		if bcc := parseEmailAddresses(strVal(config, "bcc")); len(bcc) > 0 {
+			message["bccRecipients"] = bcc
+		}
+		sendBody := map[string]interface{}{"message": message}
 		if _, err := outlookGraphRequest(ctx, "POST", outlookGraphBaseURL+"/sendMail", accessToken, sendBody); err != nil {
 			return nil, fmt.Errorf("outlook_mail send_message: %w", err)
 		}
@@ -83,10 +84,14 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 				"content":     body,
 			},
 		}
-		if to != "" {
-			draftBody["toRecipients"] = []map[string]interface{}{
-				{"emailAddress": map[string]interface{}{"address": to}},
-			}
+		if recipients := parseEmailAddresses(to); len(recipients) > 0 {
+			draftBody["toRecipients"] = recipients
+		}
+		if cc := parseEmailAddresses(strVal(config, "cc")); len(cc) > 0 {
+			draftBody["ccRecipients"] = cc
+		}
+		if bcc := parseEmailAddresses(strVal(config, "bcc")); len(bcc) > 0 {
+			draftBody["bccRecipients"] = bcc
 		}
 		// POST /me/messages (unlike /sendMail) saves the message to Drafts
 		// without sending it.
@@ -96,16 +101,72 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 		}
 		items = []workflow.Item{workflow.NewItem(data)}
 
+	case "create_reply", "reply":
+		// Replies re-use the original message's recipients, subject, and
+		// threading (conversationId/references) via Graph's dedicated reply
+		// endpoints, instead of building a brand-new message. "create_reply"
+		// saves a draft (mirrors create_draft); "reply" sends immediately
+		// (mirrors send_message). reply_all=true replies to everyone on the
+		// original message instead of just the sender.
+		messageID := strVal(config, "message_id")
+		if messageID == "" {
+			return nil, fmt.Errorf("outlook_mail: message_id is required for %s", operation)
+		}
+		replyAll := boolVal(config, "reply_all")
+		endpoint := "createReply"
+		if operation == "reply" {
+			endpoint = "reply"
+		}
+		if replyAll {
+			endpoint += "All"
+		}
+		reqBody := map[string]interface{}{}
+		if comment := strVal(config, "body"); comment != "" {
+			reqBody["comment"] = comment
+		}
+		data, err := outlookGraphRequest(ctx, "POST", outlookGraphBaseURL+"/messages/"+messageID+"/"+endpoint, accessToken, reqBody)
+		if err != nil {
+			return nil, fmt.Errorf("outlook_mail %s: %w", operation, err)
+		}
+		if operation == "reply" {
+			data = map[string]interface{}{"status": "sent", "message_id": messageID, "reply_all": replyAll}
+		}
+		items = []workflow.Item{workflow.NewItem(data)}
+
 	case "send_draft":
 		messageID := strVal(config, "message_id")
 		if messageID == "" {
 			return nil, fmt.Errorf("outlook_mail: message_id is required for send_draft")
 		}
+		// Graph reassigns a new item id when a draft is sent (it moves from
+		// Drafts into Sent Items), so messageID becomes stale the instant
+		// /send succeeds — a later get_message/reply/delete_message against
+		// it will fail. internetMessageId (the RFC 5322 Message-ID header)
+		// is stable across that move, so grab it before sending and use it
+		// to resolve the new id afterward.
+		var internetMessageID string
+		if data, err := outlookGraphRequest(ctx, "GET", outlookGraphBaseURL+"/messages/"+messageID+"?$select=internetMessageId", accessToken, nil); err == nil {
+			internetMessageID, _ = data["internetMessageId"].(string)
+		}
 		// POST /messages/{id}/send sends an existing draft as-is.
 		if _, err := outlookGraphRequest(ctx, "POST", outlookGraphBaseURL+"/messages/"+messageID+"/send", accessToken, map[string]interface{}{}); err != nil {
 			return nil, fmt.Errorf("outlook_mail send_draft: %w", err)
 		}
-		items = []workflow.Item{workflow.NewItem(map[string]interface{}{"status": "sent", "message_id": messageID})}
+		sentMessageID := messageID
+		if internetMessageID != "" {
+			// Graph's mailbox search index lags the send by a second or two,
+			// so an immediate lookup usually finds nothing — retry briefly.
+			for _, delay := range []time.Duration{0, 700 * time.Millisecond, 1500 * time.Millisecond} {
+				if delay > 0 {
+					time.Sleep(delay)
+				}
+				if newID, err := outlookFindSentIDByInternetMessageID(ctx, accessToken, internetMessageID); err == nil && newID != "" {
+					sentMessageID = newID
+					break
+				}
+			}
+		}
+		items = []workflow.Item{workflow.NewItem(map[string]interface{}{"status": "sent", "message_id": sentMessageID})}
 
 	case "delete_message":
 		messageID := strVal(config, "message_id")
@@ -182,6 +243,46 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 	}
 
 	return []workflow.NodeOutput{{Handle: "main", Items: items}}, nil
+}
+
+// parseEmailAddresses splits a comma/semicolon-separated address string (as
+// produced by mail clients and CSV-style config input) into Graph API
+// emailAddress recipient objects. A single address works too since it has no
+// separators to split on.
+func parseEmailAddresses(raw string) []map[string]interface{} {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ';' })
+	out := make([]map[string]interface{}, 0, len(parts))
+	for _, p := range parts {
+		addr := strings.TrimSpace(p)
+		if addr == "" {
+			continue
+		}
+		out = append(out, map[string]interface{}{"emailAddress": map[string]interface{}{"address": addr}})
+	}
+	return out
+}
+
+// outlookFindSentIDByInternetMessageID looks up a Sent Items message's
+// current Graph id by its stable internetMessageId, used to recover the new
+// id Graph assigns when send_draft moves a message out of Drafts.
+func outlookFindSentIDByInternetMessageID(ctx context.Context, accessToken, internetMessageID string) (string, error) {
+	escaped := strings.ReplaceAll(internetMessageID, "'", "''")
+	url := outlookGraphBaseURL + "/mailFolders/sentitems/messages?$filter=" +
+		gmailURLEncode("internetMessageId eq '"+escaped+"'") + "&$select=id&$top=1"
+	data, err := outlookGraphRequest(ctx, "GET", url, accessToken, nil)
+	if err != nil {
+		return "", err
+	}
+	values, _ := data["value"].([]interface{})
+	if len(values) == 0 {
+		return "", nil
+	}
+	msg, _ := values[0].(map[string]interface{})
+	id, _ := msg["id"].(string)
+	return id, nil
 }
 
 // outlookWhoAmI resolves the mailbox owner's own address without the

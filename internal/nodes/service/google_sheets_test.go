@@ -38,7 +38,12 @@ func TestGmailSanitizeHeader_StripsCRLF(t *testing.T) {
 		t.Fatalf("sanitized header still contains CR/LF: %q", got)
 	}
 
-	raw, err := gmailBuildRFC2822("", "victim@example.com", "Invoice\r\nBcc: attacker@evil.com", "hi", "text")
+	raw, err := gmailBuildRFC2822(gmailMessageOpts{
+		To:       "victim@example.com",
+		Subject:  "Invoice\r\nBcc: attacker@evil.com",
+		Body:     "hi",
+		BodyType: "text",
+	})
 	if err != nil {
 		t.Fatalf("build error: %v", err)
 	}

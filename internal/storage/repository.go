@@ -914,6 +914,21 @@ func (d *Database) UpdatePersonMessageStatus(id, status string) error {
 	return nil
 }
 
+// UpdatePersonMessageExternalID updates the source-native id for a message,
+// e.g. after send_draft resolves the new id Graph assigns when moving a
+// draft into Sent Items.
+func (d *Database) UpdatePersonMessageExternalID(id, externalID string) error {
+	result, err := d.DB.Exec(`UPDATE person_messages SET external_id = ? WHERE id = ?`, externalID, id)
+	if err != nil {
+		return fmt.Errorf("updating external id for message %s: %w", id, err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("message %s not found", id)
+	}
+	return nil
+}
+
 // ListPersonMessagesByStatus returns messages across every person in the
 // given profile filtered by status (e.g. "draft"), newest first.
 func (d *Database) ListPersonMessagesByStatus(profileID, status string) ([]*PersonMessageWithPerson, error) {
