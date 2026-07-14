@@ -15,7 +15,21 @@ const (
 	keyringAccount = "kek"
 )
 
-// kekOnce/kekCache memoize getOrCreateKEK for the lifetime of the process:
+// kekAttempt holds the memoized result of one getOrCreateKEK attempt,
+// guarded by its own sync.Once so that attempt's fetchKEK call runs at most
+// once no matter how many goroutines race on it. This is the same
+// per-attempt struct pattern dek.go's dekEntry uses: each attempt is its own
+// object, so a straggler goroutine reading a completed (and possibly
+// already-superseded) attempt's fields can never race with a fresh attempt's
+// writes — they're different objects in memory, not shared package
+// variables.
+type kekAttempt struct {
+	once sync.Once
+	kek  []byte
+	err  error
+}
+
+// currentKEKAttempt memoizes getOrCreateKEK for the lifetime of the process:
 // the KEK is process-wide and doesn't depend on any db parameter, so every
 // call after the first can skip the OS keychain round trip (on macOS,
 // keyring.Get forks a /usr/bin/security subprocess per call — expensive when
@@ -23,19 +37,18 @@ const (
 // process (e.g. a new CLI invocation) still re-fetches once, which is
 // correct.
 //
-// A failed attempt is NOT cached: kekMu only guards the kekOnce pointer
-// itself (a short critical section), while the expensive fetchKEK call runs
-// inside that attempt's own sync.Once.Do, outside the mutex, so all callers
-// racing on one in-flight attempt observe the identical shared result. If
-// that attempt fails, the pointer is swapped for a fresh *sync.Once so the
-// next call gets a real retry instead of being stuck forever with a stale
-// transient error (e.g. a momentarily locked keychain) — mirroring the
-// retry-after-failure behavior dek.go's per-db getOrCreateDEK uses.
+// A failed attempt is NOT cached: kekMu only guards the currentKEKAttempt
+// pointer itself (a short critical section), while the expensive fetchKEK
+// call runs inside that attempt's own sync.Once.Do, outside the mutex, so
+// all callers racing on one in-flight attempt observe the identical shared
+// result. If that attempt fails, the pointer is swapped for a fresh
+// *kekAttempt so the next call gets a real retry instead of being stuck
+// forever with a stale transient error (e.g. a momentarily locked
+// keychain) — mirroring the retry-after-failure behavior dek.go's per-db
+// getOrCreateDEK uses.
 var (
-	kekMu    sync.Mutex
-	kekOnce  = &sync.Once{}
-	kekCache []byte
-	kekErr   error
+	kekMu             sync.Mutex
+	currentKEKAttempt = &kekAttempt{}
 )
 
 // fetchKEK is the function getOrCreateKEK invokes to actually resolve the
@@ -51,22 +64,22 @@ var fetchKEK = fetchOrCreateKEK
 // (see dek.go).
 func getOrCreateKEK() ([]byte, error) {
 	kekMu.Lock()
-	once := kekOnce
+	attempt := currentKEKAttempt
 	kekMu.Unlock()
 
-	once.Do(func() {
-		kekCache, kekErr = fetchKEK()
+	attempt.once.Do(func() {
+		attempt.kek, attempt.err = fetchKEK()
 	})
 
-	if kekErr != nil {
+	if attempt.err != nil {
 		kekMu.Lock()
-		if kekOnce == once {
-			kekOnce = &sync.Once{}
+		if currentKEKAttempt == attempt {
+			currentKEKAttempt = &kekAttempt{}
 		}
 		kekMu.Unlock()
 	}
 
-	return kekCache, kekErr
+	return attempt.kek, attempt.err
 }
 
 func fetchOrCreateKEK() ([]byte, error) {

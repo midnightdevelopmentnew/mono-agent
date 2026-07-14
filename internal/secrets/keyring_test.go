@@ -10,15 +10,13 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-// resetKEKState clears the process-wide kekOnce/kekCache/kekErr memoization
-// so each test starts as if in a fresh process, regardless of what earlier
+// resetKEKState clears the process-wide currentKEKAttempt memoization so
+// each test starts as if in a fresh process, regardless of what earlier
 // tests in this package did to the shared KEK state.
 func resetKEKState(t *testing.T) {
 	t.Helper()
 	kekMu.Lock()
-	kekOnce = &sync.Once{}
-	kekCache = nil
-	kekErr = nil
+	currentKEKAttempt = &kekAttempt{}
 	kekMu.Unlock()
 }
 
@@ -147,4 +145,53 @@ func TestGetOrCreateKEK_ConcurrentFailureIsSharedThenRetried(t *testing.T) {
 	if len(key) != 32 {
 		t.Fatalf("expected 32-byte KEK, got %d bytes", len(key))
 	}
+}
+
+// TestGetOrCreateKEK_StragglerDoesNotRaceWithFreshAttempt exercises the data
+// race this change fixes: on the old implementation, a failed attempt swapped
+// only the *sync.Once pointer while kekCache/kekErr remained shared,
+// unguarded package-level variables. A straggler goroutine from a just-failed
+// attempt reading "return kekCache, kekErr" could race with a brand-new
+// attempt (using the freshly-swapped Once) concurrently writing
+// "kekCache, kekErr = fetchKEK()". By hammering getOrCreateKEK with many
+// goroutines through many failure-then-retry cycles, this reliably surfaces
+// under `go test -race` on the old shared-variable implementation, and passes
+// cleanly now that each attempt owns its own kekAttempt struct.
+func TestGetOrCreateKEK_StragglerDoesNotRaceWithFreshAttempt(t *testing.T) {
+	resetKEKState(t)
+	keyring.MockInit()
+
+	injectedErr := errors.New("injected transient failure")
+
+	orig := fetchKEK
+	t.Cleanup(func() { fetchKEK = orig })
+
+	const failuresBeforeSuccess = 200
+	var failCount int32
+	fetchKEK = func() ([]byte, error) {
+		if atomic.AddInt32(&failCount, 1) <= failuresBeforeSuccess {
+			return nil, injectedErr
+		}
+		return orig()
+	}
+
+	const goroutines = 50
+	const callsPerGoroutine = 20
+
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < callsPerGoroutine; j++ {
+				// Ignore the returned values here: the point of this test is
+				// to surface the unguarded concurrent read/write of the
+				// memoized result under -race, not to assert on any one
+				// call's outcome (which legitimately varies call-to-call as
+				// failures give way to the eventual successful retry).
+				_, _ = getOrCreateKEK()
+			}
+		}()
+	}
+	wg.Wait()
 }
