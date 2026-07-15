@@ -331,6 +331,8 @@ func newPeopleMessagesComposeCmd(cfg *globalConfig) *cobra.Command {
 		toOverride   string
 		cc           string
 		bcc          string
+		replyTo      string
+		replyAll     bool
 	)
 
 	cmd := &cobra.Command{
@@ -340,7 +342,8 @@ func newPeopleMessagesComposeCmd(cfg *globalConfig) *cobra.Command {
 		Example: `  monoagentcli people messages compose abc123 --connection outlook --subject "Hi" --body "Thanks for reaching out"
   monoagentcli people messages compose abc123 --connection outlook --subject "Hi" --body "..." --draft
   monoagentcli people messages compose abc123 --connection outlook --subject "Hi" --body "..." --to "a@x.com,b@x.com"
-  monoagentcli people messages compose abc123 --connection outlook --subject "Hi" --body "..." --cc "c@x.com,d@x.com"`,
+  monoagentcli people messages compose abc123 --connection outlook --subject "Hi" --body "..." --cc "c@x.com,d@x.com"
+  monoagentcli people messages compose abc123 --connection outlook --body "Sounds good" --reply-to <message-id> --reply-all`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if body == "" {
 				return fmt.Errorf("--body is required")
@@ -351,6 +354,91 @@ func newPeopleMessagesComposeCmd(cfg *globalConfig) *cobra.Command {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
+
+			// --reply-to threads this compose onto an existing conversation
+			// via Graph's createReply/createReplyAll instead of starting a
+			// fresh conversationId.
+			if replyTo != "" {
+				orig, err := db.GetPersonMessage(replyTo)
+				if err != nil {
+					return err
+				}
+				if orig == nil {
+					return fmt.Errorf("message %s not found", replyTo)
+				}
+				if err := assertMessageInProfile(db.DB, replyTo, cfg.ProfileID); err != nil {
+					return err
+				}
+				if orig.ExternalID == "" {
+					return fmt.Errorf("message %s has no associated Outlook message id, cannot reply", replyTo)
+				}
+
+				operation, status := "reply", "sent"
+				if asDraft {
+					operation, status = "create_reply", "draft"
+				}
+
+				config := map[string]interface{}{
+					"operation":  operation,
+					"message_id": orig.ExternalID,
+					"reply_all":  replyAll,
+					"body":       body,
+				}
+				if toOverride != "" {
+					config["to"] = toOverride
+				}
+				if cc != "" {
+					config["cc"] = cc
+				}
+				if bcc != "" {
+					config["bcc"] = bcc
+				}
+				outputs, err := runOutlookNode(cmd, cfg, db.DB, connectionID, config)
+				if err != nil {
+					return err
+				}
+
+				var externalID string
+				if len(outputs) > 0 && len(outputs[0].Items) > 0 {
+					externalID = getStr(outputs[0].Items[0].JSON, "id")
+				}
+				metaBytes, _ := json.Marshal(map[string]string{"connection_id": connectionID})
+
+				replySubject := orig.Subject
+				if replySubject != "" && replySubject[:min(4, len(replySubject))] != "Re: " {
+					replySubject = "Re: " + replySubject
+				}
+
+				msg := &storage.PersonMessage{
+					PersonID:   args[0],
+					Source:     "outlook",
+					ExternalID: externalID,
+					Direction:  "outbound",
+					Sender:     orig.Sender,
+					Subject:    replySubject,
+					Body:       body,
+					Metadata:   string(metaBytes),
+					Status:     status,
+					SentAt:     time.Now().UTC(),
+				}
+				if err := db.UpsertPersonMessage(msg, cfg.ProfileID); err != nil {
+					return fmt.Errorf("saving message: %w", err)
+				}
+
+				if cfg.JSONOutput {
+					return json.NewEncoder(os.Stdout).Encode(msg)
+				}
+				verb := "Sent"
+				if asDraft {
+					verb = "Drafted"
+				}
+				what := "reply"
+				if replyAll {
+					what = "reply-all"
+				}
+				fmt.Fprintf(os.Stdout, "%s %s to message %s (new message id: %s)\n", verb, what, replyTo, msg.ID)
+				return nil
+			}
 
 			var toAddr string
 			if err := db.DB.QueryRow(
@@ -428,9 +516,11 @@ func newPeopleMessagesComposeCmd(cfg *globalConfig) *cobra.Command {
 	cmd.Flags().StringVar(&body, "body", "", "Body (required)")
 	cmd.Flags().StringVar(&bodyType, "body-type", "html", "Body type: text or html")
 	cmd.Flags().BoolVar(&asDraft, "draft", false, "Save as a draft instead of sending immediately")
-	cmd.Flags().StringVar(&toOverride, "to", "", "Recipient address(es), comma-separated for multiple (default: the person's stored address)")
+	cmd.Flags().StringVar(&toOverride, "to", "", "Recipient address(es), comma-separated for multiple (default: the person's stored address; with --reply-to, added to the reply)")
 	cmd.Flags().StringVar(&cc, "cc", "", "CC address(es), comma-separated for multiple")
 	cmd.Flags().StringVar(&bcc, "bcc", "", "BCC address(es), comma-separated for multiple")
+	cmd.Flags().StringVar(&replyTo, "reply-to", "", "Message id (from message history) to reply to, threading onto its existing conversation instead of starting a new one")
+	cmd.Flags().BoolVar(&replyAll, "reply-all", false, "With --reply-to, reply to everyone on the original message instead of just the sender")
 	_ = cmd.MarkFlagRequired("connection")
 	_ = cmd.MarkFlagRequired("body")
 

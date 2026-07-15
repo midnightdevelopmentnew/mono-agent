@@ -76,10 +76,13 @@ func newLoginCmd(cfg *globalConfig) *cobra.Command {
 
 			// Launch browser using the user's own Chrome to avoid bot detection.
 			// UserMode connects to the system Chrome with the user's real profile,
-			// making it indistinguishable from a normal browsing session.
+			// making it indistinguishable from a normal browsing session. The
+			// user-data-dir is scoped per app-profile so a login under one
+			// --profile can't be picked up as an already-authenticated session
+			// under another --profile.
 			chromePath := findSystemChrome()
 			home, _ := os.UserHomeDir()
-			userDataDir := filepath.Join(home, ".monoagent", "chrome-profile")
+			userDataDir := filepath.Join(home, ".monoagent", "chrome-profile-"+cfg.ProfileID)
 			u, err := launcher.New().
 				Leakless(false).
 				Bin(chromePath).

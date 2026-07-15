@@ -10,6 +10,8 @@
 - Never continuously check status after spawning a swarm — wait for results
 - ALWAYS read a file before editing it
 - NEVER commit secrets, credentials, or .env files
+- ALWAYS call `mcp__monomind__monograph_query` BEFORE running grep/rg/find via Bash for code exploration — only fall back to Bash grep if monograph returns 0 results or the DB does not exist
+- When starting any task that touches 3+ files: call `mcp__monomind__monograph_suggest` first to get relevant nodes ranked by task relevance
 
 ## Coding Principles
 
@@ -107,17 +109,6 @@ npm run lint
 - Never use CLI tools alone for execution — Task tool agents do the actual work
 - MUST call CLI tools AND Task tool in ONE message for complex work
 
-### 3-Tier Model Routing (ADR-026)
-
-| Tier | Handler | Latency | Cost | Use Cases |
-|------|---------|---------|------|-----------|
-| **1** | Agent Booster (WASM) | <1ms | $0 | Simple transforms (var→const, add types) — Skip LLM |
-| **2** | Haiku | ~500ms | $0.0002 | Simple tasks, low complexity (<30%) |
-| **3** | Sonnet/Opus | 2-5s | $0.003-0.015 | Complex reasoning, architecture, security (>30%) |
-
-- Always check for `[AGENT_BOOSTER_AVAILABLE]` or `[TASK_MODEL_RECOMMENDATION]` before spawning agents
-- Use Edit tool directly when `[AGENT_BOOSTER_AVAILABLE]`
-
 ## Swarm Configuration & Anti-Drift
 
 - ALWAYS use hierarchical topology for coding swarms
@@ -139,20 +130,24 @@ npx monomind@latest swarm init --topology hierarchical --max-agents 8 --strategy
 - Never poll TaskOutput or check swarm status — trust agents to return
 - When agent results arrive, review ALL results before proceeding
 
-## V1 CLI Commands
+## CLI Commands
 
 ### Core Commands
 
 | Command | Subcommands | Description |
 |---------|-------------|-------------|
-| `init` | 4 | Project initialization |
-| `agent` | 8 | Agent lifecycle management |
+| `init` | 5 | Project initialization |
+| `agent` | 7 | Agent lifecycle management |
 | `swarm` | 6 | Multi-agent swarm coordination |
-| `memory` | 11 | AgentDB memory with HNSW search |
-| `task` | 6 | Task creation and lifecycle |
-| `session` | 7 | Session state management |
-| `hooks` | 17 | Self-learning hooks + 12 workers |
-| `hive-mind` | 6 | Byzantine fault-tolerant consensus |
+| `memory` | 12 | LanceDB memory with ANN search |
+| `task` | 5 | Task creation and lifecycle |
+| `session` | 6 | Session state management |
+| `hooks` | 29 | Self-learning hooks + 15 background workers _(unavailable in this install)_ |
+
+> Note: there is no `hive-mind` or `neural` CLI command. Hive-mind
+> consensus (byzantine/raft/quorum) is available exclusively via MCP tools
+> (`hive-mind_*`), not the CLI. Neural pattern learning was merged into
+> `hooks intelligence`.
 
 ### Quick CLI Examples
 
@@ -178,9 +173,6 @@ npx monomind@latest doctor --fix
 ### GitHub & Repository
 `pr-manager`, `code-review-swarm`, `issue-tracker`, `release-manager`
 
-### SPARC Methodology
-`sparc-coord`, `sparc-coder`, `specification`, `pseudocode`, `architecture`
-
 ## Memory Commands Reference
 
 ```bash
@@ -197,37 +189,75 @@ npx monomind@latest memory list --namespace patterns --limit 10
 npx monomind@latest memory retrieve --key "pattern-auth" --namespace patterns
 ```
 
-## Knowledge Graph (Monograph)
+## Second Brain — Document Knowledge Base
 
-Built into monomind since v1.8.0 — no separate install needed. Pure TypeScript, no Python required.
+If the `documents` capability is active (check `.monomind/capabilities.json`), this project indexes documents (PDF, DOCX, MD, TXT) into a semantic search engine.
 
-### MCP Tools (prefix: `mcp__monomind__`)
+**When documents are indexed, search knowledge before answering questions about business, compliance, legal, or organizational topics:**
+- Call `mcp__monomind__knowledge_search` with a relevant query
+- Use the returned excerpts as grounding context for your answer
+- Cite the source document name when referencing specific information
 
-| Tool | Description |
-|------|-------------|
-| `monograph_build` | Build or refresh knowledge graph from codebase |
-| `monograph_report` | Generate GRAPH_REPORT.md with community breakdown |
-| `monograph_suggest` | Get refactoring/architecture suggestions from graph |
-| `monograph_health` | Check graph quality score and experiment status |
+**CLI access:**
+```bash
+monomind doc search -q "your query"    # Semantic search
+monomind doc list                       # List indexed docs
+monomind doc ingest ./path              # Ingest new documents
+monomind doc export                     # Export as OKF bundle
+```
 
-### How It Works
+**Re-indexing** happens automatically on session start (unchanged files are skipped via content hash).
 
-1. **AST extraction** — parses TypeScript/JS/Python/Go/Rust into nodes + edges
-2. **Community detection** — Louvain algorithm finds logical clusters
-3. **Quality metric** — `graphQuality = avgCohesion × ln(1 + avgDegree)`
-4. **Experiment loop** — tracks BASELINE/KEEP/DISCARD in `results.tsv`
-5. **BFD chunking** — efficient Anthropic API calls via bin-packing
+## Knowledge Graph — Monograph (Use Before Codebase Exploration)
 
-> If monograph tools are not available, run `npx monomind@latest init --force` then restart Claude Code.
+Built into monomind — no separate install. Pure TypeScript, parses TS/JS/Python/Go/Rust/C/C++/Java/Ruby/Swift into a SQLite graph with BM25 full-text search.
+
+### MANDATORY: Graph-First, Grep-Last
+
+**Before ANY grep/rg/find via Bash for code navigation:**
+1. Call `mcp__monomind__monograph_query` first — returns file path + line number
+2. Only fall back to Bash grep if monograph returns 0 results or reports DB missing
+
+**When starting any task touching 3+ files:**
+1. `mcp__monomind__monograph_suggest` — relevant nodes ranked by task description
+2. `mcp__monomind__monograph_context` — 360° view of a symbol (callers, callees, imports)
+3. `mcp__monomind__monograph_impact` — blast radius before changing anything
+
+**If graph is empty:** call `mcp__monomind__monograph_build` (runs in background; proceed with grep while it builds).
+
+### Available Tools (prefix: `mcp__monomind__`)
+
+| Tool | Use when |
+|------|----------|
+| `monograph_suggest` | **Start every multi-file task** — ranked by task relevance |
+| `monograph_query` | **Primary code lookup** — BM25 search, returns file + line |
+| `monograph_context` | 360° symbol view: callers, callees, imports, community |
+| `monograph_impact` | Blast radius before a change — transitive callers + risk score |
+| `monograph_build` | Build/rebuild the index (codeOnly:true for code-only) |
+| `monograph_god_nodes` | High-centrality files — find the most connected internal nodes |
+| `monograph_detect_changes` | Git diff → affected symbols since base branch |
+| `monograph_rename` | Dry-run multi-file rename — all reference sites, never writes |
+| `monograph_route_map` | List all HTTP routes with handler info |
+| `monograph_api_impact` | Blast radius of an API route |
+| `monograph_cypher` | Single-hop MATCH query over the graph |
+| `monograph_staleness` | Git commits since last index build |
+| `monograph_stats` | Node/edge/community counts |
+| `monograph_health` | Index freshness vs current HEAD |
+| `monograph_shortest_path` | Shortest dependency path between two symbols |
+| `monograph_community` | All nodes in a community cluster |
+| `monograph_export` | Export graph: json, svg, graphml, cypher, obsidian |
+| `monograph_augment` | Graph-RAG context block for AI prompts |
+| `monograph_doctor` | Platform diagnostics (Node version, DB health) |
+| `monograph_list_repos` | Global registry of indexed repos |
+
+### Skip monograph for
+Single-file edits, doc/config changes, quick fixes where you already know the exact file.
 
 ## Quick Setup
 
 ```bash
 # Add MCP server — includes monograph, swarm, memory, hooks, all 200+ tools
 claude mcp add monomind -- npx -y monomind@latest mcp start
-
-# Start background workers
-npx monomind@latest daemon start
 
 # Verify everything works
 npx monomind@latest doctor --fix
@@ -243,5 +273,5 @@ npx monomind@latest doctor --fix
 
 ## Support
 
-- Documentation: https://github.com/nokhodian/monomind
-- Issues: https://github.com/nokhodian/monomind/issues
+- Documentation: https://github.com/monoes/monomind
+- Issues: https://github.com/monoes/monomind/issues

@@ -124,6 +124,22 @@ func (n *OutlookMailNode) Execute(ctx context.Context, input workflow.NodeInput,
 		if comment := strVal(config, "body"); comment != "" {
 			reqBody["comment"] = comment
 		}
+		// Graph's reply endpoints accept an optional "message" object to
+		// override/extend fields of the outgoing reply, e.g. adding
+		// recipients beyond the original sender/participants.
+		messageOverrides := map[string]interface{}{}
+		if to := parseEmailAddresses(strVal(config, "to")); len(to) > 0 {
+			messageOverrides["toRecipients"] = to
+		}
+		if cc := parseEmailAddresses(strVal(config, "cc")); len(cc) > 0 {
+			messageOverrides["ccRecipients"] = cc
+		}
+		if bcc := parseEmailAddresses(strVal(config, "bcc")); len(bcc) > 0 {
+			messageOverrides["bccRecipients"] = bcc
+		}
+		if len(messageOverrides) > 0 {
+			reqBody["message"] = messageOverrides
+		}
 		data, err := outlookGraphRequest(ctx, "POST", outlookGraphBaseURL+"/messages/"+messageID+"/"+endpoint, accessToken, reqBody)
 		if err != nil {
 			return nil, fmt.Errorf("outlook_mail %s: %w", operation, err)
