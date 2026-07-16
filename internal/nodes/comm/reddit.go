@@ -79,7 +79,10 @@ func (n *RedditNode) Execute(ctx context.Context, input workflow.NodeInput, conf
 		}
 
 		form := url.Values{}
-		form.Set("thing_id", redditEnsureFullname(thingID, "t3"))
+		// reply_to_comment targets a comment, so a bare ID defaults to the
+		// "t1_" comment prefix — pass a full "t3_..." fullname explicitly to
+		// reply directly to a post instead.
+		form.Set("thing_id", redditEnsureFullname(thingID, "t1"))
 		form.Set("text", text)
 		form.Set("api_type", "json")
 

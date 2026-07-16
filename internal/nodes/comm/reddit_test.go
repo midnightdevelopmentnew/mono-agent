@@ -39,3 +39,17 @@ func TestRedditFullnamePrefix(t *testing.T) {
 		}
 	}
 }
+
+// TestRedditFullnamePrefixCommentDefault is a regression test: reply_to_comment
+// must default a bare ID to the "t1_" comment prefix, not "t3_" (posts) —
+// a bare comment ID like "abc123" previously became the wrong fullname.
+func TestRedditFullnamePrefixCommentDefault(t *testing.T) {
+	if got := redditEnsureFullname("abc123", "t1"); got != "t1_abc123" {
+		t.Errorf("redditEnsureFullname(%q, t1) = %q, want t1_abc123", "abc123", got)
+	}
+	// A caller-supplied full "t3_..." fullname must still pass through unchanged
+	// (replying directly to a post is still possible by being explicit).
+	if got := redditEnsureFullname("t3_xyz", "t1"); got != "t3_xyz" {
+		t.Errorf("redditEnsureFullname(%q, t1) = %q, want t3_xyz", "t3_xyz", got)
+	}
+}
