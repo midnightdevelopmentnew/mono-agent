@@ -437,6 +437,22 @@ var Registry = map[string]PlatformDef{
 		},
 		IconEmoji: "📁",
 	},
+	"youtube": {
+		ID:         "youtube",
+		Name:       "YouTube",
+		Category:   "service",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodOAuth},
+		Fields:     map[AuthMethod][]CredentialField{},
+		OAuth: &OAuthConfig{
+			AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
+			TokenURL:     "https://oauth2.googleapis.com/token",
+			Scopes:       []string{"https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.force-ssl"},
+			CallbackPort: 9876,
+			ExtraParams:  map[string]string{"access_type": "offline", "prompt": "consent"},
+		},
+		IconEmoji: "📺",
+	},
 	"openrouter": {
 		ID:         "openrouter",
 		Name:       "OpenRouter",

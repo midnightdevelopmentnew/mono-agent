@@ -1,0 +1,16 @@
+{
+  "credential_platform": "youtube",
+  "fields": [
+    { "key": "credential_id", "label": "YouTube Connection", "type": "credential_picker", "required": true },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["upload_video", "get_video_stats", "list_comments", "reply_to_comment"], "default": "upload_video" },
+    { "key": "title", "label": "Title", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload_video"] } },
+    { "key": "description", "label": "Description", "type": "textarea", "required": false, "rows": 4, "depends_on": { "key": "operation", "values": ["upload_video"] } },
+    { "key": "tags", "label": "Tags", "type": "tag_list", "required": false, "depends_on": { "key": "operation", "values": ["upload_video"] } },
+    { "key": "category_id", "label": "Category ID", "type": "text", "required": false, "default": "22", "depends_on": { "key": "operation", "values": ["upload_video"] } },
+    { "key": "privacy_status", "label": "Privacy Status", "type": "select", "required": false, "options": ["public", "unlisted", "private"], "default": "public", "depends_on": { "key": "operation", "values": ["upload_video"] } },
+    { "key": "video_file_path", "label": "Video File Path", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["upload_video"] } },
+    { "key": "video_id", "label": "Video ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_video_stats", "list_comments"] } },
+    { "key": "comment_id", "label": "Comment ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["reply_to_comment"] } },
+    { "key": "text", "label": "Reply Text", "type": "textarea", "required": false, "rows": 3, "depends_on": { "key": "operation", "values": ["reply_to_comment"] } }
+  ]
+}

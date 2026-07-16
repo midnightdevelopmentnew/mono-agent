@@ -48,6 +48,8 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateTelegram(ctx, c)
 	case "google_sheets", "google_drive", "gmail":
 		return validateGoogle(ctx, c)
+	case "youtube":
+		return validateYouTube(ctx, c)
 	case "outlook":
 		if c.Method == MethodOAuth {
 			return validateOutlookOAuth(ctx, c)
@@ -682,6 +684,33 @@ func validateGoogle(ctx context.Context, c *Connection) (string, error) {
 		return r.User.DisplayName, nil
 	}
 	return "", nil
+}
+
+// validateYouTube validates a YouTube OAuth connection using the access_token field.
+func validateYouTube(ctx context.Context, c *Connection) (string, error) {
+	token := getStr(c.Data, "access_token")
+	body, status, err := doGET(ctx, "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", "Bearer "+token)
+	if err != nil {
+		return "", fmt.Errorf("validateYouTube: %w", err)
+	}
+	if status != 200 {
+		return "", fmt.Errorf("validateYouTube: unexpected status %d", status)
+	}
+
+	var resp struct {
+		Items []struct {
+			Snippet struct {
+				Title string `json:"title"`
+			} `json:"snippet"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("validateYouTube: parse response: %w", err)
+	}
+	if len(resp.Items) == 0 {
+		return "", fmt.Errorf("validateYouTube: no channel found for this account")
+	}
+	return resp.Items[0].Snippet.Title, nil
 }
 
 // validateOutlookOAuth validates an Outlook OAuth connection via Microsoft Graph.
