@@ -119,6 +119,20 @@ var Registry = map[string]PlatformDef{
 		},
 		IconEmoji: "🐘",
 	},
+	"bluesky": {
+		ID:         "bluesky",
+		Name:       "Bluesky",
+		Category:   "social",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "identifier", Label: "Handle or Email", Secret: false, Required: true},
+				{Key: "app_password", Label: "App Password", Secret: true, Required: true, HelpURL: "https://bsky.app/settings/app-passwords"},
+			},
+		},
+		IconEmoji: "🦋",
+	},
 	"gemini": {
 		ID:         "gemini",
 		Name:       "Gemini Crawler",

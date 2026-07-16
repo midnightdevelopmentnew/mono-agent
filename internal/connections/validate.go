@@ -1,6 +1,7 @@
 package connections
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -35,6 +36,8 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateSlack(ctx, c)
 	case "discord":
 		return validateDiscord(ctx, c)
+	case "bluesky":
+		return validateBluesky(ctx, c)
 	case "reddit":
 		return validateReddit(ctx, c)
 	case "mastodon":
@@ -408,6 +411,45 @@ func validateDiscord(ctx context.Context, c *Connection) (string, error) {
 		return "", fmt.Errorf("validateDiscord: parse response: %w", err)
 	}
 	return resp.Username, nil
+}
+
+// validateBluesky validates a Bluesky connection by creating a session
+// with the identifier/app_password fields — AT Protocol has no long-lived
+// token to independently verify, so a successful session creation IS the check.
+func validateBluesky(ctx context.Context, c *Connection) (string, error) {
+	identifier := getStr(c.Data, "identifier")
+	password := getStr(c.Data, "app_password")
+
+	body, err := json.Marshal(map[string]string{"identifier": identifier, "password": password})
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://bsky.social/xrpc/com.atproto.server.createSession", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: read body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("validateBluesky: unexpected status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Handle string `json:"handle"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("validateBluesky: parse response: %w", err)
+	}
+	return result.Handle, nil
 }
 
 // redditUserAgent is Reddit's required custom User-Agent format:
