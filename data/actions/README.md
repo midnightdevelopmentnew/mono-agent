@@ -23,8 +23,14 @@ actions/
 │   ├── PROFILE_SEARCH.json, PUBLISH_CONTENT.json
 ├── tiktok/
 │   └── (same action types as linkedin)
-└── x/
-    └── (same action types as linkedin)
+├── x/
+│   └── (same action types as linkedin)
+├── hackernews/
+│   ├── submit_post.json, reply_to_comment.json
+│   ├── list_comments.json, get_post_metrics.json
+├── producthunt/
+│   ├── comment_on_launch.json, list_comments.json
+│   └── get_launch_metrics.json
 ```
 
 File naming: `actions/<platform_lowercase>/<ACTION_TYPE_UPPERCASE>.json`

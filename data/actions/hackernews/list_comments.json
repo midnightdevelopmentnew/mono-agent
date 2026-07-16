@@ -1,0 +1,30 @@
+{
+  "actionType": "list_comments",
+  "platform": "HACKERNEWS",
+  "version": "1.0.0",
+  "description": "List the top-level comments on a Hacker News item",
+  "metadata": { "requiresAuth": false, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": [
+      { "name": "itemID", "type": "string", "description": "Item ID to read comments from" }
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["comments"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "list",
+      "type": "call_bot_method",
+      "methodName": "list_comments",
+      "args": ["{{itemID}}"],
+      "variable_name": "commentsResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

@@ -85,6 +85,72 @@ var Registry = map[string]PlatformDef{
 		Fields:     map[AuthMethod][]CredentialField{},
 		IconEmoji:  "🎵",
 	},
+	"reddit": {
+		ID:         "reddit",
+		Name:       "Reddit",
+		Category:   "social",
+		ConnectVia: "API",
+		// Register Reddit's OAuth app as "installed app" type (no client
+		// secret) — this fits the existing generic PKCE flow in oauth.go
+		// with no code changes; Reddit's "web app" type requires HTTP Basic
+		// auth on token exchange, which the generic flow doesn't do.
+		Methods: []AuthMethod{MethodOAuth},
+		Fields:  map[AuthMethod][]CredentialField{},
+		OAuth: &OAuthConfig{
+			AuthURL:      "https://www.reddit.com/api/v1/authorize",
+			TokenURL:     "https://www.reddit.com/api/v1/access_token",
+			Scopes:       []string{"submit", "read", "identity"},
+			CallbackPort: 9876,
+			ExtraParams:  map[string]string{"duration": "permanent"},
+		},
+		IconEmoji: "👽",
+	},
+	"mastodon": {
+		ID:         "mastodon",
+		Name:       "Mastodon",
+		Category:   "social",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "instance_url", Label: "Instance URL (e.g. https://fosstodon.org)", Secret: false, Required: true},
+				{Key: "access_token", Label: "Access Token", Secret: true, Required: true, HelpURL: "https://docs.joinmastodon.org/client/token/"},
+			},
+		},
+		IconEmoji: "🐘",
+	},
+	"bluesky": {
+		ID:         "bluesky",
+		Name:       "Bluesky",
+		Category:   "social",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "identifier", Label: "Handle or Email", Secret: false, Required: true},
+				{Key: "app_password", Label: "App Password", Secret: true, Required: true, HelpURL: "https://bsky.app/settings/app-passwords"},
+			},
+		},
+		IconEmoji: "🦋",
+	},
+	"hackernews": {
+		ID:         "hackernews",
+		Name:       "Hacker News",
+		Category:   "social",
+		ConnectVia: "UI",
+		Methods:    []AuthMethod{MethodBrowser},
+		Fields:     map[AuthMethod][]CredentialField{},
+		IconEmoji:  "🔶",
+	},
+	"producthunt": {
+		ID:         "producthunt",
+		Name:       "Product Hunt",
+		Category:   "social",
+		ConnectVia: "UI",
+		Methods:    []AuthMethod{MethodBrowser},
+		Fields:     map[AuthMethod][]CredentialField{},
+		IconEmoji:  "🐱",
+	},
 	"gemini": {
 		ID:         "gemini",
 		Name:       "Gemini Crawler",
@@ -388,6 +454,22 @@ var Registry = map[string]PlatformDef{
 			ExtraParams:  map[string]string{"access_type": "offline", "prompt": "consent"},
 		},
 		IconEmoji: "📁",
+	},
+	"youtube": {
+		ID:         "youtube",
+		Name:       "YouTube",
+		Category:   "service",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodOAuth},
+		Fields:     map[AuthMethod][]CredentialField{},
+		OAuth: &OAuthConfig{
+			AuthURL:      "https://accounts.google.com/o/oauth2/v2/auth",
+			TokenURL:     "https://oauth2.googleapis.com/token",
+			Scopes:       []string{"https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.force-ssl"},
+			CallbackPort: 9876,
+			ExtraParams:  map[string]string{"access_type": "offline", "prompt": "consent"},
+		},
+		IconEmoji: "📺",
 	},
 	"openrouter": {
 		ID:         "openrouter",

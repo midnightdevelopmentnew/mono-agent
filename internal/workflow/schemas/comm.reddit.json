@@ -1,0 +1,12 @@
+{
+  "credential_platform": "reddit",
+  "fields": [
+    { "key": "credential_id", "label": "Reddit Connection", "type": "credential_picker", "required": true },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["submit_post", "reply_to_comment", "list_comments", "get_post_metrics"], "default": "submit_post" },
+    { "key": "subreddit", "label": "Subreddit", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["submit_post"] } },
+    { "key": "title", "label": "Title", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["submit_post"] } },
+    { "key": "text", "label": "Body / Comment Text", "type": "textarea", "required": false, "rows": 4, "depends_on": { "key": "operation", "values": ["submit_post", "reply_to_comment"] } },
+    { "key": "url", "label": "Link URL (link post instead of self post)", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["submit_post"] } },
+    { "key": "thing_id", "label": "Post/Comment ID (e.g. t3_abc123 for a post, t1_xyz for a comment)", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["reply_to_comment", "list_comments", "get_post_metrics"] } }
+  ]
+}

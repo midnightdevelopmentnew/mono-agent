@@ -1,0 +1,11 @@
+{
+  "credential_platform": "mastodon",
+  "fields": [
+    { "key": "credential_id", "label": "Mastodon Connection", "type": "credential_picker", "required": true },
+    { "key": "operation", "label": "Operation", "type": "select", "required": true, "options": ["create_status", "get_status_metrics"], "default": "create_status" },
+    { "key": "text", "label": "Status Text", "type": "textarea", "required": false, "rows": 4, "depends_on": { "key": "operation", "values": ["create_status"] } },
+    { "key": "visibility", "label": "Visibility", "type": "select", "required": false, "options": ["public", "unlisted", "private", "direct"], "default": "public", "depends_on": { "key": "operation", "values": ["create_status"] } },
+    { "key": "in_reply_to_id", "label": "In Reply To (status ID)", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["create_status"] } },
+    { "key": "status_id", "label": "Status ID", "type": "text", "required": false, "depends_on": { "key": "operation", "values": ["get_status_metrics"] } }
+  ]
+}

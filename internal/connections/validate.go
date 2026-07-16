@@ -1,6 +1,7 @@
 package connections
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -35,12 +36,20 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateSlack(ctx, c)
 	case "discord":
 		return validateDiscord(ctx, c)
+	case "bluesky":
+		return validateBluesky(ctx, c)
+	case "reddit":
+		return validateReddit(ctx, c)
+	case "mastodon":
+		return validateMastodon(ctx, c)
 	case "twilio":
 		return validateTwilio(ctx, c)
 	case "telegram":
 		return validateTelegram(ctx, c)
 	case "google_sheets", "google_drive", "gmail":
 		return validateGoogle(ctx, c)
+	case "youtube":
+		return validateYouTube(ctx, c)
 	case "outlook":
 		if c.Method == MethodOAuth {
 			return validateOutlookOAuth(ctx, c)
@@ -406,6 +415,106 @@ func validateDiscord(ctx context.Context, c *Connection) (string, error) {
 	return resp.Username, nil
 }
 
+// validateBluesky validates a Bluesky connection by creating a session
+// with the identifier/app_password fields — AT Protocol has no long-lived
+// token to independently verify, so a successful session creation IS the check.
+func validateBluesky(ctx context.Context, c *Connection) (string, error) {
+	identifier := getStr(c.Data, "identifier")
+	password := getStr(c.Data, "app_password")
+
+	body, err := json.Marshal(map[string]string{"identifier": identifier, "password": password})
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://bsky.social/xrpc/com.atproto.server.createSession", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("validateBluesky: read body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("validateBluesky: unexpected status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Handle string `json:"handle"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("validateBluesky: parse response: %w", err)
+	}
+	return result.Handle, nil
+}
+
+// redditUserAgent is Reddit's required custom User-Agent format:
+// "platform:app_id:version (by /u/username)". Reddit aggressively
+// rate-limits requests using default/generic User-Agent strings.
+const redditUserAgent = "monoagent:workflow-node:1.0 (by /u/monoagent)"
+
+// validateReddit validates a Reddit OAuth connection using the access_token field.
+func validateReddit(ctx context.Context, c *Connection) (string, error) {
+	token := getStr(c.Data, "access_token")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://oauth.reddit.com/api/v1/me", nil)
+	if err != nil {
+		return "", fmt.Errorf("validateReddit: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", redditUserAgent)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("validateReddit: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("validateReddit: read body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("validateReddit: unexpected status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("validateReddit: parse response: %w", err)
+	}
+	return result.Name, nil
+}
+
+// validateMastodon validates a Mastodon connection using instance_url and access_token.
+func validateMastodon(ctx context.Context, c *Connection) (string, error) {
+	instanceURL := strings.TrimSuffix(getStr(c.Data, "instance_url"), "/")
+	token := getStr(c.Data, "access_token")
+	if instanceURL == "" {
+		return "", fmt.Errorf("validateMastodon: missing instance_url")
+	}
+	body, status, err := doGET(ctx, instanceURL+"/api/v1/accounts/verify_credentials", "Bearer "+token)
+	if err != nil {
+		return "", fmt.Errorf("validateMastodon: %w", err)
+	}
+	if status != 200 {
+		return "", fmt.Errorf("validateMastodon: unexpected status %d", status)
+	}
+
+	var resp struct {
+		Username string `json:"username"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("validateMastodon: parse response: %w", err)
+	}
+	return resp.Username, nil
+}
+
 // validateTwilio validates a Twilio connection using account_sid and auth_token fields.
 func validateTwilio(ctx context.Context, c *Connection) (string, error) {
 	accountSID := getStr(c.Data, "account_sid")
@@ -575,6 +684,33 @@ func validateGoogle(ctx context.Context, c *Connection) (string, error) {
 		return r.User.DisplayName, nil
 	}
 	return "", nil
+}
+
+// validateYouTube validates a YouTube OAuth connection using the access_token field.
+func validateYouTube(ctx context.Context, c *Connection) (string, error) {
+	token := getStr(c.Data, "access_token")
+	body, status, err := doGET(ctx, "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true", "Bearer "+token)
+	if err != nil {
+		return "", fmt.Errorf("validateYouTube: %w", err)
+	}
+	if status != 200 {
+		return "", fmt.Errorf("validateYouTube: unexpected status %d", status)
+	}
+
+	var resp struct {
+		Items []struct {
+			Snippet struct {
+				Title string `json:"title"`
+			} `json:"snippet"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("validateYouTube: parse response: %w", err)
+	}
+	if len(resp.Items) == 0 {
+		return "", fmt.Errorf("validateYouTube: no channel found for this account")
+	}
+	return resp.Items[0].Snippet.Title, nil
 }
 
 // validateOutlookOAuth validates an Outlook OAuth connection via Microsoft Graph.

@@ -11,6 +11,7 @@ func RegisterGroupB(r *workflow.NodeTypeRegistry) {
 	r.Register("service.gmail", func() workflow.NodeExecutor { return &GmailNode{} })
 	r.Register("service.outlook_mail", func() workflow.NodeExecutor { return &OutlookMailNode{} })
 	r.Register("service.google_drive", func() workflow.NodeExecutor { return &GoogleDriveNode{} })
+	r.Register("service.youtube", func() workflow.NodeExecutor { return &YouTubeNode{} })
 	r.Register("service.openrouter", func() workflow.NodeExecutor { return &OpenRouterNode{} })
 	r.Register("service.huggingface", func() workflow.NodeExecutor { return &HuggingFaceNode{} })
 }
