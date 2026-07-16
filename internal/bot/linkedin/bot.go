@@ -439,9 +439,9 @@ func (b *LinkedInBot) GetMethodByName(name string) (func(ctx context.Context, ar
 			if len(args) < 4 {
 				return nil, fmt.Errorf("list_user_posts requires (page, profileURL, maxCount, activityType)")
 			}
-			page, ok := args[0].(*rod.Page)
+			page, ok := args[0].(browser.PageInterface)
 			if !ok {
-				return nil, fmt.Errorf("list_user_posts: first arg must be *rod.Page")
+				return nil, fmt.Errorf("list_user_posts: first arg must be browser.PageInterface")
 			}
 			profileURL, _ := args[1].(string)
 			maxCount := 20
@@ -452,7 +452,7 @@ func (b *LinkedInBot) GetMethodByName(name string) (func(ctx context.Context, ar
 			if activityType == "" {
 				activityType = "all"
 			}
-			return b.ListUserPosts(ctx, browser.NewRodPage(page), profileURL, maxCount, activityType)
+			return b.ListUserPosts(ctx, page, profileURL, maxCount, activityType)
 		}, true
 
 	case "list_post_comments":
@@ -460,9 +460,9 @@ func (b *LinkedInBot) GetMethodByName(name string) (func(ctx context.Context, ar
 			if len(args) < 4 {
 				return nil, fmt.Errorf("list_post_comments requires (page, postURL, maxCount, includeReplies)")
 			}
-			page, ok := args[0].(*rod.Page)
+			page, ok := args[0].(browser.PageInterface)
 			if !ok {
-				return nil, fmt.Errorf("list_post_comments: first arg must be *rod.Page")
+				return nil, fmt.Errorf("list_post_comments: first arg must be browser.PageInterface")
 			}
 			postURL, _ := args[1].(string)
 			maxCount := 50
@@ -473,7 +473,7 @@ func (b *LinkedInBot) GetMethodByName(name string) (func(ctx context.Context, ar
 			if v, ok := args[3].(bool); ok {
 				includeReplies = v
 			}
-			return b.ListPostComments(ctx, browser.NewRodPage(page), postURL, maxCount, includeReplies)
+			return b.ListPostComments(ctx, page, postURL, maxCount, includeReplies)
 		}, true
 
 	case "like_post":
@@ -481,16 +481,16 @@ func (b *LinkedInBot) GetMethodByName(name string) (func(ctx context.Context, ar
 			if len(args) < 3 {
 				return nil, fmt.Errorf("like_post requires (page, postURL, reaction)")
 			}
-			page, ok := args[0].(*rod.Page)
+			page, ok := args[0].(browser.PageInterface)
 			if !ok {
-				return nil, fmt.Errorf("like_post: first arg must be *rod.Page")
+				return nil, fmt.Errorf("like_post: first arg must be browser.PageInterface")
 			}
 			postURL, _ := args[1].(string)
 			reaction, _ := args[2].(string)
 			if reaction == "" {
 				reaction = "like"
 			}
-			if err := b.LikePost(ctx, browser.NewRodPage(page), postURL, reaction); err != nil {
+			if err := b.LikePost(ctx, page, postURL, reaction); err != nil {
 				return nil, err
 			}
 			return map[string]interface{}{"success": true, "postURL": postURL, "reaction": reaction}, nil
@@ -501,14 +501,14 @@ func (b *LinkedInBot) GetMethodByName(name string) (func(ctx context.Context, ar
 			if len(args) < 4 {
 				return nil, fmt.Errorf("comment_on_post requires (page, postURL, commentText, parentCommentID)")
 			}
-			page, ok := args[0].(*rod.Page)
+			page, ok := args[0].(browser.PageInterface)
 			if !ok {
-				return nil, fmt.Errorf("comment_on_post: first arg must be *rod.Page")
+				return nil, fmt.Errorf("comment_on_post: first arg must be browser.PageInterface")
 			}
 			postURL, _ := args[1].(string)
 			commentText, _ := args[2].(string)
 			parentCommentID, _ := args[3].(string)
-			if err := b.CommentOnPost(ctx, browser.NewRodPage(page), postURL, commentText, parentCommentID); err != nil {
+			if err := b.CommentOnPost(ctx, page, postURL, commentText, parentCommentID); err != nil {
 				return nil, err
 			}
 			return map[string]interface{}{"success": true, "postURL": postURL}, nil
@@ -519,13 +519,13 @@ func (b *LinkedInBot) GetMethodByName(name string) (func(ctx context.Context, ar
 			if len(args) < 3 {
 				return nil, fmt.Errorf("like_comment requires (page, postURL, commentID)")
 			}
-			page, ok := args[0].(*rod.Page)
+			page, ok := args[0].(browser.PageInterface)
 			if !ok {
-				return nil, fmt.Errorf("like_comment: first arg must be *rod.Page")
+				return nil, fmt.Errorf("like_comment: first arg must be browser.PageInterface")
 			}
 			postURL, _ := args[1].(string)
 			commentID, _ := args[2].(string)
-			if err := b.LikeComment(ctx, browser.NewRodPage(page), postURL, commentID); err != nil {
+			if err := b.LikeComment(ctx, page, postURL, commentID); err != nil {
 				return nil, err
 			}
 			return map[string]interface{}{"success": true, "postURL": postURL, "commentID": commentID}, nil
