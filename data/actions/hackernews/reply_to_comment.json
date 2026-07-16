@@ -1,0 +1,31 @@
+{
+  "actionType": "reply_to_comment",
+  "platform": "HACKERNEWS",
+  "version": "1.0.0",
+  "description": "Reply to a Hacker News item or comment thread",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": [
+      { "name": "itemID", "type": "string", "description": "Item or comment ID to reply to" },
+      { "name": "text", "type": "string", "description": "Reply text" }
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["success", "itemID"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "reply",
+      "type": "call_bot_method",
+      "methodName": "reply_to_comment",
+      "args": ["{{itemID}}", "{{text}}"],
+      "variable_name": "replyResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 1, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

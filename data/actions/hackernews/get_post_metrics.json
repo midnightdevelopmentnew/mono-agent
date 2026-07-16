@@ -1,0 +1,30 @@
+{
+  "actionType": "get_post_metrics",
+  "platform": "HACKERNEWS",
+  "version": "1.0.0",
+  "description": "Read the point score and comment count of a Hacker News item",
+  "metadata": { "requiresAuth": false, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": [
+      { "name": "itemID", "type": "string", "description": "Item ID to read metrics for" }
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["points", "comments"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "metrics",
+      "type": "call_bot_method",
+      "methodName": "get_post_metrics",
+      "args": ["{{itemID}}"],
+      "variable_name": "metricsResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

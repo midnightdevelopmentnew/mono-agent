@@ -133,6 +133,15 @@ var Registry = map[string]PlatformDef{
 		},
 		IconEmoji: "🦋",
 	},
+	"hackernews": {
+		ID:         "hackernews",
+		Name:       "Hacker News",
+		Category:   "social",
+		ConnectVia: "UI",
+		Methods:    []AuthMethod{MethodBrowser},
+		Fields:     map[AuthMethod][]CredentialField{},
+		IconEmoji:  "🔶",
+	},
 	"gemini": {
 		ID:         "gemini",
 		Name:       "Gemini Crawler",

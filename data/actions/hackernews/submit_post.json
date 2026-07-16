@@ -1,0 +1,33 @@
+{
+  "actionType": "submit_post",
+  "platform": "HACKERNEWS",
+  "version": "1.0.0",
+  "description": "Submit a new post (link or text/Show HN) to Hacker News",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": [
+      { "name": "title", "type": "string", "description": "Post title" }
+    ],
+    "optional": [
+      { "name": "url", "type": "string", "description": "Link URL (mutually exclusive with text)" },
+      { "name": "text", "type": "string", "description": "Self-post body (Show HN style)" }
+    ]
+  },
+  "outputs": {
+    "success": ["id", "title", "url"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "submit",
+      "type": "call_bot_method",
+      "methodName": "submit_post",
+      "args": ["{{title}}", "{{url}}", "{{text}}"],
+      "variable_name": "submitResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 1, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

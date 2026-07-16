@@ -54,7 +54,8 @@ var reLinkedInActivity = regexp.MustCompile(`activity[-:](\d+)`)
 func isBrowserNodeType(t string) bool {
 	return strings.HasPrefix(t, "instagram.") || strings.HasPrefix(t, "linkedin.") ||
 		strings.HasPrefix(t, "x.") || strings.HasPrefix(t, "tiktok.") ||
-		strings.HasPrefix(t, "gemini.")
+		strings.HasPrefix(t, "gemini.") || strings.HasPrefix(t, "hackernews.") ||
+		strings.HasPrefix(t, "producthunt.")
 }
 
 // nodeTypeToPlatform maps a node type to its connections-registry platform ID.
@@ -177,11 +178,13 @@ func (sp *cliSessionProvider) GetPage(ctx context.Context, platform string, user
 	// Navigate to the platform domain first, then restore cookies, then reload.
 	// This ensures cookies are set on the correct domain context.
 	platformDomains := map[string]string{
-		"gemini":    "https://gemini.google.com/app",
-		"instagram": "https://www.instagram.com",
-		"linkedin":  "https://www.linkedin.com",
-		"x":         "https://x.com",
-		"tiktok":    "https://www.tiktok.com",
+		"gemini":      "https://gemini.google.com/app",
+		"instagram":   "https://www.instagram.com",
+		"linkedin":    "https://www.linkedin.com",
+		"x":           "https://x.com",
+		"tiktok":      "https://www.tiktok.com",
+		"hackernews":  "https://news.ycombinator.com",
+		"producthunt": "https://www.producthunt.com",
 	}
 	startURL := "about:blank"
 	if domain, ok := platformDomains[strings.ToLower(platform)]; ok {
@@ -912,7 +915,7 @@ func nodeCategory(t string) string {
 		return "communication"
 	case strings.HasPrefix(t, "ai."):
 		return "ai"
-	case strings.HasPrefix(t, "instagram."), strings.HasPrefix(t, "linkedin."), strings.HasPrefix(t, "x."), strings.HasPrefix(t, "tiktok."):
+	case strings.HasPrefix(t, "instagram."), strings.HasPrefix(t, "linkedin."), strings.HasPrefix(t, "x."), strings.HasPrefix(t, "tiktok."), strings.HasPrefix(t, "hackernews."), strings.HasPrefix(t, "producthunt."):
 		return "browser/social"
 	case strings.HasPrefix(t, "people."):
 		return "people"
