@@ -37,6 +37,8 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateDiscord(ctx, c)
 	case "reddit":
 		return validateReddit(ctx, c)
+	case "mastodon":
+		return validateMastodon(ctx, c)
 	case "twilio":
 		return validateTwilio(ctx, c)
 	case "telegram":
@@ -443,6 +445,30 @@ func validateReddit(ctx context.Context, c *Connection) (string, error) {
 		return "", fmt.Errorf("validateReddit: parse response: %w", err)
 	}
 	return result.Name, nil
+}
+
+// validateMastodon validates a Mastodon connection using instance_url and access_token.
+func validateMastodon(ctx context.Context, c *Connection) (string, error) {
+	instanceURL := strings.TrimSuffix(getStr(c.Data, "instance_url"), "/")
+	token := getStr(c.Data, "access_token")
+	if instanceURL == "" {
+		return "", fmt.Errorf("validateMastodon: missing instance_url")
+	}
+	body, status, err := doGET(ctx, instanceURL+"/api/v1/accounts/verify_credentials", "Bearer "+token)
+	if err != nil {
+		return "", fmt.Errorf("validateMastodon: %w", err)
+	}
+	if status != 200 {
+		return "", fmt.Errorf("validateMastodon: unexpected status %d", status)
+	}
+
+	var resp struct {
+		Username string `json:"username"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("validateMastodon: parse response: %w", err)
+	}
+	return resp.Username, nil
 }
 
 // validateTwilio validates a Twilio connection using account_sid and auth_token fields.

@@ -105,6 +105,20 @@ var Registry = map[string]PlatformDef{
 		},
 		IconEmoji: "👽",
 	},
+	"mastodon": {
+		ID:         "mastodon",
+		Name:       "Mastodon",
+		Category:   "social",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "instance_url", Label: "Instance URL (e.g. https://fosstodon.org)", Secret: false, Required: true},
+				{Key: "access_token", Label: "Access Token", Secret: true, Required: true, HelpURL: "https://docs.joinmastodon.org/client/token/"},
+			},
+		},
+		IconEmoji: "🐘",
+	},
 	"gemini": {
 		ID:         "gemini",
 		Name:       "Gemini Crawler",
