@@ -230,14 +230,6 @@ func redditParseInfoResponse(raw []byte) (map[string]interface{}, error) {
 	}, nil
 }
 
-// redditCommentNode mirrors the subset of Reddit's comment JSON this node exposes.
-type redditCommentNode struct {
-	ID     string `json:"id"`
-	Author string `json:"author"`
-	Body   string `json:"body"`
-	Score  int    `json:"score"`
-}
-
 // redditListComments fetches a post's comment tree and flattens the
 // top-level comments into workflow items.
 func redditListComments(ctx context.Context, endpoint, accessToken string) ([]workflow.Item, error) {
