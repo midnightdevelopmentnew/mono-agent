@@ -1,0 +1,30 @@
+{
+  "actionType": "get_launch_metrics",
+  "platform": "PRODUCTHUNT",
+  "version": "1.0.0",
+  "description": "Read the upvote and comment count of a Product Hunt launch page",
+  "metadata": { "requiresAuth": false, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": [
+      { "name": "launchURL", "type": "string", "description": "Product Hunt launch page URL" }
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["upvotes", "comments"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "metrics",
+      "type": "call_bot_method",
+      "methodName": "get_launch_metrics",
+      "args": ["{{launchURL}}"],
+      "variable_name": "metricsResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

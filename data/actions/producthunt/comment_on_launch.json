@@ -1,0 +1,31 @@
+{
+  "actionType": "comment_on_launch",
+  "platform": "PRODUCTHUNT",
+  "version": "1.0.0",
+  "description": "Post a comment on a Product Hunt launch page",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": [
+      { "name": "launchURL", "type": "string", "description": "Product Hunt launch page URL" },
+      { "name": "text", "type": "string", "description": "Comment text" }
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["success", "launchURL"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "comment",
+      "type": "call_bot_method",
+      "methodName": "comment_on_launch",
+      "args": ["{{launchURL}}", "{{text}}"],
+      "variable_name": "commentResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 1, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

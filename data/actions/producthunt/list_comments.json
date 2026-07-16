@@ -1,0 +1,30 @@
+{
+  "actionType": "list_comments",
+  "platform": "PRODUCTHUNT",
+  "version": "1.0.0",
+  "description": "List the visible comments on a Product Hunt launch page",
+  "metadata": { "requiresAuth": false, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": [
+      { "name": "launchURL", "type": "string", "description": "Product Hunt launch page URL" }
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["comments"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "list",
+      "type": "call_bot_method",
+      "methodName": "list_comments",
+      "args": ["{{launchURL}}"],
+      "variable_name": "commentsResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}
