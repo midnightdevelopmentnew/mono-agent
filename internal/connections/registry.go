@@ -85,6 +85,26 @@ var Registry = map[string]PlatformDef{
 		Fields:     map[AuthMethod][]CredentialField{},
 		IconEmoji:  "🎵",
 	},
+	"reddit": {
+		ID:         "reddit",
+		Name:       "Reddit",
+		Category:   "social",
+		ConnectVia: "API",
+		// Register Reddit's OAuth app as "installed app" type (no client
+		// secret) — this fits the existing generic PKCE flow in oauth.go
+		// with no code changes; Reddit's "web app" type requires HTTP Basic
+		// auth on token exchange, which the generic flow doesn't do.
+		Methods: []AuthMethod{MethodOAuth},
+		Fields:  map[AuthMethod][]CredentialField{},
+		OAuth: &OAuthConfig{
+			AuthURL:      "https://www.reddit.com/api/v1/authorize",
+			TokenURL:     "https://www.reddit.com/api/v1/access_token",
+			Scopes:       []string{"submit", "read", "identity"},
+			CallbackPort: 9876,
+			ExtraParams:  map[string]string{"duration": "permanent"},
+		},
+		IconEmoji: "👽",
+	},
 	"gemini": {
 		ID:         "gemini",
 		Name:       "Gemini Crawler",

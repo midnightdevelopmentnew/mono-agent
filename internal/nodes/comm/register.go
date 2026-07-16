@@ -11,6 +11,7 @@ func RegisterAll(r *workflow.NodeTypeRegistry) {
 	r.Register("comm.slack", func() workflow.NodeExecutor { return &SlackNode{} })
 	r.Register("comm.telegram", func() workflow.NodeExecutor { return &TelegramNode{} })
 	r.Register("comm.discord", func() workflow.NodeExecutor { return &DiscordNode{} })
+	r.Register("comm.reddit", func() workflow.NodeExecutor { return &RedditNode{} })
 	r.Register("comm.twilio", func() workflow.NodeExecutor { return &TwilioNode{} })
 	r.Register("comm.whatsapp", func() workflow.NodeExecutor { return &WhatsAppNode{} })
 }

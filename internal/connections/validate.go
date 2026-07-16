@@ -35,6 +35,8 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateSlack(ctx, c)
 	case "discord":
 		return validateDiscord(ctx, c)
+	case "reddit":
+		return validateReddit(ctx, c)
 	case "twilio":
 		return validateTwilio(ctx, c)
 	case "telegram":
@@ -404,6 +406,43 @@ func validateDiscord(ctx context.Context, c *Connection) (string, error) {
 		return "", fmt.Errorf("validateDiscord: parse response: %w", err)
 	}
 	return resp.Username, nil
+}
+
+// redditUserAgent is Reddit's required custom User-Agent format:
+// "platform:app_id:version (by /u/username)". Reddit aggressively
+// rate-limits requests using default/generic User-Agent strings.
+const redditUserAgent = "monoagent:workflow-node:1.0 (by /u/monoagent)"
+
+// validateReddit validates a Reddit OAuth connection using the access_token field.
+func validateReddit(ctx context.Context, c *Connection) (string, error) {
+	token := getStr(c.Data, "access_token")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://oauth.reddit.com/api/v1/me", nil)
+	if err != nil {
+		return "", fmt.Errorf("validateReddit: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", redditUserAgent)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("validateReddit: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("validateReddit: read body: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("validateReddit: unexpected status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("validateReddit: parse response: %w", err)
+	}
+	return result.Name, nil
 }
 
 // validateTwilio validates a Twilio connection using account_sid and auth_token fields.
