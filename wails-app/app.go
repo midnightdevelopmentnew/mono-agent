@@ -3041,10 +3041,17 @@ func (a *App) ConnectPlatformOAuth(platformID string) string {
 	return "started"
 }
 
-// LoginSocial spawns `monoagentcli login <platform>` as a subprocess.
-// The CLI handles the browser, cookie capture, and session storage.
-// Progress events are streamed to the UI via stdout scanning.
-// Returns "started" immediately or "error: ..." if the binary is not found.
+// LoginSocial spawns `monoagentcli login <platform>` as a subprocess, which
+// only opens a plain, non-automated browser window at the login page and
+// returns immediately — it never touches the browser via CDP again. Log in
+// happens entirely by hand; the UI should then call ConfirmSocialLogin once
+// the user says they're done, which is the only step that connects and
+// captures the session. Splitting these apart (rather than one call that
+// auto-polls until login completes) is what lets bot-verification
+// challenges (Google sign-in, Cloudflare, etc.) succeed — continuous CDP
+// activity during the challenge is itself a signal those systems detect.
+// Emits "conn:opened" (browser is up, waiting for the user) or "conn:done"
+// with success:false on failure to launch.
 func (a *App) LoginSocial(platform string) string {
 	pid := strings.ToLower(platform)
 	cliBin, err := findMonoAgentCLI()
@@ -3062,7 +3069,6 @@ func (a *App) LoginSocial(platform string) string {
 
 	go func() {
 		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.activeProfileID, "login", pid)
-		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
 
 		if startErr := cmd.Start(); startErr != nil {
@@ -3070,7 +3076,53 @@ func (a *App) LoginSocial(platform string) string {
 			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": startErr.Error()})
 			return
 		}
-		emit("Browser opened — please log in in the window that appeared", "info")
+
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			emit(scanner.Text(), "info")
+		}
+
+		if waitErr := cmd.Wait(); waitErr != nil {
+			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": waitErr.Error()})
+			return
+		}
+		runtime.EventsEmit(a.ctx, "conn:opened", map[string]interface{}{"platform": pid})
+	}()
+
+	return "started"
+}
+
+// ConfirmSocialLogin spawns `monoagentcli login confirm <platform>`, the
+// one step that connects to the browser LoginSocial opened, checks you're
+// actually logged in, and captures the session. Call this after the user
+// has finished logging in (and any bot-verification challenge) by hand.
+// Progress/result are streamed via the same "conn:progress"/"conn:done"
+// events LoginSocial uses.
+func (a *App) ConfirmSocialLogin(platform string) string {
+	pid := strings.ToLower(platform)
+	cliBin, err := findMonoAgentCLI()
+	if err != nil {
+		return fmt.Sprintf("error: %v", err)
+	}
+
+	emit := func(msg, kind string) {
+		runtime.EventsEmit(a.ctx, "conn:progress", map[string]interface{}{
+			"platform": pid,
+			"message":  msg,
+			"kind":     kind,
+		})
+	}
+
+	go func() {
+		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.activeProfileID, "login", "confirm", pid)
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+
+		if startErr := cmd.Start(); startErr != nil {
+			emit(fmt.Sprintf("Failed to start: %v", startErr), "error")
+			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": startErr.Error()})
+			return
+		}
 
 		go func() {
 			scanner := bufio.NewScanner(stderr)
@@ -3083,8 +3135,6 @@ func (a *App) LoginSocial(platform string) string {
 		var username string
 		for scanner.Scan() {
 			line := scanner.Text()
-			emit(line, "info")
-			// CLI prints "username: <name>" on success.
 			if strings.HasPrefix(line, "username: ") {
 				username = strings.TrimPrefix(line, "username: ")
 			}

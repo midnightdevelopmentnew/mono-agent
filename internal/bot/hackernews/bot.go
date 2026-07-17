@@ -21,7 +21,12 @@ func init() {
 
 func (b *HackerNewsBot) Platform() string { return "HACKERNEWS" }
 
-func (b *HackerNewsBot) LoginURL() string { return "https://news.ycombinator.com/login" }
+// LoginURL points at the front page rather than /login: when already
+// authenticated, Hacker News's /login page renders a bare "you're logged in
+// as X" message with no site nav (so #me never appears and IsLoggedIn can
+// never detect an existing session there). The front page always renders
+// the nav bar, showing #me when logged in and a "login" link otherwise.
+func (b *HackerNewsBot) LoginURL() string { return "https://news.ycombinator.com/" }
 
 // IsLoggedIn checks for the logged-in username link in the top nav bar
 // (id="me"), which Hacker News only renders for authenticated sessions.

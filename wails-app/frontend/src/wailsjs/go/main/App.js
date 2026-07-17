@@ -54,6 +54,10 @@ export function ComposePersonMessage(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['ComposePersonMessage'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function ConfirmSocialLogin(arg1) {
+  return window['go']['main']['App']['ConfirmSocialLogin'](arg1);
+}
+
 export function ConnectPlatformOAuth(arg1) {
   return window['go']['main']['App']['ConnectPlatformOAuth'](arg1);
 }

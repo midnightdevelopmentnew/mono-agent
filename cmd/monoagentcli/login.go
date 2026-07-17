@@ -1,26 +1,26 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
-	"monoagent/internal/bot"
-	browserpkg "monoagent/internal/browser"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
+	"monoagent/internal/bot"
+	"monoagent/internal/chromecookies"
+	"monoagent/internal/storage"
 
 	// Import platform bots to trigger init() registration.
 	_ "monoagent/internal/bot/email"
+	_ "monoagent/internal/bot/hackernews"
 	_ "monoagent/internal/bot/instagram"
 	_ "monoagent/internal/bot/linkedin"
+	_ "monoagent/internal/bot/producthunt"
 	_ "monoagent/internal/bot/telegram"
 	_ "monoagent/internal/bot/tiktok"
 	_ "monoagent/internal/bot/x"
@@ -43,16 +43,56 @@ func findSystemChrome() string {
 	return ""
 }
 
-func newLoginCmd(cfg *globalConfig) *cobra.Command {
-	var timeout time.Duration
+// loginProfileDir returns the Chrome user-data-dir for a given app-profile +
+// platform pair. Scoped per-platform (not just per-profile) because Chrome
+// enforces a single running instance per user-data-dir — sharing one dir
+// across platforms meant opening a second platform's login while the first
+// was still open silently handed off to the already-running instance.
+func loginProfileDir(profileID, platform string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".monoagent", "chrome-profile-"+profileID+"-"+strings.ToLower(platform)), nil
+}
 
+// saveSession upserts a crawler_sessions row scoped to the active profile.
+// UPDATE-then-INSERT (rather than INSERT OR REPLACE) because REPLACE keys
+// only on UNIQUE(username, platform, profile_id) — a plain REPLACE would
+// still be scoped correctly here, but going through UPDATE first avoids
+// resetting the auto-increment id/when_added on every re-login.
+func saveSession(db *storage.Database, profileID, platform, username string, cookiesJSON []byte) error {
+	expiry := time.Now().Add(30 * 24 * time.Hour) // 30 days
+	res, err := db.DB.Exec(
+		`UPDATE crawler_sessions SET cookies_json = ?, expiry = ?
+		 WHERE username = ? AND platform = ? AND COALESCE(profile_id,'default') = ?`,
+		string(cookiesJSON), expiry, username, platform, profileID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		_, err = db.DB.Exec(
+			`INSERT INTO crawler_sessions (username, platform, cookies_json, expiry, profile_id)
+			 VALUES (?, ?, ?, ?, ?)`,
+			username, platform, string(cookiesJSON), expiry, profileID,
+		)
+	}
+	return err
+}
+
+func newLoginCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login <platform>",
-		Short: "Login to a social platform via browser",
-		Long:  "Opens a browser window for the specified platform and waits for you to log in manually. Cookies are saved to the database upon successful login.",
+		Short: "Open a browser window to log in to a social platform",
+		Long: "Opens a genuinely plain browser window at the platform's login page — no --remote-debugging-port, " +
+			"no CDP, nothing at all distinguishing it from a browser you launched yourself — and returns immediately. " +
+			"Log in by hand (any method, including Google/SSO buttons and bot-verification challenges), then run " +
+			"`login confirm <platform>` to capture the session by reading it directly from the browser's own cookie " +
+			"store on disk.",
 		Example: `  monoagentcli login instagram
-  monoagentcli login linkedin --timeout 5m
-  monoagentcli login x --headless=false`,
+  monoagentcli login producthunt
+  monoagentcli login confirm producthunt`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			platform := strings.ToUpper(args[0])
@@ -68,125 +108,125 @@ func newLoginCmd(cfg *globalConfig) *cobra.Command {
 
 			adapter := factory()
 
+			// initDB's return value isn't needed here, but calling it is what
+			// resolves cfg.ProfileID from whatever --profile was given (a
+			// name or an ID) to the canonical ID — the same resolution
+			// `login confirm` relies on via its own initDB call. Skipping
+			// this would leave cfg.ProfileID as the raw --profile string, so
+			// the two steps would compute different chrome-profile-* dirs
+			// and never find each other's data.
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			db.Close()
+
+			chromePath := findSystemChrome()
+			if chromePath == "" {
+				return fmt.Errorf("no supported browser found (Chrome, Chromium, Brave, or Edge)")
+			}
+			userDataDir, err := loginProfileDir(cfg.ProfileID, platform)
+			if err != nil {
+				return fmt.Errorf("resolving profile directory: %w", err)
+			}
+			if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+				return fmt.Errorf("creating profile directory: %w", err)
+			}
+
+			// A raw process launch — no go-rod, no launcher, no
+			// --remote-debugging-port at all. This is deliberate: sites like
+			// Google's sign-in flow appear to detect the mere presence of a
+			// remote debugging port, regardless of launch flags or whether
+			// anything is actively connected to it. --no-first-run just
+			// skips the onboarding dialog and carries no automation signal.
+			// The session is captured afterward by `login confirm`, which
+			// reads this profile's own Cookies database directly off disk
+			// instead of via CDP.
+			cmdChrome := exec.Command(chromePath, "--no-first-run", "--user-data-dir="+userDataDir, adapter.LoginURL())
+			if err := cmdChrome.Start(); err != nil {
+				return fmt.Errorf("launching browser: %w", err)
+			}
+
+			fmt.Fprintf(os.Stderr, "Browser opened — please log in to %s manually in the window that appeared.\n", platform)
+			fmt.Fprintf(os.Stderr, "Once logged in, run: monoagentcli login confirm %s\n", strings.ToLower(platform))
+			return nil
+		},
+	}
+
+	// Subcommand: login confirm <platform>
+	cmd.AddCommand(newLoginConfirmCmd(cfg))
+
+	// Subcommand: login status
+	cmd.AddCommand(newLoginStatusCmd(cfg))
+
+	return cmd
+}
+
+func newLoginConfirmCmd(cfg *globalConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "confirm <platform>",
+		Short: "Capture the session after you've logged in via `login <platform>`",
+		Long: "Reads and decrypts the cookies saved for that platform directly from the browser's own cookie " +
+			"database on disk (via the macOS Keychain — you may be prompted to approve access the first time), " +
+			"rather than connecting to the browser at all. Run this only after you've actually finished logging in " +
+			"(and any bot-verification challenge) by hand.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			platformArg := args[0]
+			platform := strings.ToUpper(platformArg)
+
+			factory, ok := bot.PlatformRegistry[platform]
+			if !ok {
+				return fmt.Errorf("unsupported platform %q", platformArg)
+			}
+			adapter := factory()
+
+			// initDB must run first: it's what resolves cfg.ProfileID from
+			// the raw --profile value to the canonical ID `login <platform>`
+			// used to pick this same profile directory.
 			db, err := initDB(cfg)
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
 
-			// Launch browser using the user's own Chrome to avoid bot detection.
-			// UserMode connects to the system Chrome with the user's real profile,
-			// making it indistinguishable from a normal browsing session. The
-			// user-data-dir is scoped per app-profile so a login under one
-			// --profile can't be picked up as an already-authenticated session
-			// under another --profile.
 			chromePath := findSystemChrome()
-			home, _ := os.UserHomeDir()
-			userDataDir := filepath.Join(home, ".monoagent", "chrome-profile-"+cfg.ProfileID)
-			u, err := launcher.New().
-				Leakless(false).
-				Bin(chromePath).
-				UserDataDir(userDataDir).
-				Set("disable-blink-features", "AutomationControlled").
-				Set("excludeSwitches", "enable-automation").
-				Headless(false).
-				Launch()
+			if chromePath == "" {
+				return fmt.Errorf("no supported browser found (Chrome, Chromium, Brave, or Edge)")
+			}
+			userDataDir, err := loginProfileDir(cfg.ProfileID, platform)
 			if err != nil {
-				// Fallback to standalone Chromium if user Chrome is not available.
-				fmt.Fprintf(os.Stderr, "  Could not launch system Chrome (%v), falling back to built-in Chromium...\n", err)
-				u, err = launcher.New().
-					Headless(cfg.Headless).
-					Set("disable-blink-features", "AutomationControlled").
-					Launch()
-				if err != nil {
-					return fmt.Errorf("launching browser: %w", err)
-				}
+				return fmt.Errorf("resolving profile directory: %w", err)
 			}
 
-			browser := rod.New().ControlURL(u)
-			if err := browser.Connect(); err != nil {
-				return fmt.Errorf("connecting to browser: %w", err)
-			}
-			defer browser.Close()
-
-			page, err := browser.Page(proto.TargetCreateTarget{URL: adapter.LoginURL()})
+			domain, err := chromecookies.DomainFromLoginURL(adapter.LoginURL())
 			if err != nil {
-				return fmt.Errorf("navigating to login page: %w", err)
+				return fmt.Errorf("determining cookie domain: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "Please log in to %s manually in the browser window...\n", platform)
-			fmt.Fprintf(os.Stderr, "Waiting for login (timeout: %s)...\n", timeout)
-
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-			defer cancel()
-
-			ticker := time.NewTicker(2 * time.Second)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ctx.Done():
-					return fmt.Errorf("login timed out after %s", timeout)
-				case <-ticker.C:
-					loggedIn, checkErr := adapter.IsLoggedIn(browserpkg.NewRodPage(page))
-					if checkErr != nil {
-						continue
-					}
-					if loggedIn {
-						// Extract cookies and save to database.
-						cookies, cookieErr := page.Cookies(nil)
-						if cookieErr != nil {
-							return fmt.Errorf("extracting cookies: %w", cookieErr)
-						}
-
-						cookiesJSON, marshalErr := json.Marshal(cookies)
-						if marshalErr != nil {
-							return fmt.Errorf("marshalling cookies: %w", marshalErr)
-						}
-
-						username := adapter.ExtractUsername(page.MustInfo().URL)
-						if username == "" {
-							username = "unknown"
-						}
-
-						expiry := time.Now().Add(30 * 24 * time.Hour) // 30 days
-						// Upsert scoped to the active profile. INSERT OR REPLACE would key
-						// only on UNIQUE(username, platform) and silently delete another
-						// profile's saved session for the same account, so update our own
-						// row if present and otherwise insert.
-						plat := strings.ToLower(platform)
-						res, dbErr := db.DB.Exec(
-							`UPDATE crawler_sessions SET cookies_json = ?, expiry = ?
-							 WHERE username = ? AND platform = ? AND COALESCE(profile_id,'default') = ?`,
-							string(cookiesJSON), expiry, username, plat, cfg.ProfileID,
-						)
-						if dbErr != nil {
-							return fmt.Errorf("saving session: %w", dbErr)
-						}
-						if n, _ := res.RowsAffected(); n == 0 {
-							if _, dbErr := db.DB.Exec(
-								`INSERT INTO crawler_sessions (username, platform, cookies_json, expiry, profile_id)
-								 VALUES (?, ?, ?, ?, ?)`,
-								username, plat, string(cookiesJSON), expiry, cfg.ProfileID,
-							); dbErr != nil {
-								return fmt.Errorf("saving session: %w", dbErr)
-							}
-						}
-
-						fmt.Fprintf(os.Stderr, "Login successful for %s (user: %s). Session saved.\n", platform, username)
-						return nil
-					}
-				}
+			cookies, err := chromecookies.ReadCookies(chromePath, userDataDir, domain)
+			if err != nil {
+				return err
 			}
+			cookiesJSON, err := json.Marshal(cookies)
+			if err != nil {
+				return fmt.Errorf("marshalling cookies: %w", err)
+			}
+
+			// Without DOM access there's no reliable way to read the actual
+			// username here — "unknown" matches the existing fallback these
+			// bots already use when ExtractUsername can't determine one.
+			username := "unknown"
+
+			if err := saveSession(db, cfg.ProfileID, strings.ToLower(platform), username, cookiesJSON); err != nil {
+				return fmt.Errorf("saving session: %w", err)
+			}
+
+			fmt.Fprintf(os.Stderr, "Captured %d cookie(s) for %s (user: %s). Session saved.\n", len(cookies), platform, username)
+			fmt.Printf("username: %s\n", username)
+			return nil
 		},
 	}
-
-	cmd.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "Maximum time to wait for login")
-
-	// Subcommand: login status
-	cmd.AddCommand(newLoginStatusCmd(cfg))
-
-	return cmd
 }
 
 func newLoginStatusCmd(cfg *globalConfig) *cobra.Command {

@@ -32,6 +32,8 @@ export function ClearLogs():Promise<void>;
 
 export function ComposePersonMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<storage.PersonMessage>;
 
+export function ConfirmSocialLogin(arg1:string):Promise<string>;
+
 export function ConnectPlatformOAuth(arg1:string):Promise<string>;
 
 export function CreateAction(arg1:main.CreateActionRequest):Promise<main.ActionInfo>;

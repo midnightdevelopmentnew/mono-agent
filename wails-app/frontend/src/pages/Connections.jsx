@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Copy, RefreshCw, X, CheckCircle, Loader, Trash2, Link2, HelpCircle, ArrowLeft, ExternalLink } from 'lucide-react'
-import { api, onConnectionProgress, onConnectionDone } from '../services/api.js'
+import { api, onConnectionProgress, onConnectionDone, onConnectionOpened } from '../services/api.js'
 import { HELP_GUIDES } from '../lib/helpGuides.js'
 
 const PLATFORM_URLS = {
@@ -11,7 +11,7 @@ const PLATFORM_URLS = {
   gemini:    'https://gemini.google.com',
 }
 
-const SOCIAL_IDS = new Set(['instagram', 'linkedin', 'x', 'tiktok', 'gemini'])
+const SOCIAL_IDS = new Set(['instagram', 'linkedin', 'x', 'tiktok', 'gemini', 'hackernews', 'producthunt'])
 const CATEGORY_ORDER = ['social', 'service', 'communication', 'database']
 const CATEGORY_LABELS = { social: 'Social', service: 'Services & APIs', communication: 'Communication', database: 'Databases' }
 
@@ -154,6 +154,7 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
   const [fields, setFields]     = useState({})
   const [flowRunning, setFlowRunning] = useState(false)
   const [flowSteps, setFlowSteps]     = useState([])
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false)
   const stepsEndRef = useRef(null)
 
   const [showHelp, setShowHelp] = useState(false)
@@ -195,14 +196,23 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
       if (!data || data.platform !== pid) return
       if (data.success) {
         setFlowRunning(false)
+        setAwaitingConfirm(false)
         await onRefresh()
         setTimeout(onClose, 1500)
       } else {
         setFlowSteps(prev => [...prev, { message: data.error || 'Flow failed', kind: 'error' }])
         setFlowRunning(false)
+        // Keep awaitingConfirm as-is: a failed confirm (e.g. "not logged in
+        // yet") should let the user try the confirm button again rather
+        // than falling back to the initial "Connect" button.
       }
     })
-    return () => { offProgress(); offDone() }
+    const offOpened = onConnectionOpened((data) => {
+      if (!data || data.platform !== pid) return
+      setFlowRunning(false)
+      setAwaitingConfirm(true)
+    })
+    return () => { offProgress(); offDone(); offOpened() }
   }, [pid, onRefresh, onClose])
 
   // Scroll to bottom when new steps arrive
@@ -342,10 +352,23 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
                     {flowRunning ? 'Reconnecting…' : 'Reconnect'}
                   </button>
                 )}
-                {conn._type === 'session' && testMsg && testMsg !== 'ok' && (
+                {conn._type === 'session' && testMsg && testMsg !== 'ok' && !awaitingConfirm && (
                   <button className="btn btn-primary btn-sm" onClick={() => { api.loginSocial(pid); setFlowRunning(true); setFlowSteps([]) }} disabled={flowRunning} style={{ gap: 5 }}>
                     {flowRunning ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <RefreshCw size={11} />}
-                    {flowRunning ? 'Logging in…' : 'Log in again'}
+                    {flowRunning ? 'Opening browser…' : 'Log in again'}
+                  </button>
+                )}
+                {conn._type === 'session' && awaitingConfirm && (
+                  <button className="btn btn-primary btn-sm" onClick={async () => {
+                    setFlowSteps([]); setFlowRunning(true)
+                    const r = await api.confirmSocialLogin(pid)
+                    if (r && r.startsWith('error:')) {
+                      setFlowSteps([{ message: r.replace('error:', '').trim(), kind: 'error' }])
+                      setFlowRunning(false)
+                    }
+                  }} disabled={flowRunning} style={{ gap: 5 }}>
+                    {flowRunning ? <Loader size={11} style={{ animation: 'spin .7s linear infinite' }} /> : <CheckCircle size={11} />}
+                    {flowRunning ? 'Saving session…' : "I've logged in — Save session"}
                   </button>
                 )}
                 {!confirmDisconnect ? (
@@ -479,12 +502,16 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
                   )}
                 </div>
               ) : selMethod === 'browser' ? (
-                /* Browser method — same flow as OAuth */
+                /* Browser method — opens a plain, non-automated browser window;
+                   you log in by hand, then confirm once you're done. Splitting
+                   it into these two steps (rather than auto-polling until
+                   login completes) is what lets bot-verification challenges
+                   (Google sign-in, Cloudflare, etc.) succeed. */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {flowSteps.length === 0 && !flowRunning && (
+                  {flowSteps.length === 0 && !flowRunning && !awaitingConfirm && (
                     <>
                       <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        A browser window will open. Log in to {name} and the session will be captured automatically.
+                        A browser window will open. Log in to {name} by hand, then come back and confirm below.
                       </div>
                       <button className="btn btn-primary btn-sm" onClick={async () => {
                         setFlowSteps([])
@@ -514,10 +541,31 @@ function Modal({ platform, conn, onClose, onRefresh, onDisconnect }) {
                   {flowRunning && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Loader size={11} style={{ animation: 'spin .7s linear infinite', color: 'var(--text-muted)' }} />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>Waiting for login…</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                        {awaitingConfirm ? 'Saving session…' : 'Opening browser…'}
+                      </span>
                     </div>
                   )}
-                  {!flowRunning && flowSteps.some(s => s.kind === 'error') && (
+                  {awaitingConfirm && !flowRunning && (
+                    <>
+                      <div style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        Log in to {name} in the window that opened (including any "verify you're human" step), then confirm here.
+                      </div>
+                      <button className="btn btn-primary btn-sm" onClick={async () => {
+                        setFlowSteps([])
+                        setFlowRunning(true)
+                        setSaveErr(null)
+                        const r = await api.confirmSocialLogin(pid)
+                        if (r && r.startsWith('error:')) {
+                          setFlowSteps([{ message: r.replace('error:', '').trim(), kind: 'error' }])
+                          setFlowRunning(false)
+                        }
+                      }} style={{ gap: 5, alignSelf: 'flex-start' }}>
+                        <CheckCircle size={11} /> I've logged in — Save session
+                      </button>
+                    </>
+                  )}
+                  {!flowRunning && !awaitingConfirm && flowSteps.some(s => s.kind === 'error') && (
                     <button className="btn btn-primary btn-sm" onClick={async () => {
                       setFlowSteps([])
                       setFlowRunning(true)

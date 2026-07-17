@@ -62,6 +62,7 @@ export const api = {
       .catch(e => `error: ${e}`),
   connectPlatformOAuth:   (platformID)                       => GoApp.ConnectPlatformOAuth(platformID),
   loginSocial:            (platform)                         => GoApp.LoginSocial(platform),
+  confirmSocialLogin:     (platform)                         => GoApp.ConfirmSocialLogin(platform),
   getOAuthCredentials:    (platformID)                       => GoApp.GetOAuthCredentials(platformID).catch(() => ''),
   setOAuthCredentials:    (platformID, clientID, clientSecret) => GoApp.SetOAuthCredentials(platformID, clientID, clientSecret),
   // AI Providers
@@ -100,6 +101,11 @@ export function onConnectionProgress(callback) {
 export function onConnectionDone(callback) {
   EventsOn('conn:done', callback)
   return () => EventsOff('conn:done')
+}
+
+export function onConnectionOpened(callback) {
+  EventsOn('conn:opened', callback)
+  return () => EventsOff('conn:opened')
 }
 
 export function onAIChunk(callback) {

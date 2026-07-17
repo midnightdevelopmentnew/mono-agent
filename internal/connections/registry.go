@@ -51,7 +51,7 @@ var Registry = map[string]PlatformDef{
 
 	"instagram": {
 		ID:         "instagram",
-		Name:       "Instagram",
+		Name:       "Instagram Crawl",
 		Category:   "social",
 		ConnectVia: "UI",
 		Methods:    []AuthMethod{MethodBrowser},
@@ -60,7 +60,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"linkedin": {
 		ID:         "linkedin",
-		Name:       "LinkedIn",
+		Name:       "LinkedIn Crawl",
 		Category:   "social",
 		ConnectVia: "UI",
 		Methods:    []AuthMethod{MethodBrowser},
@@ -69,7 +69,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"x": {
 		ID:         "x",
-		Name:       "X (Twitter)",
+		Name:       "X (Twitter) Crawl",
 		Category:   "social",
 		ConnectVia: "UI",
 		Methods:    []AuthMethod{MethodBrowser},
@@ -78,7 +78,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"tiktok": {
 		ID:         "tiktok",
-		Name:       "TikTok",
+		Name:       "TikTok Crawl",
 		Category:   "social",
 		ConnectVia: "UI",
 		Methods:    []AuthMethod{MethodBrowser},
@@ -87,7 +87,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"reddit": {
 		ID:         "reddit",
-		Name:       "Reddit",
+		Name:       "Reddit API",
 		Category:   "social",
 		ConnectVia: "API",
 		// Register Reddit's OAuth app as "installed app" type (no client
@@ -107,7 +107,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"mastodon": {
 		ID:         "mastodon",
-		Name:       "Mastodon",
+		Name:       "Mastodon API",
 		Category:   "social",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -121,7 +121,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"bluesky": {
 		ID:         "bluesky",
-		Name:       "Bluesky",
+		Name:       "Bluesky API",
 		Category:   "social",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -135,7 +135,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"hackernews": {
 		ID:         "hackernews",
-		Name:       "Hacker News",
+		Name:       "Hacker News Crawl",
 		Category:   "social",
 		ConnectVia: "UI",
 		Methods:    []AuthMethod{MethodBrowser},
@@ -144,7 +144,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"producthunt": {
 		ID:         "producthunt",
-		Name:       "Product Hunt",
+		Name:       "Product Hunt Crawl",
 		Category:   "social",
 		ConnectVia: "UI",
 		Methods:    []AuthMethod{MethodBrowser},
@@ -153,38 +153,18 @@ var Registry = map[string]PlatformDef{
 	},
 	"gemini": {
 		ID:         "gemini",
-		Name:       "Gemini Crawler",
+		Name:       "Gemini Crawl",
 		Category:   "service",
 		ConnectVia: "UI",
 		Methods:    []AuthMethod{MethodBrowser},
 		Fields:     map[AuthMethod][]CredentialField{},
 		IconEmoji:  "✨",
 	},
-	"telegram": {
-		ID:         "telegram",
-		Name:       "Telegram",
-		Category:   "social",
-		ConnectVia: "API",
-		Methods:    []AuthMethod{MethodAPIKey},
-		Fields: map[AuthMethod][]CredentialField{
-			MethodAPIKey: {
-				{
-					Key:      "bot_token",
-					Label:    "Bot Token",
-					Secret:   true,
-					Required: true,
-					HelpURL:  "https://core.telegram.org/bots#creating-a-new-bot",
-				},
-			},
-		},
-		IconEmoji: "✈️",
-	},
-
 	// ─── Services ──────────────────────────────────────────────────────────────
 
 	"github": {
 		ID:         "github",
-		Name:       "GitHub",
+		Name:       "GitHub API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -209,7 +189,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"notion": {
 		ID:         "notion",
-		Name:       "Notion",
+		Name:       "Notion API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -233,7 +213,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"airtable": {
 		ID:         "airtable",
-		Name:       "Airtable",
+		Name:       "Airtable API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -258,7 +238,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"jira": {
 		ID:         "jira",
-		Name:       "Jira",
+		Name:       "Jira API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -278,7 +258,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"linear": {
 		ID:         "linear",
-		Name:       "Linear",
+		Name:       "Linear API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -303,7 +283,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"asana": {
 		ID:         "asana",
-		Name:       "Asana",
+		Name:       "Asana API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -328,7 +308,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"stripe": {
 		ID:         "stripe",
-		Name:       "Stripe",
+		Name:       "Stripe API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -347,7 +327,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"shopify": {
 		ID:         "shopify",
-		Name:       "Shopify",
+		Name:       "Shopify API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -366,7 +346,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"salesforce": {
 		ID:         "salesforce",
-		Name:       "Salesforce",
+		Name:       "Salesforce API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth},
@@ -381,7 +361,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"hubspot": {
 		ID:         "hubspot",
-		Name:       "HubSpot",
+		Name:       "HubSpot API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth, MethodAPIKey},
@@ -405,7 +385,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"google_sheets": {
 		ID:         "google_sheets",
-		Name:       "Google Sheets",
+		Name:       "Google Sheets API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth},
@@ -421,7 +401,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"gmail": {
 		ID:         "gmail",
-		Name:       "Gmail",
+		Name:       "Gmail API",
 		Category:   "service",
 		ConnectVia: "API",
 		// App Password is intentionally not offered: internal/nodes/service/gmail.go
@@ -441,7 +421,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"google_drive": {
 		ID:         "google_drive",
-		Name:       "Google Drive",
+		Name:       "Google Drive API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth},
@@ -457,7 +437,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"youtube": {
 		ID:         "youtube",
-		Name:       "YouTube",
+		Name:       "YouTube API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth},
@@ -473,7 +453,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"openrouter": {
 		ID:         "openrouter",
-		Name:       "OpenRouter",
+		Name:       "OpenRouter API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -492,7 +472,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"huggingface": {
 		ID:         "huggingface",
-		Name:       "Hugging Face",
+		Name:       "Hugging Face API",
 		Category:   "service",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -512,9 +492,28 @@ var Registry = map[string]PlatformDef{
 
 	// ─── Communication ─────────────────────────────────────────────────────────
 
+	"telegram": {
+		ID:         "telegram",
+		Name:       "Telegram Both",
+		Category:   "communication",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{
+					Key:      "bot_token",
+					Label:    "Bot Token",
+					Secret:   true,
+					Required: true,
+					HelpURL:  "https://core.telegram.org/bots#creating-a-new-bot",
+				},
+			},
+		},
+		IconEmoji: "✈️",
+	},
 	"slack": {
 		ID:         "slack",
-		Name:       "Slack",
+		Name:       "Slack API",
 		Category:   "communication",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodOAuth},
@@ -529,7 +528,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"discord": {
 		ID:         "discord",
-		Name:       "Discord",
+		Name:       "Discord API",
 		Category:   "communication",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -548,7 +547,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"twilio": {
 		ID:         "twilio",
-		Name:       "Twilio",
+		Name:       "Twilio API",
 		Category:   "communication",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -569,7 +568,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"whatsapp": {
 		ID:         "whatsapp",
-		Name:       "WhatsApp",
+		Name:       "WhatsApp API",
 		Category:   "communication",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAPIKey},
@@ -584,7 +583,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"smtp": {
 		ID:         "smtp",
-		Name:       "SMTP / Email",
+		Name:       "SMTP / Email API",
 		Category:   "communication",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodAppPass},
@@ -602,7 +601,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"outlook": {
 		ID:         "outlook",
-		Name:       "Outlook / Hotmail",
+		Name:       "Outlook / Hotmail API",
 		Category:   "communication",
 		ConnectVia: "API",
 		// MethodAppPass drives comm.outlook_send/outlook_read (raw IMAP/SMTP) —
@@ -650,7 +649,7 @@ var Registry = map[string]PlatformDef{
 
 	"postgresql": {
 		ID:         "postgresql",
-		Name:       "PostgreSQL",
+		Name:       "PostgreSQL API",
 		Category:   "database",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodConnStr},
@@ -669,7 +668,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"mysql": {
 		ID:         "mysql",
-		Name:       "MySQL",
+		Name:       "MySQL API",
 		Category:   "database",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodConnStr},
@@ -688,7 +687,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"mongodb": {
 		ID:         "mongodb",
-		Name:       "MongoDB",
+		Name:       "MongoDB API",
 		Category:   "database",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodConnStr},
@@ -707,7 +706,7 @@ var Registry = map[string]PlatformDef{
 	},
 	"redis": {
 		ID:         "redis",
-		Name:       "Redis",
+		Name:       "Redis API",
 		Category:   "database",
 		ConnectVia: "API",
 		Methods:    []AuthMethod{MethodConnStr},
