@@ -3,6 +3,8 @@ package workflow
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -61,6 +63,50 @@ func (s *stubStore) RecoverStaleExecutions(context.Context) error        { retur
 func (s *stubStore) CancelQueuedExecution(context.Context, string) (bool, error) { return false, nil }
 func (s *stubStore) PruneExecutions(context.Context, string, int) error  { return nil }
 func (s *stubStore) RawDB() *sql.DB                                      { return nil }
+
+// fakeFailNode always fails, to exercise on_error handling.
+type fakeFailNode struct{}
+
+func (fakeFailNode) Type() string { return "test.fail" }
+func (fakeFailNode) Execute(context.Context, NodeInput, map[string]interface{}) ([]NodeOutput, error) {
+	return nil, errTestNodeFail
+}
+
+var errTestNodeFail = fmt.Errorf("test node failure")
+
+// TestRunExecution_PartialFailure verifies a node failing under
+// on_error=continue makes RunExecution return a *PartialFailureError (which the
+// engine maps to SUCCESS_WITH_ERRORS) rather than nil (a misleading success).
+func TestRunExecution_PartialFailure(t *testing.T) {
+	reg := NewNodeTypeRegistry()
+	reg.Register("test.fail", func() NodeExecutor { return fakeFailNode{} })
+
+	wf := &Workflow{
+		ID:   "wf-pf",
+		Name: "partial",
+		Nodes: []WorkflowNode{
+			{ID: "t1", WorkflowID: "wf-pf", Type: "trigger.manual", Name: "Trigger"},
+			{ID: "n1", WorkflowID: "wf-pf", Type: "test.fail", Name: "Flaky", Config: map[string]interface{}{"on_error": "continue"}},
+		},
+		Connections: []WorkflowConnection{
+			{SourceNodeID: "t1", SourceHandle: "main", TargetNodeID: "n1", TargetHandle: "main"},
+		},
+	}
+	dag, err := BuildDAG(wf.Nodes, wf.Connections)
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+	exec := &WorkflowExecution{ID: "e-pf", WorkflowID: "wf-pf", TriggerNodeID: "t1"}
+	err = RunExecution(context.Background(), exec, wf, dag, reg, &stubStore{}, nil, NewExpressionEngine(), zerolog.Nop())
+
+	var pf *PartialFailureError
+	if !errors.As(err, &pf) {
+		t.Fatalf("RunExecution error = %v, want *PartialFailureError", err)
+	}
+	if len(pf.Nodes) != 1 || pf.Nodes[0] != "Flaky" {
+		t.Errorf("PartialFailureError.Nodes = %v, want [Flaky]", pf.Nodes)
+	}
+}
 
 // TestRunExecution_OnlyFiredTriggerReceivesPayload is a regression test for the
 // multi-trigger fan-out bug: a single trigger firing must only feed its own
