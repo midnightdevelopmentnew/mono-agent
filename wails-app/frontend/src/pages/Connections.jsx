@@ -12,8 +12,8 @@ const PLATFORM_URLS = {
 }
 
 const SOCIAL_IDS = new Set(['instagram', 'linkedin', 'x', 'tiktok', 'gemini', 'hackernews', 'producthunt'])
-const CATEGORY_ORDER = ['social', 'service', 'communication', 'database']
-const CATEGORY_LABELS = { social: 'Social', service: 'Services & APIs', communication: 'Communication', database: 'Databases' }
+const CATEGORY_ORDER = ['social', 'service', 'communication', 'database', 'infrastructure', 'custom']
+const CATEGORY_LABELS = { social: 'Social', service: 'Services & APIs', communication: 'Communication', database: 'Databases', infrastructure: 'Infrastructure', custom: 'Custom' }
 
 function fmtDate(s) {
   if (!s) return '—'
@@ -83,7 +83,7 @@ function HelpModal({ guide, platformName, emoji, methodLabel, onClose }) {
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
-      <div style={{ width: '100%', maxWidth: 460, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden' }}>
+      <div role="dialog" aria-modal="true" aria-label={guide.title} style={{ width: '100%', maxWidth: 460, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px 12px', borderBottom: '1px solid var(--border)' }}>

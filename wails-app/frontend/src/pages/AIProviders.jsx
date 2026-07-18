@@ -31,6 +31,10 @@ function Tile({ regProvider, connProvider, onClick }) {
   return (
     <div
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${regProvider?.name || 'Provider'}${connected ? ' (configured)' : ''}`}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{
@@ -154,7 +158,7 @@ function AddModal({ onClose, onSaved, registry, preselected }) {
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
-      <div style={{ width: '100%', maxWidth: 500, maxHeight: '80vh', background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div role="dialog" aria-modal="true" aria-label="Add AI provider" style={{ width: '100%', maxWidth: 500, maxHeight: '80vh', background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
@@ -387,7 +391,7 @@ function ManageModal({ provider, onClose, onRefresh, onDeleted, registry }) {
       onClick={e => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
-      <div style={{ width: '100%', maxWidth: 440, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden' }}>
+      <div role="dialog" aria-modal="true" aria-label="Manage AI provider" style={{ width: '100%', maxWidth: 440, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden' }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 12px', borderBottom: '1px solid var(--border)' }}>

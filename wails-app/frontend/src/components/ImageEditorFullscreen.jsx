@@ -508,7 +508,7 @@ export default function ImageEditorFullscreen({ image, onClose, onSaved, initial
   return (
     <>
       <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: '#060b11', display: 'flex', flexDirection: 'column' }}>
+      <div role="dialog" aria-modal="true" aria-label="Image editor" style={{ position: 'fixed', inset: 0, zIndex: 2000, background: '#060b11', display: 'flex', flexDirection: 'column' }}>
 
         {/* Top bar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', borderBottom: '1px solid #0d1a26', background: '#080c14', flexShrink: 0 }}>
