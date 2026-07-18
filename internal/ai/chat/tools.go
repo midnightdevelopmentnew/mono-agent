@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,8 @@ type NodeTypeInfo struct {
 type CanvasTools struct {
 	db        *sql.DB
 	nodeTypes []NodeTypeInfo
+
+	mu        sync.RWMutex // guards profileID against concurrent stream/profile-switch access
 	profileID string
 }
 
@@ -35,7 +38,17 @@ func (ct *CanvasTools) SetProfileID(id string) {
 	if id == "" {
 		id = "default"
 	}
+	ct.mu.Lock()
 	ct.profileID = id
+	ct.mu.Unlock()
+}
+
+// ProfileID returns the active profile id under the read lock. Callers that make
+// several profile-scoped calls in one logical operation should snapshot it once.
+func (ct *CanvasTools) ProfileID() string {
+	ct.mu.RLock()
+	defer ct.mu.RUnlock()
+	return ct.profileID
 }
 
 // SetNodeTypes provides the list of available node types for list_available_nodes.
@@ -54,7 +67,7 @@ func (ct *CanvasTools) checkWorkflowOwnership(workflowID string) error {
 	var exists int
 	err := ct.db.QueryRow(
 		`SELECT 1 FROM workflows WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
-		workflowID, ct.profileID,
+		workflowID, ct.ProfileID(),
 	).Scan(&exists)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("workflow %s not found", workflowID)
@@ -347,7 +360,7 @@ func (ct *CanvasTools) createWorkflow(args string) (string, error) {
 	if _, err := ct.db.Exec(
 		`INSERT INTO workflows (id, name, description, is_active, version, profile_id, created_at, updated_at)
 		 VALUES (?, ?, ?, 0, 1, ?, ?, ?)`,
-		id, a.Name, a.Description, ct.profileID, now, now); err != nil {
+		id, a.Name, a.Description, ct.ProfileID(), now, now); err != nil {
 		return "", fmt.Errorf("insert workflow: %w", err)
 	}
 

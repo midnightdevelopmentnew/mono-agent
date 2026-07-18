@@ -85,7 +85,7 @@ func (s *ChatService) StreamChat(
 	}
 
 	// 1. Resolve provider and create client.
-	provider, err := s.aiStore.GetProvider(providerID, s.canvasTools.profileID)
+	provider, err := s.aiStore.GetProvider(providerID, s.canvasTools.ProfileID())
 	if err != nil {
 		return fmt.Errorf("get provider %s: %w", providerID, err)
 	}
