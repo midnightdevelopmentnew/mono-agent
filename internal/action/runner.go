@@ -177,7 +177,9 @@ func (r *ActionRunner) safeExecuteSingle(
 
 			// Attempt to update the action state to FAILED.
 			if r.db != nil {
-				_ = r.db.UpdateActionState(action.ID, "FAILED")
+				if serr := r.db.UpdateActionState(action.ID, "FAILED"); serr != nil {
+					r.logger.Error().Err(serr).Str("actionID", action.ID).Msg("failed to persist action state FAILED — action may appear stuck RUNNING")
+				}
 			}
 
 			// Emit a failure event.

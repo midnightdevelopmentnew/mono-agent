@@ -415,10 +415,17 @@ func (s *Store) GetOAuthClient(ctx context.Context, platform, profileID string) 
 	if profileID == "" {
 		profileID = "default"
 	}
+	var storedSecret string
 	_ = s.db.QueryRowContext(ctx,
 		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
 		platform, profileID,
-	).Scan(&clientID, &clientSecret)
+	).Scan(&clientID, &storedSecret)
+	if storedSecret != "" {
+		// Decrypt; legacy plaintext rows pass through unchanged.
+		if plain, err := secrets.DecryptBlob(ctx, s.db, storedSecret); err == nil {
+			clientSecret = string(plain)
+		}
+	}
 	return clientID, clientSecret
 }
 
@@ -442,10 +449,20 @@ func (s *Store) SaveOAuthClient(ctx context.Context, platform, profileID, client
 )`); err != nil {
 		return fmt.Errorf("connections.SaveOAuthClient: ensure table: %w", err)
 	}
+	// Encrypt the client_secret under the vault envelope (same as connection
+	// data); an empty secret (PKCE-only platforms) stays empty.
+	encSecret := clientSecret
+	if clientSecret != "" {
+		enc, encErr := secrets.EncryptBlob(ctx, s.db, []byte(clientSecret))
+		if encErr != nil {
+			return fmt.Errorf("connections.SaveOAuthClient: encrypting secret: %w", encErr)
+		}
+		encSecret = enc
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO platform_oauth_credentials (platform, profile_id, client_id, client_secret, updated_at)
 		 VALUES (?, ?, ?, ?, ?)`,
-		platform, profileID, clientID, clientSecret, time.Now().UTC().Format(time.RFC3339))
+		platform, profileID, clientID, encSecret, time.Now().UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("connections.SaveOAuthClient: %w", err)
 	}

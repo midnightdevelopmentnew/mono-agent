@@ -440,7 +440,9 @@ func (ae *ActionExecutor) Execute(action *StorageAction) (*ExecutionResult, erro
 		if err == ErrAbort {
 			ae.logger.Error().Msg("action aborted during initial steps")
 			if ae.db != nil {
-				_ = ae.db.UpdateActionState(action.ID, "FAILED")
+				if serr := ae.db.UpdateActionState(action.ID, "FAILED"); serr != nil {
+					ae.logger.Error().Err(serr).Str("actionID", action.ID).Msg("failed to persist action state FAILED — action may appear stuck")
+				}
 			}
 			return ae.buildResult(), err
 		}
@@ -453,7 +455,9 @@ func (ae *ActionExecutor) Execute(action *StorageAction) (*ExecutionResult, erro
 			if err == ErrAbort {
 				ae.logger.Error().Str("loopID", loop.ID).Msg("action aborted during loop")
 				if ae.db != nil {
-					_ = ae.db.UpdateActionState(action.ID, "FAILED")
+					if serr := ae.db.UpdateActionState(action.ID, "FAILED"); serr != nil {
+					ae.logger.Error().Err(serr).Str("actionID", action.ID).Msg("failed to persist action state FAILED — action may appear stuck")
+				}
 				}
 				return ae.buildResult(), err
 			}
@@ -463,7 +467,9 @@ func (ae *ActionExecutor) Execute(action *StorageAction) (*ExecutionResult, erro
 
 	// Phase 4: Mark completed.
 	if ae.db != nil {
-		_ = ae.db.UpdateActionState(action.ID, "COMPLETED")
+		if serr := ae.db.UpdateActionState(action.ID, "COMPLETED"); serr != nil {
+			ae.logger.Error().Err(serr).Str("actionID", action.ID).Msg("failed to persist action state COMPLETED — action may appear stuck RUNNING")
+		}
 	}
 
 	ae.emitEvent(ExecutionEvent{
