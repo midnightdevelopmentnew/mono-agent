@@ -260,6 +260,10 @@ func (h *HybridWorkflowStore) SetExecutionWaiting(ctx context.Context, id string
 	return h.sql.SetExecutionWaiting(ctx, id, resumeState)
 }
 
+func (h *HybridWorkflowStore) ResumeWaitingExecution(ctx context.Context, id string) (bool, error) {
+	return h.sql.ResumeWaitingExecution(ctx, id)
+}
+
 func (h *HybridWorkflowStore) ListResumableExecutions(ctx context.Context) ([]string, error) {
 	return h.sql.ListResumableExecutions(ctx)
 }

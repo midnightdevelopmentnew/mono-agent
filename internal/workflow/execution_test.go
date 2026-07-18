@@ -69,6 +69,7 @@ func (s *stubStore) SetExecutionWaiting(_ context.Context, _ string, state strin
 	return nil
 }
 func (s *stubStore) ListResumableExecutions(context.Context) ([]string, error) { return nil, nil }
+func (s *stubStore) ResumeWaitingExecution(context.Context, string) (bool, error) { return true, nil }
 func (s *stubStore) PruneExecutions(context.Context, string, int) error  { return nil }
 func (s *stubStore) RawDB() *sql.DB                                      { return nil }
 

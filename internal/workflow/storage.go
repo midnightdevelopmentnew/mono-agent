@@ -92,6 +92,7 @@ type WorkflowStore interface {
 	SetExecutionStarted(ctx context.Context, id string) error
 	SetExecutionFinished(ctx context.Context, id string, status string, errMsg string) error
 	SetExecutionWaiting(ctx context.Context, id string, resumeState string) error
+	ResumeWaitingExecution(ctx context.Context, id string) (bool, error)
 	ListResumableExecutions(ctx context.Context) ([]string, error)
 
 	// Execution nodes
@@ -903,10 +904,26 @@ func (s *SQLiteWorkflowStore) RecoverStaleExecutions(ctx context.Context) error 
 // row was actually transitioned. Running executions are unaffected (they are
 // stopped via context cancellation instead).
 func (s *SQLiteWorkflowStore) CancelQueuedExecution(ctx context.Context, id string) (bool, error) {
+	// Covers QUEUED (not yet dispatched) and WAITING (paused at a HIL node with
+	// no live goroutine) — both are cancellable purely via a status flip.
+	// Clearing resume_state ensures a cancelled paused run can never be resumed.
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE workflow_executions SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'QUEUED'`, id)
+		`UPDATE workflow_executions SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP, resume_state = '' WHERE id = ? AND status IN ('QUEUED','WAITING')`, id)
 	if err != nil {
 		return false, fmt.Errorf("cancelling queued execution %s: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ResumeWaitingExecution atomically flips a WAITING execution to QUEUED, so that
+// among concurrent engines sharing the DB exactly one wins the resume (the
+// others get false). Returns whether this caller flipped it.
+func (s *SQLiteWorkflowStore) ResumeWaitingExecution(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE workflow_executions SET status = 'QUEUED' WHERE id = ? AND status = 'WAITING'`, id)
+	if err != nil {
+		return false, fmt.Errorf("resuming waiting execution %s: %w", id, err)
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil

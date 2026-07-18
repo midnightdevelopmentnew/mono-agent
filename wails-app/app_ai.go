@@ -155,13 +155,17 @@ func (a *App) StreamAIChat(workflowID, message, providerID, model string) string
 				})
 			},
 		)
-		if err != nil {
+		if err != nil && ctx.Err() == nil {
+			// A genuine error (not a user-initiated Stop, which cancels ctx and
+			// surfaces as context.Canceled).
 			runtime.EventsEmit(a.ctx, "ai:error", map[string]interface{}{
 				"workflowID": workflowID,
 				"error":      err.Error(),
 			})
 		} else {
-			// Signal streaming is complete.
+			// Completed normally, or stopped by the user — finalize with a clean
+			// done chunk so any partial streamed content is preserved (the
+			// frontend commits it on done) instead of showing an error.
 			runtime.EventsEmit(a.ctx, "ai:chunk", map[string]interface{}{
 				"workflowID": workflowID,
 				"content":    "",

@@ -252,12 +252,11 @@ func (a *App) GetOAuthCredentials(platformID string) string {
 	if a.db == nil {
 		return ""
 	}
-	var clientID, clientSecret string
-	err := a.db.QueryRow(
-		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
-		platformID, a.getActiveProfileID(),
-	).Scan(&clientID, &clientSecret)
-	if err != nil {
+	// Route through the connections store so the encrypted client_secret is
+	// decrypted (the store owns the vault envelope; reading the column raw here
+	// would return a "vaultenc:v1:..." blob).
+	clientID, clientSecret := connections.NewStore(a.db).GetOAuthClient(a.ctx, platformID, a.getActiveProfileID())
+	if clientID == "" && clientSecret == "" {
 		return ""
 	}
 	b, _ := json.Marshal(map[string]string{"clientID": clientID, "clientSecret": clientSecret})
@@ -275,12 +274,9 @@ func (a *App) SetOAuthCredentials(platformID, clientID, clientSecret string) str
 	if clientID == "" {
 		return "error: clientID is required"
 	}
-	_, err := a.db.Exec(
-		`INSERT OR REPLACE INTO platform_oauth_credentials (platform, profile_id, client_id, client_secret, updated_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		platformID, a.getActiveProfileID(), clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
-	)
-	if err != nil {
+	// Route through the store so client_secret is encrypted under the vault
+	// envelope (matching the reader and the auto-persist path).
+	if err := connections.NewStore(a.db).SaveOAuthClient(a.ctx, platformID, a.getActiveProfileID(), clientID, clientSecret); err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
 	return "ok"

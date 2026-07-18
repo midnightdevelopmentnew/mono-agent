@@ -236,9 +236,15 @@ func (e *WorkflowEngine) ResumeExecution(executionID string) error {
 	if exec.Status != "WAITING" {
 		return nil // already resumed or finished by another tick
 	}
-	// Flip WAITING → QUEUED (preserves resume_state) so handleExecution runs it.
-	if err := e.store.UpdateExecutionStatus(dctx, executionID, "QUEUED", ""); err != nil {
+	// Atomically flip WAITING → QUEUED (preserves resume_state). The guarded
+	// CAS ensures that among concurrent engines sharing the DB exactly one
+	// resumes the execution — the losers get flipped=false and stop.
+	flipped, err := e.store.ResumeWaitingExecution(dctx, executionID)
+	if err != nil {
 		return fmt.Errorf("engine: resume execution: %w", err)
+	}
+	if !flipped {
+		return nil // another engine won the resume, or it's no longer WAITING
 	}
 	req := ExecutionRequest{
 		WorkflowID:  exec.WorkflowID,
@@ -247,8 +253,10 @@ func (e *WorkflowEngine) ResumeExecution(executionID string) error {
 		TriggerData: exec.TriggerData,
 	}
 	if err := e.queue.Enqueue(req); err != nil {
-		_ = e.store.SetExecutionFinished(dctx, executionID, "FAILED", "queue full on resume")
-		return fmt.Errorf("engine: resume execution: %w", ErrQueueFull)
+		// Transient (queue full / closing): revert to WAITING preserving the
+		// resume state so the next resume tick retries — never destroy the run.
+		_ = e.store.SetExecutionWaiting(dctx, executionID, exec.ResumeState)
+		return fmt.Errorf("engine: resume execution: %w", err)
 	}
 	return nil
 }
@@ -762,8 +770,17 @@ func (e *WorkflowEngine) CancelExecution(executionID string) {
 	// re-checks status before running, so this makes the cancel stick.
 	dctx, cancel := dbCtx()
 	defer cancel()
+	// Covers QUEUED (not yet dispatched) and WAITING (paused at a HIL node with
+	// no live goroutine) — a status flip is enough for both.
 	if cancelled, err := e.store.CancelQueuedExecution(dctx, executionID); err == nil && cancelled {
-		e.logger.Info().Str("execution_id", executionID).Msg("engine: queued execution cancelled before dispatch")
+		// Reject any still-pending HIL items so a cancelled paused run can't be
+		// resumed and doesn't leave zombie items in the approvals queue.
+		if db := e.store.RawDB(); db != nil {
+			_, _ = db.ExecContext(dctx,
+				`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE execution_id=? AND status='pending'`,
+				executionID)
+		}
+		e.logger.Info().Str("execution_id", executionID).Msg("engine: queued/waiting execution cancelled")
 	}
 	// Signal cancellation for an already-dispatched (running) execution.
 	e.queue.Cancel(executionID)
