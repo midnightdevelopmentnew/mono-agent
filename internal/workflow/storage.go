@@ -91,6 +91,8 @@ type WorkflowStore interface {
 	UpdateExecutionStatus(ctx context.Context, id string, status string, errMsg string) error
 	SetExecutionStarted(ctx context.Context, id string) error
 	SetExecutionFinished(ctx context.Context, id string, status string, errMsg string) error
+	SetExecutionWaiting(ctx context.Context, id string, resumeState string) error
+	ListResumableExecutions(ctx context.Context) ([]string, error)
 
 	// Execution nodes
 	CreateExecutionNode(ctx context.Context, en *WorkflowExecutionNode) error
@@ -480,11 +482,11 @@ func (s *SQLiteWorkflowStore) GetExecution(ctx context.Context, id string) (*Wor
 	e := &WorkflowExecution{}
 	var createdAt sqliteTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, workflow_id, status, trigger_type, trigger_data, started_at, finished_at, error_message, created_at
+		SELECT id, workflow_id, status, trigger_type, trigger_data, started_at, finished_at, error_message, created_at, COALESCE(resume_state,'')
 		FROM workflow_executions WHERE id = ?`, id,
 	).Scan(
 		&e.ID, &e.WorkflowID, &e.Status, &e.TriggerType, &e.TriggerDataRaw,
-		newSqliteNullTime(&e.StartedAt), newSqliteNullTime(&e.FinishedAt), &e.ErrorMessage, &createdAt,
+		newSqliteNullTime(&e.StartedAt), newSqliteNullTime(&e.FinishedAt), &e.ErrorMessage, &createdAt, &e.ResumeState,
 	)
 	e.CreatedAt = createdAt.Time
 	if err == sql.ErrNoRows {
@@ -572,16 +574,54 @@ func (s *SQLiteWorkflowStore) SetExecutionStarted(ctx context.Context, id string
 }
 
 // SetExecutionFinished records finished_at, final status and optional error.
+// It also clears any resume_state — a finished execution is never resumed.
 func (s *SQLiteWorkflowStore) SetExecutionFinished(ctx context.Context, id string, status string, errMsg string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE workflow_executions SET status = ?, finished_at = ?, error_message = ? WHERE id = ?",
+		"UPDATE workflow_executions SET status = ?, finished_at = ?, error_message = ?, resume_state = '' WHERE id = ?",
 		status, now, errMsg, id,
 	)
 	if err != nil {
 		return fmt.Errorf("setting execution finished %s: %w", id, err)
 	}
 	return nil
+}
+
+// SetExecutionWaiting marks an execution as paused (WAITING) and stores the
+// serialized in-flight state needed to resume it. Unlike SetExecutionFinished,
+// it does not set finished_at — the execution is suspended, not done.
+func (s *SQLiteWorkflowStore) SetExecutionWaiting(ctx context.Context, id string, resumeState string) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE workflow_executions SET status = 'WAITING', resume_state = ? WHERE id = ?",
+		resumeState, id,
+	)
+	if err != nil {
+		return fmt.Errorf("setting execution waiting %s: %w", id, err)
+	}
+	return nil
+}
+
+// ListResumableExecutions returns the IDs of WAITING executions that have no
+// still-pending Human-in-Loop items — i.e. every pause point has been resolved
+// (approved or rejected), so the execution can be resumed.
+func (s *SQLiteWorkflowStore) ListResumableExecutions(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id FROM workflow_executions
+		WHERE status = 'WAITING'
+		  AND id NOT IN (SELECT execution_id FROM hil_pending WHERE status = 'pending')`)
+	if err != nil {
+		return nil, fmt.Errorf("listing resumable executions: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning resumable execution: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // ---------------------------------------------------------------------------

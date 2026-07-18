@@ -138,6 +138,10 @@ type WorkflowExecution struct {
 	ErrorMessage   string                 `json:"error_message" db:"error_message"`
 	CreatedAt      time.Time              `json:"created_at" db:"created_at"`
 	PID            int                    `json:"pid" db:"pid"`
+	// ResumeState is the serialized in-flight state of a paused (WAITING)
+	// execution — enough for RunExecution to skip already-completed nodes and
+	// continue from the pause point on resume. Empty for normal runs.
+	ResumeState string `json:"-" db:"resume_state"`
 	// Populated on load
 	Nodes []WorkflowExecutionNode `json:"nodes,omitempty"`
 }

@@ -175,7 +175,7 @@ func (e *WorkflowEngine) Start(ctx context.Context) error {
 		if _, err := db.ExecContext(e.ctx,
 			`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP
 			 WHERE status='pending' AND execution_id IN (
-			     SELECT id FROM workflow_executions WHERE status NOT IN ('RUNNING','QUEUED'))`,
+			     SELECT id FROM workflow_executions WHERE status NOT IN ('RUNNING','QUEUED','WAITING'))`,
 		); err != nil {
 			e.logger.Warn().Err(err).Msg("engine: failed to clean up orphaned HIL items")
 		}
@@ -186,10 +186,70 @@ func (e *WorkflowEngine) Start(ctx context.Context) error {
 		e.logger.Warn().Err(err).Msg("engine: failed to re-register some triggers on startup")
 	}
 
-	// 5. Start prune loop.
+	// 5. Start prune and resume loops.
 	go e.pruneLoop(e.ctx)
+	go e.resumeLoop(e.ctx)
 
 	e.logger.Info().Msg("workflow engine started")
+	return nil
+}
+
+// resumeLoop periodically re-enqueues WAITING executions whose pause points
+// (Human-in-Loop items) have all been resolved, so they continue from where
+// they paused. This is what makes an approval — from the GUI or the CLI, in any
+// process — actually resume the run, and lets paused runs survive a restart.
+func (e *WorkflowEngine) resumeLoop(ctx context.Context) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ids, err := e.store.ListResumableExecutions(ctx)
+			if err != nil {
+				e.logger.Warn().Err(err).Msg("engine: listing resumable executions")
+				continue
+			}
+			for _, id := range ids {
+				if err := e.ResumeExecution(id); err != nil {
+					e.logger.Warn().Err(err).Str("execution_id", id).Msg("engine: failed to resume execution")
+				}
+			}
+		}
+	}
+}
+
+// ResumeExecution re-enqueues a paused (WAITING) execution. handleExecution
+// reloads its persisted resume_state so RunExecution skips completed nodes and
+// continues from the pause point.
+func (e *WorkflowEngine) ResumeExecution(executionID string) error {
+	dctx, cancel := dbCtx()
+	defer cancel()
+	exec, err := e.store.GetExecution(dctx, executionID)
+	if err != nil {
+		return fmt.Errorf("engine: resume execution: %w", err)
+	}
+	if exec == nil {
+		return fmt.Errorf("engine: resume execution: %w", ErrExecutionNotFound)
+	}
+	if exec.Status != "WAITING" {
+		return nil // already resumed or finished by another tick
+	}
+	// Flip WAITING → QUEUED (preserves resume_state) so handleExecution runs it.
+	if err := e.store.UpdateExecutionStatus(dctx, executionID, "QUEUED", ""); err != nil {
+		return fmt.Errorf("engine: resume execution: %w", err)
+	}
+	req := ExecutionRequest{
+		WorkflowID:  exec.WorkflowID,
+		ExecutionID: executionID,
+		TriggerType: exec.TriggerType,
+		TriggerData: exec.TriggerData,
+	}
+	if err := e.queue.Enqueue(req); err != nil {
+		_ = e.store.SetExecutionFinished(dctx, executionID, "FAILED", "queue full on resume")
+		return fmt.Errorf("engine: resume execution: %w", ErrQueueFull)
+	}
 	return nil
 }
 
@@ -420,6 +480,10 @@ func (e *WorkflowEngine) handleExecution(ctx context.Context, req ExecutionReque
 	case runErr == nil:
 		log.Info().Msg("engine: execution finished successfully")
 		_ = e.store.SetExecutionFinished(persistCtx, req.ExecutionID, "SUCCESS", "")
+	case errors.Is(runErr, ErrExecutionPaused):
+		// The run suspended at a pause point (e.g. Human-in-Loop). RunExecution
+		// already persisted WAITING + resume state; leave it for the resume loop.
+		log.Info().Msg("engine: execution paused, awaiting resume")
 	case errors.As(runErr, &partialErr):
 		// The run completed but nodes failed under on_error=continue/skip/error_branch.
 		// Surface that rather than a misleading green SUCCESS.

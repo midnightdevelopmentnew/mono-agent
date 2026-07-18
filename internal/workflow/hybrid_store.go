@@ -256,6 +256,14 @@ func (h *HybridWorkflowStore) CancelQueuedExecution(ctx context.Context, id stri
 	return h.sql.CancelQueuedExecution(ctx, id)
 }
 
+func (h *HybridWorkflowStore) SetExecutionWaiting(ctx context.Context, id string, resumeState string) error {
+	return h.sql.SetExecutionWaiting(ctx, id, resumeState)
+}
+
+func (h *HybridWorkflowStore) ListResumableExecutions(ctx context.Context) ([]string, error) {
+	return h.sql.ListResumableExecutions(ctx)
+}
+
 func (h *HybridWorkflowStore) PruneExecutions(ctx context.Context, workflowID string, keepCount int) error {
 	return h.sql.PruneExecutions(ctx, workflowID, keepCount)
 }

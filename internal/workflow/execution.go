@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"runtime/debug"
@@ -14,6 +15,17 @@ import (
 	"monoagent/internal/vault"
 	"github.com/rs/zerolog"
 )
+
+// executionResumeState is the serialized snapshot persisted when an execution
+// pauses (WAITING) and restored to continue it. pendingInputs already captures
+// per-handle routing (items keyed by target node ID), so no per-handle output
+// schema is needed to resume correctly.
+type executionResumeState struct {
+	PendingInputs  map[string][]Item `json:"pending_inputs"`
+	NodeOutputs    map[string][]Item `json:"node_outputs"`
+	CompletedNodes map[string]bool   `json:"completed_nodes"`
+	MergeWaiting   map[string]int    `json:"merge_waiting"`
+}
 
 // RunExecution executes a workflow against its DAG. Called by WorkflowEngine.
 // This is the core BFS execution loop.
@@ -70,12 +82,41 @@ func RunExecution(
 	// manage the merge counters.
 	completedNodes := make(map[string]bool, len(order))
 
+	// If this is a resume of a paused (WAITING) execution, seed the working
+	// state from the persisted snapshot so already-completed nodes are skipped
+	// (not re-run) and the pause point continues with its captured inputs.
+	if exec.ResumeState != "" {
+		var rs executionResumeState
+		if err := json.Unmarshal([]byte(exec.ResumeState), &rs); err != nil {
+			return fmt.Errorf("resume: decode state for execution %s: %w", exec.ID, err)
+		}
+		if rs.PendingInputs != nil {
+			pendingInputs = rs.PendingInputs
+		}
+		if rs.NodeOutputs != nil {
+			nodeOutputs = rs.NodeOutputs
+		}
+		if rs.CompletedNodes != nil {
+			completedNodes = rs.CompletedNodes
+		}
+		if rs.MergeWaiting != nil {
+			mergeWaiting = rs.MergeWaiting
+		}
+	}
+
 	// nonFatalFailures collects nodes that failed but let the run continue
 	// (on_error=continue/skip/error_branch), so the final status can reflect
 	// that the run had failures instead of reporting a misleading SUCCESS.
 	var nonFatalFailures []string
 
 	for _, node := range order {
+		// On resume, skip nodes that already completed in the earlier run so
+		// their side effects don't fire twice; their outputs were captured in
+		// pendingInputs/nodeOutputs above.
+		if completedNodes[node.ID] {
+			continue
+		}
+
 		// Check context cancellation.
 		select {
 		case <-ctx.Done():
@@ -354,6 +395,30 @@ func RunExecution(
 
 		// Execute with retry.
 		outputs, execErr := executeWithRetry(ctx, executor, nodeInput, resolvedConfig, retryPolicy)
+
+		// A node can pause the run (Human-in-Loop awaiting approval). Persist the
+		// working state and suspend as WAITING rather than failing — resume picks
+		// up here once the pause is resolved. Checked before the failure path so
+		// the node is not recorded FAILED.
+		if execErr != nil && errors.Is(execErr, ErrNodePaused) {
+			state, mErr := json.Marshal(executionResumeState{
+				PendingInputs:  pendingInputs,
+				NodeOutputs:    nodeOutputs,
+				CompletedNodes: completedNodes,
+				MergeWaiting:   mergeWaiting,
+			})
+			if mErr != nil {
+				return fmt.Errorf("pause: encode resume state for execution %s: %w", exec.ID, mErr)
+			}
+			pauseCtx, pauseCancel := dbCtx()
+			werr := store.SetExecutionWaiting(pauseCtx, exec.ID, string(state))
+			pauseCancel()
+			if werr != nil {
+				return fmt.Errorf("pause: persist waiting state for execution %s: %w", exec.ID, werr)
+			}
+			logger.Info().Str("node_id", node.ID).Str("node_name", node.Name).Msg("execution paused, awaiting resume")
+			return ErrExecutionPaused
+		}
 
 		if execErr != nil {
 			logger.Error().Err(execErr).

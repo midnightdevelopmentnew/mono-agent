@@ -14,8 +14,9 @@ import (
 // stubStore is a no-op WorkflowStore that only records the execution-node rows
 // written during a run, so tests can assert which nodes ran and with what input.
 type stubStore struct {
-	mu    sync.Mutex
-	nodes []*WorkflowExecutionNode
+	mu           sync.Mutex
+	nodes        []*WorkflowExecutionNode
+	waitingState string // captured by SetExecutionWaiting
 }
 
 func (s *stubStore) CreateExecutionNode(ctx context.Context, en *WorkflowExecutionNode) error {
@@ -61,6 +62,13 @@ func (s *stubStore) UpdateCredential(context.Context, *Credential) error { retur
 func (s *stubStore) DeleteCredential(context.Context, string) error      { return nil }
 func (s *stubStore) RecoverStaleExecutions(context.Context) error        { return nil }
 func (s *stubStore) CancelQueuedExecution(context.Context, string) (bool, error) { return false, nil }
+func (s *stubStore) SetExecutionWaiting(_ context.Context, _ string, state string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.waitingState = state
+	return nil
+}
+func (s *stubStore) ListResumableExecutions(context.Context) ([]string, error) { return nil, nil }
 func (s *stubStore) PruneExecutions(context.Context, string, int) error  { return nil }
 func (s *stubStore) RawDB() *sql.DB                                      { return nil }
 
@@ -105,6 +113,91 @@ func TestRunExecution_PartialFailure(t *testing.T) {
 	}
 	if len(pf.Nodes) != 1 || pf.Nodes[0] != "Flaky" {
 		t.Errorf("PartialFailureError.Nodes = %v, want [Flaky]", pf.Nodes)
+	}
+}
+
+// countNode counts its executions and passes items through — used to assert a
+// node does NOT re-run on resume.
+type countNode struct{ count *int }
+
+func (c countNode) Type() string { return "test.count" }
+func (c countNode) Execute(_ context.Context, in NodeInput, _ map[string]interface{}) ([]NodeOutput, error) {
+	*c.count++
+	return []NodeOutput{{Handle: "main", Items: in.Items}}, nil
+}
+
+// gateNode pauses (ErrNodePaused) until *open is true, then passes items through
+// — a stand-in for a Human-in-Loop node awaiting approval.
+type gateNode struct{ open *bool }
+
+func (g gateNode) Type() string { return "test.gate" }
+func (g gateNode) Execute(_ context.Context, in NodeInput, _ map[string]interface{}) ([]NodeOutput, error) {
+	if !*g.open {
+		return nil, ErrNodePaused
+	}
+	return []NodeOutput{{Handle: "main", Items: in.Items}}, nil
+}
+
+// TestRunExecution_PauseAndResume verifies the HIL restart-resume core: a node
+// pausing suspends the run (ErrExecutionPaused) with captured state, and on
+// resume the pre-pause node does NOT re-execute while the post-pause node runs.
+func TestRunExecution_PauseAndResume(t *testing.T) {
+	preCount, postCount := 0, 0
+	gateOpen := false
+
+	reg := NewNodeTypeRegistry()
+	reg.Register("test.count.pre", func() NodeExecutor { return countNode{&preCount} })
+	reg.Register("test.gate", func() NodeExecutor { return gateNode{&gateOpen} })
+	reg.Register("test.count.post", func() NodeExecutor { return countNode{&postCount} })
+
+	wf := &Workflow{
+		ID:   "wf-pr",
+		Name: "pause-resume",
+		Nodes: []WorkflowNode{
+			{ID: "t", WorkflowID: "wf-pr", Type: "trigger.manual", Name: "T"},
+			{ID: "pre", WorkflowID: "wf-pr", Type: "test.count.pre", Name: "Pre"},
+			{ID: "gate", WorkflowID: "wf-pr", Type: "test.gate", Name: "Gate"},
+			{ID: "post", WorkflowID: "wf-pr", Type: "test.count.post", Name: "Post"},
+		},
+		Connections: []WorkflowConnection{
+			{SourceNodeID: "t", SourceHandle: "main", TargetNodeID: "pre", TargetHandle: "main"},
+			{SourceNodeID: "pre", SourceHandle: "main", TargetNodeID: "gate", TargetHandle: "main"},
+			{SourceNodeID: "gate", SourceHandle: "main", TargetNodeID: "post", TargetHandle: "main"},
+		},
+	}
+	dag, err := BuildDAG(wf.Nodes, wf.Connections)
+	if err != nil {
+		t.Fatalf("BuildDAG: %v", err)
+	}
+
+	// First run: gate closed → pause.
+	store := &stubStore{}
+	exec := &WorkflowExecution{ID: "e", WorkflowID: "wf-pr", TriggerNodeID: "t", TriggerData: map[string]interface{}{"x": 1}}
+	err = RunExecution(context.Background(), exec, wf, dag, reg, store, nil, NewExpressionEngine(), zerolog.Nop())
+	if !errors.Is(err, ErrExecutionPaused) {
+		t.Fatalf("first run error = %v, want ErrExecutionPaused", err)
+	}
+	if preCount != 1 {
+		t.Fatalf("pre node ran %d times before pause, want 1", preCount)
+	}
+	if postCount != 0 {
+		t.Fatalf("post node ran %d times before resume, want 0", postCount)
+	}
+	if store.waitingState == "" {
+		t.Fatal("no resume state was captured on pause")
+	}
+
+	// Resume: gate open, seeded with the captured state.
+	gateOpen = true
+	exec2 := &WorkflowExecution{ID: "e", WorkflowID: "wf-pr", TriggerData: map[string]interface{}{"x": 1}, ResumeState: store.waitingState}
+	if err := RunExecution(context.Background(), exec2, wf, dag, reg, store, nil, NewExpressionEngine(), zerolog.Nop()); err != nil {
+		t.Fatalf("resume run error: %v", err)
+	}
+	if preCount != 1 {
+		t.Fatalf("pre node re-ran on resume (count=%d) — side effects would double", preCount)
+	}
+	if postCount != 1 {
+		t.Fatalf("post node ran %d times after resume, want 1", postCount)
 	}
 }
 

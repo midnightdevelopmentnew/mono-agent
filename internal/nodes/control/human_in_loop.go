@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"monoagent/internal/vault"
@@ -30,9 +29,12 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 		return nil, fmt.Errorf("human_in_loop: database not available in context")
 	}
 
-	readonlyFields := stringsFromConfig(config, "readonly_fields")
-	editableFields := stringsFromConfig(config, "editable_fields")
+	profileID := vault.ProfileIDFromContext(ctx)
+	if profileID == "" {
+		profileID = "default"
+	}
 
+	// Optional timeout: pending items older than this are auto-rejected.
 	timeoutMinutes := 0.0
 	if v, ok := config["timeout_minutes"]; ok {
 		switch t := v.(type) {
@@ -43,113 +45,120 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 		}
 	}
 
-	// Yield our concurrency slot back to the engine for the whole wait so
-	// pending approvals don't starve other executions. Reacquired before we
-	// return so any downstream nodes still respect the concurrency bound.
-	slot, hasSlot := workflow.SlotFromContext(ctx)
-	if hasSlot {
-		slot.Release()
+	// Non-blocking: on first encounter, create one pending row per input item
+	// and pause the execution (ErrNodePaused) — the engine persists resume state
+	// and suspends without holding a goroutine. On resume, this node re-runs and
+	// evaluates the (now possibly resolved) rows. Idempotent by (execution,
+	// node): duplicate rows are never created.
+	existing, err := loadHILRows(ctx, db, input.ExecutionID, input.NodeID)
+	if err != nil {
+		return nil, err
 	}
 
-	// Process each input item — create a separate HIL record per item.
-	// Items flow out in order after each is approved.
-	var approvedItems []workflow.Item
+	if len(existing) == 0 {
+		if err := n.createRows(ctx, db, input, config, profileID); err != nil {
+			return nil, err
+		}
+		return nil, workflow.ErrNodePaused
+	}
 
+	// Expire stale pending rows if a timeout is configured, then re-read.
+	if timeoutMinutes > 0 {
+		_, _ = db.ExecContext(ctx,
+			`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP
+			 WHERE execution_id=? AND node_id=? AND status='pending' AND created_at < datetime('now', ?)`,
+			input.ExecutionID, input.NodeID, fmt.Sprintf("-%d minutes", int(timeoutMinutes)))
+		if existing, err = loadHILRows(ctx, db, input.ExecutionID, input.NodeID); err != nil {
+			return nil, err
+		}
+	}
+
+	anyPending, anyRejected := false, false
+	for _, r := range existing {
+		switch r.status {
+		case "pending":
+			anyPending = true
+		case "rejected":
+			anyRejected = true
+		}
+	}
+	if anyRejected {
+		return nil, fmt.Errorf("human_in_loop: item rejected by human reviewer")
+	}
+	if anyPending {
+		return nil, workflow.ErrNodePaused // still awaiting approval
+	}
+
+	// All approved — emit each input item with its row's edited_data applied.
+	// Rows are ordered by insertion, matching the input item order.
+	var approvedItems []workflow.Item
+	for i, item := range input.Items {
+		out := copyMap(item.JSON)
+		if i < len(existing) {
+			for k, v := range existing[i].edited {
+				out[k] = v
+			}
+		}
+		approvedItems = append(approvedItems, workflow.NewItem(out))
+	}
+	return []workflow.NodeOutput{{Handle: "main", Items: approvedItems}}, nil
+}
+
+type hilRow struct {
+	status string
+	edited map[string]interface{}
+}
+
+// loadHILRows returns the HIL rows for one (execution, node) in insertion order.
+func loadHILRows(ctx context.Context, db *sql.DB, executionID, nodeID string) ([]hilRow, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT status, edited_data FROM hil_pending WHERE execution_id=? AND node_id=? ORDER BY rowid`,
+		executionID, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("human_in_loop: load rows: %w", err)
+	}
+	defer rows.Close()
+	var out []hilRow
+	for rows.Next() {
+		var status, editedRaw string
+		if err := rows.Scan(&status, &editedRaw); err != nil {
+			return nil, fmt.Errorf("human_in_loop: scan row: %w", err)
+		}
+		r := hilRow{status: status}
+		if editedRaw != "" && editedRaw != "{}" {
+			_ = json.Unmarshal([]byte(editedRaw), &r.edited)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// createRows inserts one pending HIL row per input item.
+func (n *HumanInLoopNode) createRows(ctx context.Context, db *sql.DB, input workflow.NodeInput, config map[string]interface{}, profileID string) error {
+	readonlyFields := stringsFromConfig(config, "readonly_fields")
+	editableFields := stringsFromConfig(config, "editable_fields")
+	configJSON, _ := json.Marshal(map[string]interface{}{
+		"readonly_fields": readonlyFields,
+		"editable_fields": editableFields,
+	})
 	for _, item := range input.Items {
 		roData := extractFields(item.JSON, readonlyFields)
 		edData := extractFields(item.JSON, editableFields)
-
-		// If no specific fields configured, put everything in editable.
 		if len(readonlyFields) == 0 && len(editableFields) == 0 {
 			edData = copyMap(item.JSON)
 		}
-
-		configJSON, _ := json.Marshal(map[string]interface{}{
-			"readonly_fields": readonlyFields,
-			"editable_fields": editableFields,
-		})
 		roJSON, _ := json.Marshal(roData)
 		edJSON, _ := json.Marshal(edData)
-
-		profileID := vault.ProfileIDFromContext(ctx)
-		if profileID == "" {
-			profileID = "default"
-		}
-
-		id := uuid.New().String()
-		_, err := db.ExecContext(ctx,
+		if _, err := db.ExecContext(ctx,
 			`INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, readonly_data, editable_data, edited_data, node_config, profile_id)
 			 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, '{}', ?, ?)`,
-			id, input.ExecutionID, input.WorkflowID, input.NodeID, input.NodeName,
+			uuid.New().String(), input.ExecutionID, input.WorkflowID, input.NodeID, input.NodeName,
 			string(roJSON), string(edJSON), string(configJSON), profileID,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("human_in_loop: insert pending record: %w", err)
-		}
-
-		// Set up optional timeout.
-		var timeoutCh <-chan time.Time
-		if timeoutMinutes > 0 {
-			timeoutCh = time.After(time.Duration(timeoutMinutes * float64(time.Minute)))
-		}
-
-		// Poll until the record is approved or rejected.
-		approved, err := waitForHILDecision(ctx, db, id, item.JSON, timeoutCh)
-		if err != nil {
-			return nil, err
-		}
-		approvedItems = append(approvedItems, workflow.NewItem(approved))
-	}
-
-	// Reacquire the slot before handing control back so downstream nodes run
-	// under the concurrency bound. (Error paths above return without
-	// reacquiring — the execution ends there and the engine reclaims the slot.)
-	if hasSlot {
-		if err := slot.Acquire(ctx); err != nil {
-			return nil, err
+		); err != nil {
+			return fmt.Errorf("human_in_loop: insert pending record: %w", err)
 		}
 	}
-
-	return []workflow.NodeOutput{
-		{Handle: "main", Items: approvedItems},
-	}, nil
-}
-
-func waitForHILDecision(ctx context.Context, db *sql.DB, id string, original map[string]interface{}, timeoutCh <-chan time.Time) (map[string]interface{}, error) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			db.ExecContext(context.Background(), //nolint:errcheck
-				`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
-			return nil, workflow.ErrExecutionCancelled
-		case <-timeoutCh:
-			db.ExecContext(context.Background(), //nolint:errcheck
-				`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE id=?`, id)
-			return nil, fmt.Errorf("human_in_loop: timed out waiting for human approval")
-		case <-ticker.C:
-			var status, editedRaw string
-			if err := db.QueryRowContext(ctx, `SELECT status, edited_data FROM hil_pending WHERE id=?`, id).Scan(&status, &editedRaw); err != nil {
-				continue
-			}
-			switch status {
-			case "approved":
-				out := copyMap(original)
-				if editedRaw != "" && editedRaw != "{}" {
-					var edited map[string]interface{}
-					if json.Unmarshal([]byte(editedRaw), &edited) == nil {
-						for k, v := range edited {
-							out[k] = v
-						}
-					}
-				}
-				return out, nil
-			case "rejected":
-				return nil, fmt.Errorf("human_in_loop: item rejected by human reviewer")
-			}
-		}
-	}
+	return nil
 }
 
 func stringsFromConfig(config map[string]interface{}, key string) []string {

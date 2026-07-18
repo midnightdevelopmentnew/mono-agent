@@ -31,4 +31,11 @@ var (
 	ErrExecutionCancelled = errors.New("workflow: execution was cancelled")
 	ErrExecutionTimeout   = errors.New("workflow: execution timed out")
 	ErrTriggerActive      = errors.New("workflow: trigger already active for this workflow")
+
+	// ErrNodePaused is returned by a node (e.g. Human-in-Loop) to suspend the
+	// execution until an external event (an approval) lets it resume, without
+	// holding a goroutine. RunExecution serializes its state and returns
+	// ErrExecutionPaused; the engine marks the execution WAITING.
+	ErrNodePaused      = errors.New("workflow: node paused, awaiting resume")
+	ErrExecutionPaused = errors.New("workflow: execution paused, awaiting resume")
 )
