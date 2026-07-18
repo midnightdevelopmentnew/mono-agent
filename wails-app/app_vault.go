@@ -29,7 +29,7 @@ func (a *App) GetVaultImages(limit int) ([]map[string]interface{}, error) {
 		       COALESCE(workflow_id,'') as workflow_id,
 		       COALESCE(execution_id,'') as execution_id,
 		       COALESCE(label,'') as label, created_at
-		FROM vault_images WHERE COALESCE(profile_id,'default') = ? ORDER BY seq DESC LIMIT ?`, a.getActiveProfileID(), limit)
+		FROM vault_images WHERE profile_id = ? ORDER BY seq DESC LIMIT ?`, a.getActiveProfileID(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (a *App) GetVaultImage(id string) (map[string]interface{}, error) {
 		       COALESCE(workflow_id,'') as workflow_id,
 		       COALESCE(execution_id,'') as execution_id,
 		       COALESCE(label,'') as label, created_at
-		FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID()).
+		FROM vault_images WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID()).
 		Scan(&imgID, &seq, &path, &filename, &sizeBytes, &source, &workflowID, &executionID, &label, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("vault image %q not found: %w", id, err)
@@ -120,7 +120,7 @@ func (a *App) GetVaultImageData(id string) (string, error) {
 		return "", fmt.Errorf("database not available")
 	}
 	var path string
-	err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID()).Scan(&path)
+	err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID()).Scan(&path)
 	if err != nil {
 		return "", fmt.Errorf("vault image %q not found: %w", id, err)
 	}
@@ -150,7 +150,7 @@ func (a *App) AddVaultImage(srcPath, label string) (map[string]interface{}, erro
 		return nil, fmt.Errorf("vault register: %w", err)
 	}
 	if label != "" {
-		_, _ = a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?`, label, id, a.getActiveProfileID())
+		_, _ = a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ? AND profile_id = ?`, label, id, a.getActiveProfileID())
 	}
 	return a.GetVaultImage(id)
 }
@@ -176,7 +176,7 @@ func (a *App) SaveVaultImageToFile(id, suggestedName string) string {
 		return "error: database not available"
 	}
 	var srcPath string
-	err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID()).Scan(&srcPath)
+	err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID()).Scan(&srcPath)
 	if err != nil {
 		return "error: image not found"
 	}
@@ -214,7 +214,7 @@ func (a *App) UpdateVaultImageLabel(id, label string) error {
 	if label != "" {
 		nullLabel = label
 	}
-	res, err := a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?`, nullLabel, id, a.getActiveProfileID())
+	res, err := a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ? AND profile_id = ?`, nullLabel, id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -229,10 +229,10 @@ func (a *App) DeleteVaultImage(id string) error {
 		return fmt.Errorf("database not available")
 	}
 	var path string
-	if err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID()).Scan(&path); err != nil {
+	if err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID()).Scan(&path); err != nil {
 		return fmt.Errorf("vault image %q not found: %w", id, err)
 	}
-	if _, err := a.db.Exec(`DELETE FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID()); err != nil {
+	if _, err := a.db.Exec(`DELETE FROM vault_images WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID()); err != nil {
 		return fmt.Errorf("delete record: %w", err)
 	}
 	_ = os.Remove(path) // best-effort
@@ -251,7 +251,7 @@ func (a *App) SearchVaultImages(query string) ([]map[string]interface{}, error) 
 		       COALESCE(execution_id,'') as execution_id,
 		       COALESCE(label,'') as label, created_at
 		FROM vault_images
-		WHERE COALESCE(profile_id,'default') = ? AND (label LIKE ? ESCAPE '\' OR filename LIKE ? ESCAPE '\' OR source LIKE ? ESCAPE '\' OR workflow_id LIKE ? ESCAPE '\')
+		WHERE profile_id = ? AND (label LIKE ? ESCAPE '\' OR filename LIKE ? ESCAPE '\' OR source LIKE ? ESCAPE '\' OR workflow_id LIKE ? ESCAPE '\')
 		ORDER BY seq DESC LIMIT 100`, a.getActiveProfileID(), q, q, q, q)
 	if err != nil {
 		return nil, err
@@ -287,7 +287,7 @@ func (a *App) GetVaultStats() (map[string]interface{}, error) {
 	}
 	var count int
 	var totalBytes int64
-	err := a.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(size_bytes),0) FROM vault_images WHERE COALESCE(profile_id,'default') = ?`, a.getActiveProfileID()).
+	err := a.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(size_bytes),0) FROM vault_images WHERE profile_id = ?`, a.getActiveProfileID()).
 		Scan(&count, &totalBytes)
 	if err != nil {
 		return nil, err

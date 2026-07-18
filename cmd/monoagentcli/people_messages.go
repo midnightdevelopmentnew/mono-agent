@@ -442,7 +442,7 @@ func newPeopleMessagesComposeCmd(cfg *globalConfig) *cobra.Command {
 
 			var toAddr string
 			if err := db.DB.QueryRow(
-				`SELECT platform_username FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+				`SELECT platform_username FROM people WHERE id = ? AND profile_id = ?`,
 				args[0], cfg.ProfileID,
 			).Scan(&toAddr); err != nil {
 				return fmt.Errorf("person %s not found in profile %s: %w", args[0], cfg.ProfileID, err)
@@ -803,7 +803,7 @@ func assertMessageInProfile(db *sql.DB, msgID, profileID string) error {
 		profileID = "default"
 	}
 	var owner string
-	err := db.QueryRow("SELECT COALESCE(profile_id,'default') FROM person_messages WHERE id = ?", msgID).Scan(&owner)
+	err := db.QueryRow("SELECT profile_id FROM person_messages WHERE id = ?", msgID).Scan(&owner)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("message %s not found", msgID)
 	}

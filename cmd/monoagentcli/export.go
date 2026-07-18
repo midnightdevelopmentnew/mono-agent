@@ -81,7 +81,7 @@ func exportPeopleData(db *storage.Database, outputDir, profileID string) (int, e
 		        following_count, COALESCE(introduction,''), is_verified,
 		        COALESCE(category,''), COALESCE(job_title,''),
 		        created_at, updated_at
-		 FROM people WHERE COALESCE(profile_id,'default') = ?
+		 FROM people WHERE profile_id = ?
 		 ORDER BY created_at DESC`,
 		profileID,
 	)
@@ -140,7 +140,7 @@ func exportActionsData(db *storage.Database, outputDir, profileID string) (int, 
 		        COALESCE(execution_interval,0), COALESCE(start_date,''),
 		        COALESCE(end_date,''), COALESCE(campaign_id,''),
 		        reached_index, COALESCE(keywords,''), action_execution_count
-		 FROM actions WHERE COALESCE(profile_id,'default') = ?
+		 FROM actions WHERE profile_id = ?
 		 ORDER BY position ASC, created_at DESC`,
 		profileID,
 	)

@@ -55,7 +55,7 @@ func newPeopleListCmd(cfg *globalConfig) *cobra.Command {
 			query := `SELECT id, platform_username, platform, COALESCE(full_name,''),
 			                 COALESCE(follower_count,''), COALESCE(following_count,0), is_verified,
 			                 COALESCE(category,''), COALESCE(job_title,'')
-			          FROM people WHERE COALESCE(profile_id,'default') = ?`
+			          FROM people WHERE profile_id = ?`
 			var params []interface{}
 			params = append(params, cfg.ProfileID)
 
@@ -178,7 +178,7 @@ func newPeopleGetCmd(cfg *globalConfig) *cobra.Command {
 				        following_count, introduction, is_verified,
 				        category, job_title,
 				        created_at, updated_at
-				 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personID, cfg.ProfileID,
+				 FROM people WHERE id = ? AND profile_id = ?`, personID, cfg.ProfileID,
 			).Scan(
 				&p.ID, &p.PlatformUsername, &p.Platform, &fullName,
 				&imageURL, &contactDetails, &website, &p.ContentCount,
@@ -259,7 +259,7 @@ func newPeopleDeleteCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			result, err := db.DB.Exec("DELETE FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?", personID, cfg.ProfileID)
+			result, err := db.DB.Exec("DELETE FROM people WHERE id = ? AND profile_id = ?", personID, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("deleting person: %w", err)
 			}

@@ -50,7 +50,7 @@ func newActionListCmd(cfg *globalConfig) *cobra.Command {
 
 			rows, err := db.DB.Query(
 				`SELECT id, created_at, title, type, state, target_platform, created_at_ts
-				 FROM actions WHERE COALESCE(profile_id,'default') = ?
+				 FROM actions WHERE profile_id = ?
 				 ORDER BY position ASC, created_at DESC`,
 				cfg.ProfileID,
 			)
@@ -354,7 +354,7 @@ func newActionPauseCmd(cfg *globalConfig) *cobra.Command {
 
 			// Verify action exists and belongs to the active profile.
 			var currentState string
-			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&currentState)
+			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ? AND profile_id = ?", actionID, cfg.ProfileID).Scan(&currentState)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -363,7 +363,7 @@ func newActionPauseCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			_, err = db.DB.Exec(
-				"UPDATE actions SET state = 'PAUSED', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+				"UPDATE actions SET state = 'PAUSED', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND profile_id = ?",
 				actionID, cfg.ProfileID,
 			)
 			if err != nil {
@@ -392,7 +392,7 @@ func newActionResumeCmd(cfg *globalConfig) *cobra.Command {
 
 			// Verify action exists and belongs to the active profile.
 			var currentState string
-			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&currentState)
+			err = db.DB.QueryRow("SELECT state FROM actions WHERE id = ? AND profile_id = ?", actionID, cfg.ProfileID).Scan(&currentState)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -401,7 +401,7 @@ func newActionResumeCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			_, err = db.DB.Exec(
-				"UPDATE actions SET state = 'PENDING', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+				"UPDATE actions SET state = 'PENDING', updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND profile_id = ?",
 				actionID, cfg.ProfileID,
 			)
 			if err != nil {
@@ -430,7 +430,7 @@ func newActionDeleteCmd(cfg *globalConfig) *cobra.Command {
 
 			// Verify action exists and belongs to the active profile.
 			var existingID string
-			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID).Scan(&existingID)
+			err = db.DB.QueryRow("SELECT id FROM actions WHERE id = ? AND profile_id = ?", actionID, cfg.ProfileID).Scan(&existingID)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("action %q not found", actionID)
 			}
@@ -445,7 +445,7 @@ func newActionDeleteCmd(cfg *globalConfig) *cobra.Command {
 			}
 			targetCount, _ := targetResult.RowsAffected()
 
-			result, err := db.DB.Exec("DELETE FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", actionID, cfg.ProfileID)
+			result, err := db.DB.Exec("DELETE FROM actions WHERE id = ? AND profile_id = ?", actionID, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("deleting action: %w", err)
 			}

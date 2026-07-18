@@ -242,11 +242,11 @@ func (a *App) GetDashboardStats() DashboardStats {
 		return stats
 	}
 
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM crawler_sessions WHERE expiry > datetime('now') AND COALESCE(profile_id,'default') = ?", a.getActiveProfileID()).Scan(&stats.ActiveSessions)
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM people WHERE COALESCE(profile_id,'default') = ?", a.getActiveProfileID()).Scan(&stats.TotalPeople)
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM social_lists WHERE COALESCE(profile_id,'default') = ?", a.getActiveProfileID()).Scan(&stats.TotalLists)
+	_ = a.db.QueryRow("SELECT COUNT(*) FROM crawler_sessions WHERE expiry > datetime('now') AND profile_id = ?", a.getActiveProfileID()).Scan(&stats.ActiveSessions)
+	_ = a.db.QueryRow("SELECT COUNT(*) FROM people WHERE profile_id = ?", a.getActiveProfileID()).Scan(&stats.TotalPeople)
+	_ = a.db.QueryRow("SELECT COUNT(*) FROM social_lists WHERE profile_id = ?", a.getActiveProfileID()).Scan(&stats.TotalLists)
 
-	rows, _ := a.db.Query("SELECT state, COUNT(*) FROM actions WHERE COALESCE(profile_id,'default') = ? GROUP BY state", a.getActiveProfileID())
+	rows, _ := a.db.Query("SELECT state, COUNT(*) FROM actions WHERE profile_id = ? GROUP BY state", a.getActiveProfileID())
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -260,7 +260,7 @@ func (a *App) GetDashboardStats() DashboardStats {
 	}
 
 	sessionRows, _ := a.db.Query(`SELECT platform, username, expiry, (expiry > datetime('now')) as active
-	                               FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform`, a.getActiveProfileID())
+	                               FROM crawler_sessions WHERE profile_id = ? ORDER BY platform`, a.getActiveProfileID())
 	if sessionRows != nil {
 		defer sessionRows.Close()
 		for sessionRows.Next() {
@@ -305,7 +305,7 @@ func (a *App) GetActions(platform, state string, limit int) []ActionInfo {
 	                 COALESCE(keywords,''), COALESCE(content_message,''),
 	                 reached_index, action_execution_count,
 	                 COALESCE(created_at_ts,''), COALESCE(updated_at_ts,'')
-	          FROM actions WHERE COALESCE(profile_id,'default') = ?`
+	          FROM actions WHERE profile_id = ?`
 	var args []interface{}
 	args = append(args, a.getActiveProfileID())
 
@@ -350,7 +350,7 @@ func (a *App) GetAction(id string) *ActionInfo {
 	                             reached_index, action_execution_count,
 	                             COALESCE(created_at_ts,''), COALESCE(updated_at_ts,''),
 	                             COALESCE(params,'{}')
-	                      FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID())
+	                      FROM actions WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID())
 	var act ActionInfo
 	var paramsJSON string
 	if row.Scan(&act.ID, &act.Title, &act.Type, &act.State, &act.Platform,
@@ -413,7 +413,7 @@ func (a *App) UpdateActionState(id, state string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	res, err := a.db.Exec("UPDATE actions SET state = ?, updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+	res, err := a.db.Exec("UPDATE actions SET state = ?, updated_at_ts = ? WHERE id = ? AND profile_id = ?",
 		strings.ToUpper(state), time.Now().Format(time.RFC3339), id, a.getActiveProfileID())
 	if err != nil {
 		return err
@@ -434,7 +434,7 @@ func (a *App) UpdateActionParams(id string, params map[string]interface{}) error
 			paramsJSON = string(b)
 		}
 	}
-	res, err := a.db.Exec("UPDATE actions SET params = ?, updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+	res, err := a.db.Exec("UPDATE actions SET params = ?, updated_at_ts = ? WHERE id = ? AND profile_id = ?",
 		paramsJSON, time.Now().Format(time.RFC3339), id, a.getActiveProfileID())
 	if err != nil {
 		return err
@@ -449,7 +449,7 @@ func (a *App) DeleteAction(id string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	res, err := a.db.Exec("DELETE FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.getActiveProfileID())
+	res, err := a.db.Exec("DELETE FROM actions WHERE id = ? AND profile_id = ?", id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -480,7 +480,7 @@ func (a *App) GetActionTargets(actionID string) []TargetInfo {
 	rows, err := a.db.Query(`SELECT action_targets.id, action_id, platform, COALESCE(link,''), status, COALESCE(action_targets.created_at,'')
 	                          FROM action_targets
 	                          JOIN actions ON action_targets.action_id = actions.id
-	                          WHERE action_id = ? AND COALESCE(actions.profile_id,'default') = ?
+	                          WHERE action_id = ? AND actions.profile_id = ?
 	                          ORDER BY action_targets.created_at DESC`, actionID, a.getActiveProfileID())
 	if err != nil {
 		return nil
@@ -501,7 +501,7 @@ func (a *App) AddActionTarget(actionID, link, platform string) error {
 		return fmt.Errorf("database not available")
 	}
 	var exists int
-	if err := a.db.QueryRow(`SELECT 1 FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, actionID, a.getActiveProfileID()).Scan(&exists); err != nil {
+	if err := a.db.QueryRow(`SELECT 1 FROM actions WHERE id = ? AND profile_id = ?`, actionID, a.getActiveProfileID()).Scan(&exists); err != nil {
 		return fmt.Errorf("action %s not found", actionID)
 	}
 	id := newUUID()
@@ -525,7 +525,7 @@ func (a *App) GetAllTags() []TagInfo {
 	if a.db == nil {
 		return nil
 	}
-	rows, err := a.db.Query(`SELECT id, name, color FROM tags WHERE COALESCE(profile_id,'default') = ? ORDER BY name COLLATE NOCASE`, a.getActiveProfileID())
+	rows, err := a.db.Query(`SELECT id, name, color FROM tags WHERE profile_id = ? ORDER BY name COLLATE NOCASE`, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -550,7 +550,7 @@ func (a *App) GetPersonTags(personId string) []TagInfo {
 		FROM tags t
 		JOIN people_tags pt ON pt.tag_id = t.id
 		JOIN people p ON pt.person_id = p.id
-		WHERE pt.person_id = ? AND COALESCE(t.profile_id,'default') = ? AND COALESCE(p.profile_id,'default') = ?
+		WHERE pt.person_id = ? AND t.profile_id = ? AND p.profile_id = ?
 		ORDER BY t.name COLLATE NOCASE`, personId, a.getActiveProfileID(), a.getActiveProfileID())
 	if err != nil {
 		return nil
@@ -578,7 +578,7 @@ func (a *App) AddPersonTag(personId, tagName, color string) *TagInfo {
 	}
 
 	var personExists int
-	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.getActiveProfileID()).Scan(&personExists); err != nil {
+	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND profile_id = ?`, personId, a.getActiveProfileID()).Scan(&personExists); err != nil {
 		return nil
 	}
 
@@ -597,7 +597,7 @@ func (a *App) AddPersonTag(personId, tagName, color string) *TagInfo {
 
 	// Find or create the tag within the active profile.
 	var tagId, tagColor string
-	err = tx.QueryRow(`SELECT id, color FROM tags WHERE LOWER(name) = LOWER(?) AND COALESCE(profile_id,'default') = ?`, tagName, a.getActiveProfileID()).Scan(&tagId, &tagColor)
+	err = tx.QueryRow(`SELECT id, color FROM tags WHERE LOWER(name) = LOWER(?) AND profile_id = ?`, tagName, a.getActiveProfileID()).Scan(&tagId, &tagColor)
 	if err != nil {
 		// Create new tag scoped to the active profile.
 		tagId = newUUID()
@@ -627,7 +627,7 @@ func (a *App) RemovePersonTag(personId, tagId string) {
 		return
 	}
 	var exists int
-	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.getActiveProfileID()).Scan(&exists); err != nil {
+	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND profile_id = ?`, personId, a.getActiveProfileID()).Scan(&exists); err != nil {
 		return
 	}
 	_, _ = a.db.Exec(`DELETE FROM people_tags WHERE person_id = ? AND tag_id = ?`, personId, tagId)
@@ -653,7 +653,7 @@ func (a *App) GetPeopleTagsMap(personIds []string) map[string][]TagInfo {
 		FROM people_tags pt
 		JOIN tags t ON t.id = pt.tag_id
 		JOIN people p ON pt.person_id = p.id
-		WHERE pt.person_id IN (%s) AND COALESCE(t.profile_id,'default') = ? AND COALESCE(p.profile_id,'default') = ?
+		WHERE pt.person_id IN (%s) AND t.profile_id = ? AND p.profile_id = ?
 		ORDER BY t.name COLLATE NOCASE`, strings.Join(placeholders, ","))
 
 	rows, err := a.db.Query(query, args...)
@@ -692,7 +692,7 @@ func (a *App) GetSessions() []SessionInfo {
 	}
 	rows, err := a.db.Query(`SELECT id, username, platform, expiry, when_added,
 	                                (expiry > datetime('now')) as active
-	                          FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform, username`, a.getActiveProfileID())
+	                          FROM crawler_sessions WHERE profile_id = ? ORDER BY platform, username`, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -718,7 +718,7 @@ func (a *App) TestSession(id int) string {
 	var activeInt int
 	err := a.db.QueryRow(
 		`SELECT platform, cookies_json, (expiry > datetime('now')) as active
-		 FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID(),
+		 FROM crawler_sessions WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID(),
 	).Scan(&platform, &cookiesJSON, &activeInt)
 	if err != nil {
 		return "error: session not found"
@@ -736,7 +736,7 @@ func (a *App) DeleteSession(id int) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	res, err := a.db.Exec("DELETE FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.getActiveProfileID())
+	res, err := a.db.Exec("DELETE FROM crawler_sessions WHERE id = ? AND profile_id = ?", id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -764,7 +764,7 @@ func (a *App) GetSocialLists() []SocialListInfo {
 		return nil
 	}
 	rows, err := a.db.Query(`SELECT id, name, COALESCE(list_type,''), item_count, COALESCE(created_at,'')
-	                          FROM social_lists WHERE COALESCE(profile_id,'default') = ? ORDER BY created_at DESC`, a.getActiveProfileID())
+	                          FROM social_lists WHERE profile_id = ? ORDER BY created_at DESC`, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -877,7 +877,7 @@ func (a *App) ExecuteAction(id string) error {
 		return err
 	}
 
-	if _, err := a.db.Exec("UPDATE actions SET state = 'RUNNING', updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+	if _, err := a.db.Exec("UPDATE actions SET state = 'RUNNING', updated_at_ts = ? WHERE id = ? AND profile_id = ?",
 		time.Now().Format(time.RFC3339), id, a.getActiveProfileID()); err != nil {
 		a.emitLog("RUNNER", "WARN", fmt.Sprintf("failed to mark action %s RUNNING: %v", id, err))
 	}
@@ -1291,7 +1291,7 @@ func (a *App) ListWorkflows() ([]WorkflowSummary, error) {
 	rows, err := a.db.Query(`SELECT id, name, COALESCE(description,''), is_active, version,
 	                                 COALESCE(created_at,''), COALESCE(updated_at,'')
 	                          FROM workflows
-	                          WHERE COALESCE(profile_id,'default') = ?
+	                          WHERE profile_id = ?
 	                          ORDER BY updated_at DESC`, a.getActiveProfileID())
 	if err != nil {
 		return nil, err
@@ -1327,7 +1327,7 @@ func (a *App) GetWorkflow(id string) (*WorkflowDetail, error) {
 	// Verify caller owns this workflow.
 	if a.db != nil {
 		var wfProfile string
-		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
+		_ = a.db.QueryRow(`SELECT profile_id FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
 		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return nil, fmt.Errorf("workflow %s not found", id)
 		}
@@ -1341,7 +1341,7 @@ func (a *App) SaveWorkflow(req SaveWorkflowRequest) (*WorkflowSummary, error) {
 	}
 	if a.db != nil && req.ID != "" {
 		var wfProfile string
-		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, req.ID).Scan(&wfProfile)
+		_ = a.db.QueryRow(`SELECT profile_id FROM workflows WHERE id = ?`, req.ID).Scan(&wfProfile)
 		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return nil, fmt.Errorf("workflow %s not found", req.ID)
 		}
@@ -1407,7 +1407,7 @@ func (a *App) DeleteWorkflow(id string) error {
 	}
 	if a.db != nil {
 		var wfProfile string
-		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
+		_ = a.db.QueryRow(`SELECT profile_id FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
 		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return fmt.Errorf("workflow %s not found", id)
 		}
@@ -1426,7 +1426,7 @@ func (a *App) SetWorkflowActive(id string, active bool) error {
 	ctx := context.Background()
 	if a.db != nil {
 		var wfProfile string
-		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
+		_ = a.db.QueryRow(`SELECT profile_id FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
 		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return fmt.Errorf("workflow %s not found", id)
 		}
@@ -1453,7 +1453,7 @@ func (a *App) RunWorkflow(id string) error {
 
 	// Ensure workflow is active so the engine doesn't reject it.
 	if a.db != nil {
-		_, _ = a.db.Exec("UPDATE workflows SET is_active = 1 WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.getActiveProfileID())
+		_, _ = a.db.Exec("UPDATE workflows SET is_active = 1 WHERE id = ? AND profile_id = ?", id, a.getActiveProfileID())
 	}
 
 	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Starting workflow %s", id))
@@ -1524,7 +1524,7 @@ func (a *App) GetWorkflowExecutions(workflowID string, limit int) ([]WorkflowExe
 	                                 we.created_at
 	                          FROM workflow_executions we
 	                          JOIN workflows w ON w.id = we.workflow_id
-	                          WHERE we.workflow_id = ? AND COALESCE(w.profile_id,'default') = ?
+	                          WHERE we.workflow_id = ? AND w.profile_id = ?
 	                          ORDER BY we.created_at DESC
 	                          LIMIT ?`, workflowID, a.getActiveProfileID(), limit)
 	if err != nil {
@@ -1560,7 +1560,7 @@ func (a *App) GetRecentExecutions(limit int) ([]WorkflowExecutionSummary, error)
 	                                 e.created_at
 	                          FROM workflow_executions e
 	                          LEFT JOIN workflows w ON e.workflow_id = w.id
-	                          WHERE COALESCE(w.profile_id, 'default') = ?
+	                          WHERE w.profile_id = ?
 	                          ORDER BY e.created_at DESC
 	                          LIMIT ?`, a.getActiveProfileID(), limit)
 	if err != nil {
@@ -1595,7 +1595,7 @@ func (a *App) GetExecutionDetail(executionID string) (map[string]interface{}, er
 	                              COALESCE(finished_at,'') as finished_at,
 	                              COALESCE(error_message,'') as error_message,
 	                              created_at
-	                       FROM workflow_executions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID()).
+	                       FROM workflow_executions WHERE id = ? AND profile_id = ?`, executionID, a.getActiveProfileID()).
 		Scan(&execID, &wfID, &status, &triggerType, &startedAt, &finishedAt, &errMsg, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("execution not found: %w", err)
@@ -1664,7 +1664,7 @@ func (a *App) CancelWorkflow(executionID string) error {
 	// profile so one profile cannot resolve (and kill) another's subprocess.
 	var workflowID string
 	var pid int
-	_ = a.db.QueryRow(`SELECT workflow_id, COALESCE(pid,0) FROM workflow_executions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID()).Scan(&workflowID, &pid)
+	_ = a.db.QueryRow(`SELECT workflow_id, COALESCE(pid,0) FROM workflow_executions WHERE id = ? AND profile_id = ?`, executionID, a.getActiveProfileID()).Scan(&workflowID, &pid)
 
 	// Kill the subprocess if tracked by Wails (started via RunWorkflow).
 	a.runningMu.Lock()
@@ -1693,9 +1693,9 @@ func (a *App) CancelWorkflow(executionID string) error {
 	}
 
 	// Mark cancelled in DB — scoped to the active profile for safety.
-	_, _ = a.db.Exec(`UPDATE workflow_executions SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID())
+	_, _ = a.db.Exec(`UPDATE workflow_executions SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND profile_id = ?`, executionID, a.getActiveProfileID())
 	// Reject any pending HIL items for this execution so they don't stay blocked forever.
-	_, _ = a.db.Exec(`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE execution_id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID())
+	_, _ = a.db.Exec(`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE execution_id=? AND status='pending' AND profile_id = ?`, executionID, a.getActiveProfileID())
 	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Execution %s cancelled", executionID))
 	return nil
 }
@@ -1730,7 +1730,7 @@ func (a *App) GetHILItems() ([]HILItem, error) {
 		        COALESCE(w.name, '') AS workflow_name
 		 FROM hil_pending h
 		 LEFT JOIN workflows w ON w.id = h.workflow_id
-		 WHERE h.status = 'pending' AND COALESCE(h.profile_id, 'default') = ?
+		 WHERE h.status = 'pending' AND h.profile_id = ?
 		 ORDER BY h.created_at ASC`,
 		a.getActiveProfileID(),
 	)
@@ -1772,7 +1772,7 @@ func (a *App) ApproveHIL(id string, editedDataJSON string) error {
 		return fmt.Errorf("ApproveHIL: editedDataJSON is not valid JSON: %w", err)
 	}
 	res, err := a.db.Exec(
-		`UPDATE hil_pending SET status='approved', edited_data=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`,
+		`UPDATE hil_pending SET status='approved', edited_data=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND profile_id = ?`,
 		editedDataJSON, id, a.getActiveProfileID(),
 	)
 	if err != nil {
@@ -1791,7 +1791,7 @@ func (a *App) RejectHIL(id string) error {
 		return fmt.Errorf("database not available")
 	}
 	res, err := a.db.Exec(
-		`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`,
+		`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND profile_id = ?`,
 		id, a.getActiveProfileID(),
 	)
 	if err != nil {
@@ -1857,7 +1857,7 @@ func (a *App) SaveCredential(req SaveCredentialRequest) (*CredentialSummary, err
 	} else {
 		credID = req.ID
 		res, err := a.db.Exec(`UPDATE credentials SET name = ?, service_type = ?, encrypted_data = ?, updated_at = ?
-		                      WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+		                      WHERE id = ? AND profile_id = ?`,
 			req.Name, req.ServiceType, dataJSON, now, credID, a.getActiveProfileID())
 		if err != nil {
 			return nil, fmt.Errorf("update credential: %w", err)
@@ -1879,7 +1879,7 @@ func (a *App) DeleteCredential(id string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	res, err := a.db.Exec(`DELETE FROM credentials WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID())
+	res, err := a.db.Exec(`DELETE FROM credentials WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}

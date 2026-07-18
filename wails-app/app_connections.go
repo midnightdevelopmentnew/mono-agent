@@ -182,7 +182,7 @@ func (a *App) TestConnection(id string) string {
 	if a.db != nil {
 		var platform, cookiesJSON, expiry string
 		err := a.db.QueryRow(
-			`SELECT platform, cookies_json, expiry FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID(),
+			`SELECT platform, cookies_json, expiry FROM crawler_sessions WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID(),
 		).Scan(&platform, &cookiesJSON, &expiry)
 		if err == nil {
 			// Check expiry

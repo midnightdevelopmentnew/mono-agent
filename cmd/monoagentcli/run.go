@@ -189,7 +189,7 @@ func loadActionByID(db *storage.Database, id, profileID string) (*storage.Action
 		        scheduled_date, execution_interval, start_date, end_date,
 		        campaign_id, reached_index, keywords, action_execution_count,
 		        COALESCE(params,'{}')
-		 FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID,
+		 FROM actions WHERE id = ? AND profile_id = ?`, id, profileID,
 	)
 
 	var a storage.Action
@@ -249,7 +249,7 @@ func loadPendingActions(db *storage.Database, profileID string) ([]*storage.Acti
 		        scheduled_date, execution_interval, start_date, end_date,
 		        campaign_id, reached_index, keywords, action_execution_count,
 		        COALESCE(params,'{}')
-		 FROM actions WHERE state = 'PENDING' AND disabled = 0 AND COALESCE(profile_id,'default') = ?
+		 FROM actions WHERE state = 'PENDING' AND disabled = 0 AND profile_id = ?
 		 ORDER BY position ASC, created_at ASC`,
 		profileID,
 	)
@@ -350,7 +350,7 @@ type storageAdapter struct {
 
 func (s *storageAdapter) UpdateActionState(id, state string) error {
 	_, err := s.db.DB.Exec(
-		"UPDATE actions SET state = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+		"UPDATE actions SET state = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND profile_id = ?",
 		state, id, s.profileID,
 	)
 	return err
@@ -358,7 +358,7 @@ func (s *storageAdapter) UpdateActionState(id, state string) error {
 
 func (s *storageAdapter) UpdateActionReachedIndex(id string, index int) error {
 	_, err := s.db.DB.Exec(
-		"UPDATE actions SET reached_index = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+		"UPDATE actions SET reached_index = ?, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND profile_id = ?",
 		index, id, s.profileID,
 	)
 	return err
@@ -531,7 +531,7 @@ func launchBrowserPage(cfg *globalConfig, db *storage.Database, platform string)
 	platformLower := strings.ToLower(platform)
 	var cookiesJSON string
 	err = db.DB.QueryRow(
-		"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND COALESCE(profile_id,'default') = ? ORDER BY expiry DESC LIMIT 1",
+		"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND profile_id = ? ORDER BY expiry DESC LIMIT 1",
 		platformLower, cfg.ProfileID,
 	).Scan(&cookiesJSON)
 	if err == nil && cookiesJSON != "" {
@@ -766,7 +766,7 @@ func executeAction(
 
 	// Update final state.
 	if _, err := db.DB.Exec(
-		"UPDATE actions SET state = ?, reached_index = ?, action_execution_count = action_execution_count + 1, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+		"UPDATE actions SET state = ?, reached_index = ?, action_execution_count = action_execution_count + 1, updated_at_ts = CURRENT_TIMESTAMP WHERE id = ? AND profile_id = ?",
 		finalState, extracted+failed, act.ID, cfg.ProfileID,
 	); err != nil {
 		return fmt.Errorf("updating action final state: %w", err)

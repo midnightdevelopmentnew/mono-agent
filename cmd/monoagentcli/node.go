@@ -194,7 +194,7 @@ func (sp *cliSessionProvider) GetPage(ctx context.Context, platform string, user
 	if sp.db != nil {
 		var cookiesJSON string
 		qErr := sp.db.QueryRow(
-			"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND COALESCE(profile_id,'default') = ? ORDER BY expiry DESC LIMIT 1",
+			"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND profile_id = ? ORDER BY expiry DESC LIMIT 1",
 			strings.ToLower(platform), sp.profileID,
 		).Scan(&cookiesJSON)
 		if qErr == nil && cookiesJSON != "" {
@@ -727,7 +727,7 @@ func savePostsToDB(ctx context.Context, db *sql.DB, items []workflow.Item, nodeT
 			}
 			if username != "" {
 				_ = db.QueryRowContext(ctx,
-					"SELECT id FROM people WHERE platform_username = ? AND UPPER(platform) = ? AND COALESCE(profile_id,'default') = ?",
+					"SELECT id FROM people WHERE platform_username = ? AND UPPER(platform) = ? AND profile_id = ?",
 					username, platform, profileID,
 				).Scan(&personID)
 			}

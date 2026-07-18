@@ -66,7 +66,7 @@ func vaultImageHandler(app *App) http.Handler {
 		}
 		var exists int
 		err := app.db.QueryRow(
-			`SELECT 1 FROM vault_images WHERE filename = ? AND COALESCE(profile_id,'default') = ?`,
+			`SELECT 1 FROM vault_images WHERE filename = ? AND profile_id = ?`,
 			name, profileID,
 		).Scan(&exists)
 		if err != nil {

@@ -56,7 +56,7 @@ func newHILListCmd(cfg *globalConfig) *cobra.Command {
 				        h.readonly_data, h.editable_data, h.created_at, COALESCE(w.name,'')
 				 FROM hil_pending h
 				 LEFT JOIN workflows w ON w.id = h.workflow_id
-				 WHERE h.status = 'pending' AND COALESCE(h.profile_id,'default') = ?
+				 WHERE h.status = 'pending' AND h.profile_id = ?
 				 ORDER BY h.created_at ASC`,
 				cfg.ProfileID,
 			)
@@ -142,7 +142,7 @@ func newHILApproveCmd(cfg *globalConfig) *cobra.Command {
 
 			res, err := db.DB.Exec(
 				`UPDATE hil_pending SET status='approved', edited_data=?, updated_at=CURRENT_TIMESTAMP
-				 WHERE id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`,
+				 WHERE id=? AND status='pending' AND profile_id = ?`,
 				editedData, args[0], cfg.ProfileID,
 			)
 			if err != nil {
@@ -177,7 +177,7 @@ func newHILRejectCmd(cfg *globalConfig) *cobra.Command {
 
 			res, err := db.DB.Exec(
 				`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP
-				 WHERE id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`,
+				 WHERE id=? AND status='pending' AND profile_id = ?`,
 				args[0], cfg.ProfileID,
 			)
 			if err != nil {

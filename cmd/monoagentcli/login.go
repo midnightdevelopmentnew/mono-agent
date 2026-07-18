@@ -73,7 +73,7 @@ func saveSession(db *storage.Database, profileID, platform, username string, coo
 	}
 	res, err := db.DB.Exec(
 		`UPDATE crawler_sessions SET cookies_json = ?, expiry = ?
-		 WHERE username = ? AND platform = ? AND COALESCE(profile_id,'default') = ?`,
+		 WHERE username = ? AND platform = ? AND profile_id = ?`,
 		enc, expiry, username, platform, profileID,
 	)
 	if err != nil {
@@ -249,7 +249,7 @@ func newLoginStatusCmd(cfg *globalConfig) *cobra.Command {
 			defer db.Close()
 
 			rows, err := db.DB.Query(
-				`SELECT id, username, platform, expiry, when_added FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform`,
+				`SELECT id, username, platform, expiry, when_added FROM crawler_sessions WHERE profile_id = ? ORDER BY platform`,
 				cfg.ProfileID,
 			)
 			if err != nil {
@@ -332,7 +332,7 @@ func newLogoutCmd(cfg *globalConfig) *cobra.Command {
 			defer db.Close()
 
 			if all {
-				result, err := db.DB.Exec("DELETE FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ?", cfg.ProfileID)
+				result, err := db.DB.Exec("DELETE FROM crawler_sessions WHERE profile_id = ?", cfg.ProfileID)
 				if err != nil {
 					return fmt.Errorf("deleting all sessions: %w", err)
 				}
@@ -346,7 +346,7 @@ func newLogoutCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			platform := strings.ToLower(args[0])
-			result, err := db.DB.Exec("DELETE FROM crawler_sessions WHERE platform = ? AND COALESCE(profile_id,'default') = ?", platform, cfg.ProfileID)
+			result, err := db.DB.Exec("DELETE FROM crawler_sessions WHERE platform = ? AND profile_id = ?", platform, cfg.ProfileID)
 			if err != nil {
 				return fmt.Errorf("deleting session for %s: %w", platform, err)
 			}

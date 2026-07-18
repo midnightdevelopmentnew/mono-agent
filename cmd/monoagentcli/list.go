@@ -46,7 +46,7 @@ func newListLsCmd(cfg *globalConfig) *cobra.Command {
 
 			rows, err := db.DB.Query(
 				`SELECT id, COALESCE(list_type,''), name, item_count, created_at, updated_at
-				 FROM social_lists WHERE COALESCE(profile_id,'default') = ?
+				 FROM social_lists WHERE profile_id = ?
 				 ORDER BY created_at DESC`,
 				cfg.ProfileID,
 			)
@@ -171,7 +171,7 @@ func newListShowCmd(cfg *globalConfig) *cobra.Command {
 			var listName string
 			var itemCount int
 			err = db.DB.QueryRow(
-				"SELECT name, item_count FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID,
+				"SELECT name, item_count FROM social_lists WHERE id = ? AND profile_id = ?", listID, cfg.ProfileID,
 			).Scan(&listName, &itemCount)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("list %q not found", listID)
@@ -268,7 +268,7 @@ func newListDeleteCmd(cfg *globalConfig) *cobra.Command {
 			// deleting anything — social_list_items has no profile_id, so an
 			// unscoped item delete would wipe another profile's list items.
 			var existingID string
-			err = db.DB.QueryRow("SELECT id FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID).Scan(&existingID)
+			err = db.DB.QueryRow("SELECT id FROM social_lists WHERE id = ? AND profile_id = ?", listID, cfg.ProfileID).Scan(&existingID)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("list %q not found", listID)
 			}
@@ -283,7 +283,7 @@ func newListDeleteCmd(cfg *globalConfig) *cobra.Command {
 			}
 			itemCount, _ := itemResult.RowsAffected()
 
-			if _, err := db.DB.Exec("DELETE FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID); err != nil {
+			if _, err := db.DB.Exec("DELETE FROM social_lists WHERE id = ? AND profile_id = ?", listID, cfg.ProfileID); err != nil {
 				return fmt.Errorf("deleting list: %w", err)
 			}
 
@@ -322,7 +322,7 @@ func newListAddItemCmd(cfg *globalConfig) *cobra.Command {
 
 			// Verify list exists and belongs to the active profile.
 			var listName string
-			err = db.DB.QueryRow("SELECT name FROM social_lists WHERE id = ? AND COALESCE(profile_id,'default') = ?", listID, cfg.ProfileID).Scan(&listName)
+			err = db.DB.QueryRow("SELECT name FROM social_lists WHERE id = ? AND profile_id = ?", listID, cfg.ProfileID).Scan(&listName)
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("list %q not found", listID)
 			}

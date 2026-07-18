@@ -106,7 +106,7 @@ func (a *App) GetPeople(platform, search string, limit, offset int) []PersonInfo
 	query := `SELECT id, platform_username, platform, COALESCE(full_name,''), COALESCE(image_url,''),
 	                 COALESCE(profile_url,''), COALESCE(follower_count,''), COALESCE(following_count,0), COALESCE(is_verified,0),
 	                 COALESCE(job_title,''), COALESCE(category,''), COALESCE(created_at,'')
-	          FROM people WHERE COALESCE(profile_id,'default') = ?`
+	          FROM people WHERE profile_id = ?`
 	var args []interface{}
 	args = append(args, a.getActiveProfileID())
 	if platform != "" && platform != "ALL" {
@@ -145,7 +145,7 @@ func (a *App) GetPeopleCount(platform, search string) int {
 	if a.db == nil {
 		return 0
 	}
-	query := "SELECT COUNT(*) FROM people WHERE COALESCE(profile_id,'default') = ?"
+	query := "SELECT COUNT(*) FROM people WHERE profile_id = ?"
 	var args []interface{}
 	args = append(args, a.getActiveProfileID())
 	if platform != "" && platform != "ALL" {
@@ -173,7 +173,7 @@ func (a *App) GetPersonDetail(id string) *PersonDetailInfo {
 		       COALESCE(job_title,''), COALESCE(category,''),
 		       COALESCE(introduction,''), COALESCE(website,''), COALESCE(contact_details,''),
 		       COALESCE(created_at,''), COALESCE(updated_at,'')
-		FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID())
+		FROM people WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID())
 	var p PersonDetailInfo
 	var isVerified int
 	if err := row.Scan(&p.ID, &p.Username, &p.Platform,
@@ -200,7 +200,7 @@ func (a *App) GetPersonInteractions(id string) []PersonInteraction {
 		FROM action_targets at
 		LEFT JOIN actions a ON at.action_id = a.id
 		JOIN people p ON at.person_id = p.id
-		WHERE at.person_id = ? AND COALESCE(p.profile_id,'default') = ?
+		WHERE at.person_id = ? AND p.profile_id = ?
 		ORDER BY COALESCE(at.last_interacted_at, at.created_at) DESC
 		LIMIT 200`, id, a.getActiveProfileID())
 	if err != nil {
@@ -275,7 +275,7 @@ func (a *App) ComposePersonMessage(personID, connectionID, subject, body string,
 	}
 	var toAddr string
 	if err := a.db.QueryRow(
-		`SELECT platform_username FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
+		`SELECT platform_username FROM people WHERE id = ? AND profile_id = ?`,
 		personID, a.getActiveProfileID(),
 	).Scan(&toAddr); err != nil {
 		return nil, fmt.Errorf("person not found: %w", err)
@@ -501,7 +501,7 @@ func (a *App) GetPersonPosts(personID string) []PostSummary {
 			) AS we_commented
 		FROM posts p
 		JOIN people pe ON p.person_id = pe.id
-		WHERE p.person_id = ? AND COALESCE(pe.profile_id,'default') = ?
+		WHERE p.person_id = ? AND pe.profile_id = ?
 		ORDER BY p.scraped_at DESC`,
 		personID, a.getActiveProfileID(),
 	)
@@ -551,7 +551,7 @@ func (a *App) GetPostDetail(postID string) *PostDetail {
 		       scraped_at
 		FROM posts
 		JOIN people ON posts.person_id = people.id
-		WHERE posts.id = ? AND COALESCE(people.profile_id,'default') = ?`,
+		WHERE posts.id = ? AND people.profile_id = ?`,
 		postID, a.getActiveProfileID(),
 	).Scan(
 		&p.ID, &p.Shortcode, &p.URL, &p.ThumbnailURL,
@@ -577,7 +577,7 @@ func (a *App) GetPostComments(postID string) []PostComment {
 		FROM post_comments
 		JOIN posts ON post_comments.post_id = posts.id
 		JOIN people ON posts.person_id = people.id
-		WHERE post_id = ? AND COALESCE(people.profile_id,'default') = ?
+		WHERE post_id = ? AND people.profile_id = ?
 		ORDER BY timestamp ASC`,
 		postID, a.getActiveProfileID(),
 	)
