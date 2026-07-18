@@ -110,7 +110,7 @@ export default function ImageDetailModal({ image, onClose, onDelete, onRename, o
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div style={{
+      <div role="dialog" aria-modal="true" aria-label="Image detail" style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 12,
         padding: 20, width: 420, maxWidth: '90vw',
         display: 'flex', flexDirection: 'column', gap: 14,

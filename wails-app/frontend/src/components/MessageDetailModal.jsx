@@ -31,7 +31,7 @@ export default function MessageDetailModal({ message, personLabel, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div style={{
+      <div role="dialog" aria-modal="true" aria-label="Message detail" style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 12,
         width: 720, maxWidth: '92vw', height: '80vh',
         display: 'flex', flexDirection: 'column',

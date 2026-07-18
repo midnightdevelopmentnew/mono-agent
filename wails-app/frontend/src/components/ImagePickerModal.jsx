@@ -56,7 +56,7 @@ export default function ImagePickerModal({ onSelect, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div style={{
+      <div role="dialog" aria-modal="true" aria-label="Pick an image" style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 10,
         padding: 16, width: 360, maxWidth: '90vw',
         display: 'flex', flexDirection: 'column', gap: 10,

@@ -251,7 +251,7 @@ function SaveModal({ initialName, onConfirm, onClose }) {
       background: 'rgba(2,5,9,0.8)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{
+      <div role="dialog" aria-modal="true" aria-label="Save workflow" style={{
         width: 360,
         background: '#080d16',
         border: '1px solid rgba(0,180,216,0.25)',
@@ -339,7 +339,7 @@ function WorkflowsModal({ currentId, onLoad, onDelete, onClose }) {
       background: 'rgba(2,5,9,0.85)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }} onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{
+      <div role="dialog" aria-modal="true" aria-label="Workflows" style={{
         width: 520, maxHeight: '70vh',
         background: '#080d16',
         border: '1px solid rgba(0,180,216,0.2)',
@@ -372,7 +372,7 @@ function WorkflowsModal({ currentId, onLoad, onDelete, onClose }) {
               </div>
             </>
           )}
-          <button onMouseDown={onClose} style={{ background:'transparent',border:'none',cursor:'pointer',color:'var(--text-muted)',display:'flex' }}><X size={14} /></button>
+          <button onMouseDown={onClose} aria-label="Close" style={{ background:'transparent',border:'none',cursor:'pointer',color:'var(--text-muted)',display:'flex' }}><X size={14} /></button>
         </div>
 
         {/* Body */}
@@ -662,7 +662,7 @@ function Inspector({ node, onConfigChange, onClose, onNavigate }) {
       }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.label}</span>
-        <button onMouseDown={onClose} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}
+        <button onMouseDown={onClose} aria-label="Close inspector" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}
           onMouseEnter={e => e.currentTarget.style.color = '#fff'}
           onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
         ><X size={12} /></button>

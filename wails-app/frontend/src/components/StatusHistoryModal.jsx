@@ -29,7 +29,7 @@ export default function StatusHistoryModal({ personId, onClose }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
-      <div style={{
+      <div role="dialog" aria-modal="true" aria-label="Status history" style={{
         background: '#0d1a26', border: '1px solid #1e3a4f', borderRadius: 12,
         width: 480, maxWidth: '92vw', maxHeight: '80vh',
         display: 'flex', flexDirection: 'column',
