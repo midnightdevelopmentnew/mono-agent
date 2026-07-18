@@ -140,6 +140,11 @@ func buildMySQLQuery(operation, table string, data map[string]interface{}, exist
 	}
 
 	whereClause, _ := config["where"].(string)
+	if whereClause != "" {
+		if err := validateWhereClause(whereClause); err != nil {
+			return "", nil, err
+		}
+	}
 
 	switch operation {
 	case "insert":

@@ -20,6 +20,22 @@ func validateIdentifier(name string) error {
 	return nil
 }
 
+// validateWhereClause rejects a WHERE expression that tries to break out of the
+// single statement it belongs to. The clause is still raw SQL (that flexibility
+// is the point of the node), but a shared or generated workflow must not be able
+// to append a second statement or comment-truncate the query — the escalation
+// vectors that turn a filter into "; DROP TABLE ...". A bare ';' or '--'/'/*'
+// comment sequence is never needed in a legitimate boolean WHERE expression.
+func validateWhereClause(where string) error {
+	if strings.Contains(where, ";") {
+		return fmt.Errorf("where clause may not contain ';' (stacked statements are not allowed)")
+	}
+	if strings.Contains(where, "--") || strings.Contains(where, "/*") || strings.Contains(where, "*/") {
+		return fmt.Errorf("where clause may not contain SQL comment sequences")
+	}
+	return nil
+}
+
 // PostgresNode executes PostgreSQL queries.
 // Type: "db.postgres"
 type PostgresNode struct{}
@@ -134,6 +150,11 @@ func buildPostgresQuery(operation, table string, data map[string]interface{}, ex
 	}
 
 	whereClause, _ := config["where"].(string)
+	if whereClause != "" {
+		if err := validateWhereClause(whereClause); err != nil {
+			return "", nil, err
+		}
+	}
 
 	switch operation {
 	case "insert":

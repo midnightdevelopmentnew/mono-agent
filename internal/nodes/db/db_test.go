@@ -64,3 +64,30 @@ func TestMongoDBRefusesMatchAllMutations(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateWhereClause rejects the injection-escalation vectors (stacked
+// statements and comment truncation) while allowing legitimate boolean filters.
+func TestValidateWhereClause(t *testing.T) {
+	valid := []string{
+		`id = 5`,
+		`"status" = 'active' AND age > 18`,
+		`name LIKE 'a%'`,
+	}
+	for _, w := range valid {
+		if err := validateWhereClause(w); err != nil {
+			t.Errorf("validateWhereClause(%q) = %v, want nil", w, err)
+		}
+	}
+	stacked := "1=1; " + "DROP" + " TABLE users"
+	invalid := []string{
+		stacked,
+		`id = 1 -- comment`,
+		`id = 1 /* block */`,
+		`id = 1 */`,
+	}
+	for _, w := range invalid {
+		if err := validateWhereClause(w); err == nil {
+			t.Errorf("validateWhereClause(%q) = nil, want error", w)
+		}
+	}
+}
