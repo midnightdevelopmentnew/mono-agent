@@ -18,11 +18,95 @@ type ExecutionRequest struct {
 	TriggerData   map[string]interface{}
 }
 
-// ExecutionQueue manages a bounded channel of pending workflow execution requests.
-// A pool of worker goroutines drains the queue.
+// ConcurrencySlot represents an execution's hold on the engine's bounded
+// concurrency. A node that must wait a long time (e.g. Human-in-Loop) can
+// Release its slot so other executions can run while it waits, then Acquire
+// it again before continuing. Held for the whole execution otherwise.
+type ConcurrencySlot interface {
+	Release()
+	Acquire(ctx context.Context) error
+}
+
+type slotCtxKey struct{}
+
+// ContextWithSlot attaches a ConcurrencySlot to a context.
+func ContextWithSlot(ctx context.Context, slot ConcurrencySlot) context.Context {
+	return context.WithValue(ctx, slotCtxKey{}, slot)
+}
+
+// SlotFromContext returns the ConcurrencySlot attached to ctx, if any.
+func SlotFromContext(ctx context.Context) (ConcurrencySlot, bool) {
+	s, ok := ctx.Value(slotCtxKey{}).(ConcurrencySlot)
+	return s, ok
+}
+
+// gate bounds the number of executions actively doing work via a token channel.
+type gate struct {
+	tokens chan struct{}
+}
+
+func newGate(n int) *gate {
+	if n < 1 {
+		n = 1
+	}
+	return &gate{tokens: make(chan struct{}, n)}
+}
+
+func (g *gate) acquire(ctx context.Context) error {
+	select {
+	case g.tokens <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (g *gate) release() {
+	select {
+	case <-g.tokens:
+	default:
+	}
+}
+
+// gateSlot is a per-execution ConcurrencySlot backed by the shared gate. It
+// tracks whether it currently holds a token so Release/Acquire are idempotent
+// and a double release can never free another execution's token.
+type gateSlot struct {
+	g    *gate
+	mu   sync.Mutex
+	held bool
+}
+
+func (s *gateSlot) Acquire(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.held {
+		return nil
+	}
+	if err := s.g.acquire(ctx); err != nil {
+		return err
+	}
+	s.held = true
+	return nil
+}
+
+func (s *gateSlot) Release() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.held {
+		return
+	}
+	s.g.release()
+	s.held = false
+}
+
+// ExecutionQueue buffers pending execution requests and runs each in its own
+// goroutine, bounded by a concurrency gate. A single dispatcher drains the
+// channel; using per-execution goroutines (rather than a fixed worker pool)
+// lets a long-waiting node yield its concurrency slot without parking a worker.
 type ExecutionQueue struct {
 	ch          chan ExecutionRequest
-	workers     int
+	gate        *gate
 	wg          sync.WaitGroup
 	cancelFuncs sync.Map // executionID → context.CancelFunc
 	handler     func(ctx context.Context, req ExecutionRequest)
@@ -32,56 +116,57 @@ type ExecutionQueue struct {
 	closed bool
 }
 
-// NewExecutionQueue creates a queue with the given buffer capacity and worker count.
-// handler is called for each dequeued request in its own goroutine context.
-func NewExecutionQueue(capacity int, workers int, handler func(ctx context.Context, req ExecutionRequest), logger zerolog.Logger) *ExecutionQueue {
+// NewExecutionQueue creates a queue with the given buffer capacity and a
+// maximum number of concurrently-executing (non-waiting) executions.
+func NewExecutionQueue(capacity int, maxConcurrent int, handler func(ctx context.Context, req ExecutionRequest), logger zerolog.Logger) *ExecutionQueue {
 	return &ExecutionQueue{
 		ch:      make(chan ExecutionRequest, capacity),
-		workers: workers,
+		gate:    newGate(maxConcurrent),
 		handler: handler,
 		logger:  logger,
 	}
 }
 
-// Start launches the worker goroutines. Must be called before Enqueue.
-// The provided context governs worker lifetime.
+// Start launches the dispatcher goroutine. Must be called before Enqueue.
+// The provided context governs dispatcher and execution lifetime.
 func (q *ExecutionQueue) Start(ctx context.Context) {
-	for i := 0; i < q.workers; i++ {
-		workerID := i
-		q.wg.Add(1)
-		go func() {
-			defer q.wg.Done()
-			q.logger.Info().Int("worker_id", workerID).Msg("workflow queue worker started")
-			defer q.logger.Info().Int("worker_id", workerID).Msg("workflow queue worker stopped")
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case req, ok := <-q.ch:
-					if !ok {
-						// channel closed by Stop()
-						return
-					}
-					q.dispatch(ctx, req, workerID)
+	q.wg.Add(1)
+	go func() {
+		defer q.wg.Done()
+		q.logger.Info().Msg("workflow queue dispatcher started")
+		defer q.logger.Info().Msg("workflow queue dispatcher stopped")
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case req, ok := <-q.ch:
+				if !ok {
+					return // channel closed by Stop()
 				}
+				q.wg.Add(1)
+				go q.run(ctx, req)
 			}
-		}()
-	}
+		}
+	}()
 }
 
-// dispatch runs a single request: creates a cancellable child context, stores the
-// cancel func, calls the handler, then cleans up.
-func (q *ExecutionQueue) dispatch(ctx context.Context, req ExecutionRequest, workerID int) {
+// run executes a single request in its own goroutine: it creates a cancellable
+// child context, acquires a concurrency slot (blocking until one is free),
+// attaches the slot so long-waiting nodes can yield it, runs the handler, then
+// cleans up.
+func (q *ExecutionQueue) run(ctx context.Context, req ExecutionRequest) {
+	defer q.wg.Done()
+
 	execCtx, cancel := context.WithCancel(ctx)
 	q.cancelFuncs.Store(req.ExecutionID, cancel)
 
+	slot := &gateSlot{g: q.gate}
 	defer func() {
 		q.cancelFuncs.Delete(req.ExecutionID)
+		slot.Release()
 		cancel()
 		if r := recover(); r != nil {
 			q.logger.Error().
-				Int("worker_id", workerID).
 				Str("execution_id", req.ExecutionID).
 				Str("workflow_id", req.WorkflowID).
 				Interface("panic", r).
@@ -89,17 +174,23 @@ func (q *ExecutionQueue) dispatch(ctx context.Context, req ExecutionRequest, wor
 		}
 	}()
 
+	if err := slot.Acquire(execCtx); err != nil {
+		// Context cancelled while waiting for a slot (shutdown/cancel).
+		return
+	}
+
 	q.logger.Debug().
-		Int("worker_id", workerID).
 		Str("execution_id", req.ExecutionID).
 		Str("workflow_id", req.WorkflowID).
 		Str("trigger_type", req.TriggerType).
 		Msg("dispatching execution request")
 
-	q.handler(execCtx, req)
+	q.handler(ContextWithSlot(execCtx, slot), req)
 }
 
-// Stop closes the channel and blocks until all in-flight workers have exited.
+// Stop closes the channel and blocks until the dispatcher and all in-flight
+// executions have exited. Callers should cancel the context passed to Start
+// first so waiting executions unblock.
 func (q *ExecutionQueue) Stop() {
 	q.mu.Lock()
 	if q.closed {

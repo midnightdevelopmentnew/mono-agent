@@ -70,6 +70,11 @@ func RunExecution(
 	// manage the merge counters.
 	completedNodes := make(map[string]bool, len(order))
 
+	// nonFatalFailures collects nodes that failed but let the run continue
+	// (on_error=continue/skip/error_branch), so the final status can reflect
+	// that the run had failures instead of reporting a misleading SUCCESS.
+	var nonFatalFailures []string
+
 	for _, node := range order {
 		// Check context cancellation.
 		select {
@@ -370,6 +375,7 @@ func RunExecution(
 			case "continue":
 				// Pass through the input items so downstream nodes still receive data.
 				// This preserves pipeline data even when a node fails (e.g. rate-limited AI).
+				nonFatalFailures = append(nonFatalFailures, node.Name)
 				successors := dag.SuccessorsOnHandle(node.ID, "main")
 				for _, succ := range successors {
 					pendingInputs[succ.ID] = append(pendingInputs[succ.ID], inputItems...)
@@ -382,12 +388,14 @@ func RunExecution(
 			case "skip":
 				// Mark the node as failed but do not propagate items or error downstream.
 				// Downstream nodes will receive no input from this node and may not run.
+				nonFatalFailures = append(nonFatalFailures, node.Name)
 				completedNodes[node.ID] = true
 				decrementMergeWaiting(node.ID, dag, mergeWaiting, completedNodes)
 				continue
 
 			case "error_branch":
 				// Route an error item to successors on the "error" handle.
+				nonFatalFailures = append(nonFatalFailures, node.Name)
 				errorItems := []Item{
 					NewItem(map[string]interface{}{
 						"error":   execErr.Error(),
@@ -396,6 +404,12 @@ func RunExecution(
 					}),
 				}
 				errorSuccessors := dag.SuccessorsOnHandle(node.ID, "error")
+				if len(errorSuccessors) == 0 {
+					logger.Warn().
+						Str("node_id", node.ID).
+						Str("node_name", node.Name).
+						Msg("on_error=error_branch but no edge is wired to the 'error' handle — failure output is discarded")
+				}
 				for _, succ := range errorSuccessors {
 					pendingInputs[succ.ID] = append(pendingInputs[succ.ID], errorItems...)
 				}
@@ -449,6 +463,9 @@ func RunExecution(
 			Msg("node completed successfully")
 	}
 
+	if len(nonFatalFailures) > 0 {
+		return &PartialFailureError{Nodes: nonFatalFailures}
+	}
 	return nil
 }
 

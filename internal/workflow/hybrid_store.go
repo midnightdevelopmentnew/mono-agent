@@ -252,6 +252,10 @@ func (h *HybridWorkflowStore) RecoverStaleExecutions(ctx context.Context) error 
 	return h.sql.RecoverStaleExecutions(ctx)
 }
 
+func (h *HybridWorkflowStore) CancelQueuedExecution(ctx context.Context, id string) (bool, error) {
+	return h.sql.CancelQueuedExecution(ctx, id)
+}
+
 func (h *HybridWorkflowStore) PruneExecutions(ctx context.Context, workflowID string, keepCount int) error {
 	return h.sql.PruneExecutions(ctx, workflowID, keepCount)
 }

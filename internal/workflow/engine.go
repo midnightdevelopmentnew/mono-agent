@@ -3,8 +3,8 @@ package workflow
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -101,7 +101,9 @@ func applyEngineDefaults(cfg *EngineConfig) {
 		cfg.MaxExecHistory = 500
 	}
 	if cfg.WebhookAddr == "" {
-		cfg.WebhookAddr = ":9321"
+		// Bind loopback by default so webhook triggers aren't reachable from the
+		// LAN without auth; operators can opt into ":9321" explicitly.
+		cfg.WebhookAddr = "127.0.0.1:9321"
 	}
 }
 
@@ -164,6 +166,19 @@ func (e *WorkflowEngine) Start(ctx context.Context) error {
 	// 3. Recover stale executions left over from a prior crash or restart.
 	if err := e.store.RecoverStaleExecutions(e.ctx); err != nil {
 		e.logger.Warn().Err(err).Msg("engine: failed to recover stale executions")
+	}
+
+	// 3a. Reject HIL items orphaned by a crash — their execution is no longer
+	// running, so their in-process waiter is gone and approving them is a no-op.
+	// This clears zombie 'pending' rows from the approvals queue.
+	if db := e.store.RawDB(); db != nil {
+		if _, err := db.ExecContext(e.ctx,
+			`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP
+			 WHERE status='pending' AND execution_id IN (
+			     SELECT id FROM workflow_executions WHERE status NOT IN ('RUNNING','QUEUED'))`,
+		); err != nil {
+			e.logger.Warn().Err(err).Msg("engine: failed to clean up orphaned HIL items")
+		}
 	}
 
 	// 4. Re-register triggers for all active workflows.
@@ -348,6 +363,12 @@ func (e *WorkflowEngine) handleExecution(ctx context.Context, req ExecutionReque
 		Str("workflow_id", req.WorkflowID).
 		Logger()
 
+	// 0. Honor a cancellation that landed while this request sat in the queue.
+	if exec, err := e.store.GetExecution(ctx, req.ExecutionID); err == nil && exec != nil && exec.Status == "CANCELLED" {
+		log.Info().Msg("engine: handleExecution: execution cancelled before dispatch; skipping")
+		return
+	}
+
 	// 1. Load the workflow.
 	wf, err := e.store.GetWorkflow(ctx, req.WorkflowID)
 	if err != nil {
@@ -394,17 +415,22 @@ func (e *WorkflowEngine) handleExecution(ctx context.Context, req ExecutionReque
 	// was cancelled (e.g. by engine shutdown or a browser panic).
 	persistCtx, persistCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer persistCancel()
-	if runErr != nil {
-		errMsg := runErr.Error()
-		finalStatus := "FAILED"
-		if strings.Contains(errMsg, ErrExecutionCancelled.Error()) {
-			finalStatus = "CANCELLED"
-		}
-		log.Warn().Err(runErr).Str("final_status", finalStatus).Msg("engine: execution finished with error")
-		_ = e.store.SetExecutionFinished(persistCtx, req.ExecutionID, finalStatus, errMsg)
-	} else {
+	var partialErr *PartialFailureError
+	switch {
+	case runErr == nil:
 		log.Info().Msg("engine: execution finished successfully")
 		_ = e.store.SetExecutionFinished(persistCtx, req.ExecutionID, "SUCCESS", "")
+	case errors.As(runErr, &partialErr):
+		// The run completed but nodes failed under on_error=continue/skip/error_branch.
+		// Surface that rather than a misleading green SUCCESS.
+		log.Warn().Err(runErr).Msg("engine: execution finished with non-fatal node failures")
+		_ = e.store.SetExecutionFinished(persistCtx, req.ExecutionID, "SUCCESS_WITH_ERRORS", runErr.Error())
+	case errors.Is(runErr, ErrExecutionCancelled):
+		log.Warn().Err(runErr).Str("final_status", "CANCELLED").Msg("engine: execution cancelled")
+		_ = e.store.SetExecutionFinished(persistCtx, req.ExecutionID, "CANCELLED", runErr.Error())
+	default:
+		log.Warn().Err(runErr).Str("final_status", "FAILED").Msg("engine: execution finished with error")
+		_ = e.store.SetExecutionFinished(persistCtx, req.ExecutionID, "FAILED", runErr.Error())
 	}
 }
 
@@ -667,7 +693,15 @@ func (e *WorkflowEngine) TriggerWorkflow(ctx context.Context, workflowID string,
 
 // CancelExecution signals an in-flight execution to stop.
 func (e *WorkflowEngine) CancelExecution(executionID string) {
-	// The queue manages per-execution contexts and cancel funcs.
+	// Authoritatively cancel a still-queued execution so it doesn't run once a
+	// worker picks it up (queued requests have no cancel func yet). handleExecution
+	// re-checks status before running, so this makes the cancel stick.
+	dctx, cancel := dbCtx()
+	defer cancel()
+	if cancelled, err := e.store.CancelQueuedExecution(dctx, executionID); err == nil && cancelled {
+		e.logger.Info().Str("execution_id", executionID).Msg("engine: queued execution cancelled before dispatch")
+	}
+	// Signal cancellation for an already-dispatched (running) execution.
 	e.queue.Cancel(executionID)
 	e.logger.Info().Str("execution_id", executionID).Msg("engine: execution cancel requested")
 }

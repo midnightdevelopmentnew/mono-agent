@@ -1,6 +1,22 @@
 package workflow
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// PartialFailureError reports that an execution completed but one or more nodes
+// failed under an on_error=continue/skip/error_branch policy. The engine maps it
+// to a SUCCESS_WITH_ERRORS status so a run that had failures isn't shown as green.
+type PartialFailureError struct {
+	Nodes []string // names of nodes that failed non-fatally
+}
+
+func (e *PartialFailureError) Error() string {
+	return fmt.Sprintf("%d node(s) failed but the workflow continued: %s",
+		len(e.Nodes), strings.Join(e.Nodes, ", "))
+}
 
 var (
 	ErrQueueFull          = errors.New("workflow: execution queue is full")

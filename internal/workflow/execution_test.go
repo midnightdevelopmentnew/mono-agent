@@ -58,6 +58,7 @@ func (s *stubStore) ListCredentials(context.Context, string) ([]Credential, erro
 func (s *stubStore) UpdateCredential(context.Context, *Credential) error { return nil }
 func (s *stubStore) DeleteCredential(context.Context, string) error      { return nil }
 func (s *stubStore) RecoverStaleExecutions(context.Context) error        { return nil }
+func (s *stubStore) CancelQueuedExecution(context.Context, string) (bool, error) { return false, nil }
 func (s *stubStore) PruneExecutions(context.Context, string, int) error  { return nil }
 func (s *stubStore) RawDB() *sql.DB                                      { return nil }
 

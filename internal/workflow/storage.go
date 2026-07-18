@@ -106,6 +106,7 @@ type WorkflowStore interface {
 
 	// Recovery
 	RecoverStaleExecutions(ctx context.Context) error
+	CancelQueuedExecution(ctx context.Context, id string) (bool, error)
 	PruneExecutions(ctx context.Context, workflowID string, keepCount int) error
 
 	// RawDB returns the underlying *sql.DB for use by subsystems that need
@@ -813,16 +814,62 @@ func (s *SQLiteWorkflowStore) DeleteCredential(ctx context.Context, id string) e
 // This should be called once on process startup to handle executions that were
 // interrupted by a previous crash or restart.
 func (s *SQLiteWorkflowStore) RecoverStaleExecutions(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE workflow_executions
-		SET status = 'FAILED',
-		    error_message = 'recovered: process restart',
-		    finished_at = CURRENT_TIMESTAMP
-		WHERE status IN ('RUNNING', 'QUEUED')`)
+	// Only fail executions whose owning process is no longer alive. A concurrent
+	// engine (e.g. the `daemon` process) may legitimately have RUNNING executions;
+	// blindly failing all RUNNING/QUEUED rows corrupts its in-flight state. QUEUED
+	// rows carry no live worker (pid is only set once RUNNING), so a null/zero/dead
+	// pid means the row is genuinely stale and safe to recover.
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, COALESCE(pid, 0) FROM workflow_executions WHERE status IN ('RUNNING', 'QUEUED')`)
 	if err != nil {
 		return fmt.Errorf("recovering stale executions: %w", err)
 	}
+	defer rows.Close()
+
+	self := os.Getpid()
+	var staleIDs []string
+	for rows.Next() {
+		var id string
+		var pid int
+		if err := rows.Scan(&id, &pid); err != nil {
+			return fmt.Errorf("recovering stale executions: scan: %w", err)
+		}
+		if pid == self {
+			continue // never fail our own in-flight rows
+		}
+		if !processAlive(pid) {
+			staleIDs = append(staleIDs, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("recovering stale executions: %w", err)
+	}
+
+	for _, id := range staleIDs {
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE workflow_executions
+			SET status = 'FAILED',
+			    error_message = 'recovered: process restart',
+			    finished_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND status IN ('RUNNING', 'QUEUED')`, id); err != nil {
+			return fmt.Errorf("recovering stale execution %s: %w", id, err)
+		}
+	}
 	return nil
+}
+
+// CancelQueuedExecution marks a not-yet-dispatched (QUEUED) execution CANCELLED
+// so it will not run when a worker later picks it up. Returns true if a queued
+// row was actually transitioned. Running executions are unaffected (they are
+// stopped via context cancellation instead).
+func (s *SQLiteWorkflowStore) CancelQueuedExecution(ctx context.Context, id string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE workflow_executions SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'QUEUED'`, id)
+	if err != nil {
+		return false, fmt.Errorf("cancelling queued execution %s: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // PruneExecutions deletes the oldest executions for a workflow when the total

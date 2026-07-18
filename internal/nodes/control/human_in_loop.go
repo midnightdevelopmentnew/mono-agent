@@ -43,6 +43,14 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 		}
 	}
 
+	// Yield our concurrency slot back to the engine for the whole wait so
+	// pending approvals don't starve other executions. Reacquired before we
+	// return so any downstream nodes still respect the concurrency bound.
+	slot, hasSlot := workflow.SlotFromContext(ctx)
+	if hasSlot {
+		slot.Release()
+	}
+
 	// Process each input item — create a separate HIL record per item.
 	// Items flow out in order after each is approved.
 	var approvedItems []workflow.Item
@@ -91,6 +99,15 @@ func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput,
 			return nil, err
 		}
 		approvedItems = append(approvedItems, workflow.NewItem(approved))
+	}
+
+	// Reacquire the slot before handing control back so downstream nodes run
+	// under the concurrency bound. (Error paths above return without
+	// reacquiring — the execution ends there and the engine reclaims the slot.)
+	if hasSlot {
+		if err := slot.Acquire(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	return []workflow.NodeOutput{
