@@ -60,7 +60,7 @@ func vaultImageHandler(app *App) http.Handler {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		profileID := app.activeProfileID
+		profileID := app.getActiveProfileID()
 		if profileID == "" {
 			profileID = "default"
 		}

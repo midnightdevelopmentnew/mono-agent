@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Send, Trash2, ChevronDown, ChevronRight, Loader } from 'lucide-react'
+import { X, Send, Trash2, ChevronDown, ChevronRight, Loader, Square } from 'lucide-react'
 import { api, onAIChunk, onAITool, onAIError } from '../services/api.js'
 
 // ── Tool call card (collapsible) ───────────────────────────────────────────────
@@ -256,6 +256,13 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
     }
   }, [input, streaming, workflowID, selectedProvider, selectedModel])
 
+  // ── Stop an in-flight stream ──────────────────────────────────────────────
+  const stop = useCallback(async () => {
+    if (!workflowID) return
+    await api.stopAIChat(workflowID)
+    setStreaming(false)
+  }, [workflowID])
+
   // ── Clear history ───────────────────────────────────────────────────────
   const clearHistory = useCallback(async () => {
     if (!workflowID) return
@@ -474,29 +481,50 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
             e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
           }}
         />
-        <button
-          onClick={send}
-          disabled={streaming || !input.trim() || !selectedProvider}
-          title={!selectedProvider ? 'No provider selected' : 'Send message'}
-          style={{
-            background: streaming || !input.trim() || !selectedProvider ? 'rgba(0,180,216,0.05)' : 'rgba(0,180,216,0.15)',
-            border: `1px solid ${streaming || !input.trim() || !selectedProvider ? 'rgba(0,180,216,0.08)' : 'rgba(0,180,216,0.3)'}`,
-            borderRadius: 8,
-            padding: '0 12px',
-            cursor: streaming || !input.trim() || !selectedProvider ? 'default' : 'pointer',
-            color: streaming || !input.trim() || !selectedProvider ? 'var(--text-muted)' : '#00b4d8',
-            display: 'flex', alignItems: 'center',
-            transition: 'all 100ms',
-            flexShrink: 0,
-          }}
-          onMouseEnter={e => { if (!streaming && input.trim() && selectedProvider) e.currentTarget.style.background = 'rgba(0,180,216,0.25)' }}
-          onMouseLeave={e => { if (!streaming && input.trim() && selectedProvider) e.currentTarget.style.background = 'rgba(0,180,216,0.15)' }}
-        >
-          {streaming
-            ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} />
-            : <Send size={13} />
-          }
-        </button>
+        {streaming ? (
+          <button
+            onClick={stop}
+            title="Stop generating"
+            aria-label="Stop generating"
+            style={{
+              background: 'rgba(239,68,68,0.15)',
+              border: '1px solid rgba(239,68,68,0.35)',
+              borderRadius: 8,
+              padding: '0 12px',
+              cursor: 'pointer',
+              color: '#ef4444',
+              display: 'flex', alignItems: 'center',
+              transition: 'all 100ms',
+              flexShrink: 0,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.25)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.15)' }}
+          >
+            <Square size={12} fill="#ef4444" />
+          </button>
+        ) : (
+          <button
+            onClick={send}
+            disabled={!input.trim() || !selectedProvider}
+            title={!selectedProvider ? 'No provider selected' : 'Send message'}
+            aria-label="Send message"
+            style={{
+              background: !input.trim() || !selectedProvider ? 'rgba(0,180,216,0.05)' : 'rgba(0,180,216,0.15)',
+              border: `1px solid ${!input.trim() || !selectedProvider ? 'rgba(0,180,216,0.08)' : 'rgba(0,180,216,0.3)'}`,
+              borderRadius: 8,
+              padding: '0 12px',
+              cursor: !input.trim() || !selectedProvider ? 'default' : 'pointer',
+              color: !input.trim() || !selectedProvider ? 'var(--text-muted)' : '#00b4d8',
+              display: 'flex', alignItems: 'center',
+              transition: 'all 100ms',
+              flexShrink: 0,
+            }}
+            onMouseEnter={e => { if (input.trim() && selectedProvider) e.currentTarget.style.background = 'rgba(0,180,216,0.25)' }}
+            onMouseLeave={e => { if (input.trim() && selectedProvider) e.currentTarget.style.background = 'rgba(0,180,216,0.15)' }}
+          >
+            <Send size={13} />
+          </button>
+        )}
         </div>
       </div>
     </div>

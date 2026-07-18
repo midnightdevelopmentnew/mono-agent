@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link2, Brain, ExternalLink } from 'lucide-react'
+import { Link2, Brain, ExternalLink, Download } from 'lucide-react'
 import { api } from '../services/api.js'
 import { GetVersion, CheckForUpdate, AppSelfUpdate } from '../wailsjs/go/main/App'
 
@@ -86,6 +86,59 @@ function VersionRow() {
       {update?.error && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)', marginTop: 6 }}>
           {update.error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── ExportRow ───────────────────────────────────────────────────────────────
+
+function ExportRow() {
+  const [state, setState] = useState(null) // { exporting } | { done, summary } | { error }
+
+  function doExport() {
+    setState({ exporting: true })
+    api.exportData().then(r => {
+      if (!r || r.cancelled) { setState(null); return }
+      setState({ done: true, summary: `Exported ${r.people_count} people and ${r.actions_count} actions to ${r.output_dir}` })
+    }).catch(e => setState({ error: String(e) }))
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Data Export
+        </span>
+        <button
+          onClick={doExport}
+          disabled={state?.exporting}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            background: 'rgba(0,180,216,.15)',
+            color: '#00b4d8',
+            border: '1px solid rgba(0,180,216,.2)',
+            borderRadius: 4,
+            padding: '2px 10px',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 9,
+            opacity: state?.exporting ? 0.5 : 1,
+          }}
+        >
+          <Download size={10} />
+          {state?.exporting ? 'Exporting...' : 'Export to JSON'}
+        </button>
+      </div>
+      {state?.done && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#00f5d4', marginTop: 6, wordBreak: 'break-all' }}>
+          {state.summary}
+        </div>
+      )}
+      {state?.error && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--red)', marginTop: 6 }}>
+          {state.error}
         </div>
       )}
     </div>
@@ -235,6 +288,9 @@ export default function Settings({ onNavigate }) {
               </span>
             </div>
           </div>
+
+          {/* Export people/actions as JSON */}
+          <ExportRow />
 
           {/* App version + update */}
           <VersionRow />

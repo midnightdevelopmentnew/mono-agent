@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, Eye, EyeOff, KeyRound } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
+import { confirm } from '../components/ConfirmDialog.jsx'
 
 const fmtDate = (s) => {
   if (!s) return '—'
@@ -70,7 +71,7 @@ export default function Vault() {
   }
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this vault entry? This cannot be undone.')) return
+    if (!(await confirm('Delete this vault entry? This cannot be undone.', { title: 'Delete Vault Entry', confirmLabel: 'Delete' }))) return
     setError(null)
     try {
       await WailsApp.DeleteSecret(id)

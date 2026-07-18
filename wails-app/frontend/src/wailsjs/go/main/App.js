@@ -110,6 +110,10 @@ export function ExecuteAction(arg1) {
   return window['go']['main']['App']['ExecuteAction'](arg1);
 }
 
+export function ExportData() {
+  return window['go']['main']['App']['ExportData']();
+}
+
 export function GetAIChatHistory(arg1) {
   return window['go']['main']['App']['GetAIChatHistory'](arg1);
 }
@@ -404,6 +408,10 @@ export function SetOAuthCredentials(arg1, arg2, arg3) {
 
 export function SetWorkflowActive(arg1, arg2) {
   return window['go']['main']['App']['SetWorkflowActive'](arg1, arg2);
+}
+
+export function StopAIChat(arg1) {
+  return window['go']['main']['App']['StopAIChat'](arg1);
 }
 
 export function StreamAIChat(arg1, arg2, arg3, arg4) {

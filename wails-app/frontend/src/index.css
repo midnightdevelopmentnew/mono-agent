@@ -42,8 +42,10 @@
   /* ── Typography ── */
   --text:           #dde6f0;
   --text-secondary: #8899aa;
-  --text-muted:     #475569;
-  --text-dim:       #2d3748;
+  /* Raised from #475569 / #2d3748 which failed WCAG AA contrast (~3.1:1 / ~1.7:1)
+     on the dark surfaces; these clear the 4.5:1 body-text threshold. */
+  --text-muted:     #8492a6;
+  --text-dim:       #6c7b90;
 
   /* ── Fonts ── */
   --font-display: 'Syne', sans-serif;

@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import Sidebar from './components/Sidebar.jsx'
 import StatusBar from './components/StatusBar.jsx'
+import Toasts from './components/Toasts.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
+import ConfirmHost from './components/ConfirmDialog.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import Actions from './pages/Actions.jsx'
 import People from './pages/People.jsx'
 import Profile from './pages/Profile.jsx'
 import PostDetail from './pages/PostDetail.jsx'
@@ -101,6 +105,7 @@ export default function App() {
   const pages = {
     dashboard: <Dashboard stats={stats} onRefresh={refreshStats} onNavigate={navigate} />,
     noderunner: <NodeRunner onNavigate={navigate} navData={navData} />,
+    actions: <Actions onRefresh={refreshStats} />,
     hil: <HumanInLoop />,
     people:    <People key={peopleRefreshKey} onProfile={openProfile} />,
     communications: <Communications onProfile={openProfile} />,
@@ -123,9 +128,13 @@ export default function App() {
         dbConnected={dbConnected}
       />
       <main className="main-content">
-        {pages[activePage] || pages.dashboard}
+        <ErrorBoundary key={activePage}>
+          {pages[activePage] || pages.dashboard}
+        </ErrorBoundary>
       </main>
       <StatusBar stats={stats} dbConnected={dbConnected} />
+      <Toasts />
+      <ConfirmHost />
     </div>
   )
 }

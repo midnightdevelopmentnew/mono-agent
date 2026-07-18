@@ -74,27 +74,37 @@ function WorkflowRow({ wf, execMap, onRun, onStop, onToggle, onNavigate }) {
 
   const handleRun = async () => {
     setRunning(true)
-    await onRun(wf.id)
-    setTimeout(() => setRunning(false), 2000)
+    try {
+      await onRun(wf.id)
+    } finally {
+      setTimeout(() => setRunning(false), 2000)
+    }
   }
 
   const handleStop = async () => {
     if (!last?.id) return
     setStopping(true)
-    await onStop(last.id)
-    setStopping(false)
+    try {
+      await onStop(last.id)
+    } finally {
+      setStopping(false)
+    }
   }
 
   const handleToggle = async () => {
     setToggling(true)
-    await onToggle(wf.id, !wf.is_active)
-    setToggling(false)
+    try {
+      await onToggle(wf.id, !wf.is_active)
+    } finally {
+      setToggling(false)
+    }
   }
 
   const lastStatus = last?.status?.toUpperCase() || null
   const isRunning = lastStatus === 'RUNNING' || lastStatus === 'QUEUED' || lastStatus === 'PENDING'
   const statusColor =
-    lastStatus === 'COMPLETED' ? 'var(--green-neon)' :
+    lastStatus === 'COMPLETED' || lastStatus === 'SUCCESS' ? 'var(--green-neon)' :
+    lastStatus === 'SUCCESS_WITH_ERRORS' ? '#fbbf24' :
     isRunning                  ? 'var(--cyan)' :
     lastStatus === 'FAILED'    ? '#ef4444' :
     lastStatus === 'CANCELLED' ? '#6b7280' : 'var(--text-dim)'

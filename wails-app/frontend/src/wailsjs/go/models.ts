@@ -844,6 +844,24 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class ExportResult {
+	    output_dir: string;
+	    people_count: number;
+	    actions_count: number;
+	    cancelled?: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ExportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.output_dir = source["output_dir"];
+	        this.people_count = source["people_count"];
+	        this.actions_count = source["actions_count"];
+	        this.cancelled = source["cancelled"];
+	    }
+	}
 	export class UpdateResult {
 	    success: boolean;
 	    new_version?: string;

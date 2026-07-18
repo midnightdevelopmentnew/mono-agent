@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Play, Trash2, Pause, RefreshCw, Target, Zap, Pencil } from 'lucide-react'
 import { api, PLATFORMS, STATES, onActionComplete } from '../services/api.js'
+import { confirm } from '../components/ConfirmDialog.jsx'
 import ActionInputsForm from '../components/ActionInputsForm.jsx'
 
 const ACTION_LABELS = {
@@ -76,10 +77,10 @@ function CreateModal({ availableTypes, onClose, onCreated, editAction }) {
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal" role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Action' : 'New Action'}>
         <div className="modal-title">
           <span>{isEdit ? 'Edit Action' : 'New Action'}</span>
-          <button className="btn btn-ghost btn-icon" onClick={onClose} style={{ fontSize: 18, color: 'var(--text-muted)' }}>×</button>
+          <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close" style={{ fontSize: 18, color: 'var(--text-muted)' }}>×</button>
         </div>
         <form onSubmit={submit}>
           <div className="form-group">
@@ -219,7 +220,7 @@ export default function Actions({ onRefresh }) {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this action?')) return
+    if (!(await confirm('Delete this action?', { title: 'Delete Action', confirmLabel: 'Delete' }))) return
     await api.deleteAction(id)
     setActions(prev => prev.filter(a => a.id !== id))
     onRefresh?.()

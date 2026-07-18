@@ -93,7 +93,7 @@ func (a *App) getResourceCredentialData(ctx context.Context, credentialID string
 		return nil, fmt.Errorf("credential %s not found", credentialID)
 	}
 	// Verify the fetched connection belongs to the active profile.
-	if conn.ProfileID != "" && conn.ProfileID != a.activeProfileID {
+	if conn.ProfileID != "" && conn.ProfileID != a.getActiveProfileID() {
 		return nil, fmt.Errorf("credential %s not in active profile", credentialID)
 	}
 

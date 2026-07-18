@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   LayoutDashboard, Users,
-  Terminal, PlayCircle, Settings, Image, UserCheck, Mail, KeyRound,
+  Terminal, PlayCircle, Settings, Image, UserCheck, Mail, KeyRound, Zap,
   ChevronDown, Plus, Check
 } from 'lucide-react'
 import { GetVersion } from '../wailsjs/go/main/App'
@@ -16,6 +16,7 @@ const SwitchProfile  = WailsApp.SwitchProfile  ?? (async () => {})
 const NAV_ITEMS = [
   { id: 'dashboard',   label: 'Dashboard',   icon: LayoutDashboard, section: 'MAIN' },
   { id: 'noderunner',  label: 'Workflows',   icon: PlayCircle,      section: 'MAIN' },
+  { id: 'actions',     label: 'Actions',     icon: Zap,             section: 'MAIN' },
   { id: 'hil',         label: 'Human in Loop', icon: UserCheck,     section: 'MAIN' },
   { id: 'people',      label: 'People',      icon: Users,           section: 'DATA' },
   { id: 'communications', label: 'Communications', icon: Mail,      section: 'DATA' },

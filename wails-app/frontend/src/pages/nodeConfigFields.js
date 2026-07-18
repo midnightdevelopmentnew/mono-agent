@@ -1,0 +1,491 @@
+// Node config field definitions, extracted from NodeRunner.jsx to keep that file
+// focused on the canvas/editor logic.
+
+export const NODE_CONFIG_FIELDS = {
+  // ── Triggers ──────────────────────────────────────────────────────────────
+  'trigger.schedule': [
+    { key: 'cron', label: 'Cron Expression', type: 'text', default: '0 0 * * * *',
+      help: '6-field cron: sec min hour dom month dow (e.g. "0 0 9 * * *" for 9am daily). 5-field expressions are rejected.' },
+    { key: 'timezone', label: 'Timezone', type: 'text', default: 'UTC',
+      help: 'IANA timezone name (e.g. "America/New_York"). Leave as UTC to run in server time.' },
+  ],
+  'trigger.webhook': [
+    { key: 'path', label: 'URL Path', type: 'text', default: '/webhook' },
+    { key: 'method', label: 'HTTP Method', type: 'select', options: ['GET','POST','PUT','PATCH','DELETE'], default: 'POST' },
+    { key: 'auth_header', label: 'Auth Header Name', type: 'text', default: '',
+      help: 'If set, requests must include this header with the auth token value (e.g. X-Webhook-Secret). Leave blank for no auth.' },
+    { key: 'auth_token', label: 'Auth Token', type: 'password', default: '',
+      help: 'Secret value expected in the auth header.' },
+  ],
+
+  // ── Control ───────────────────────────────────────────────────────────────
+  'core.if': [
+    { key: 'condition', label: 'Condition', type: 'textarea', rows: 2, default: '{{ eq $json.active true }}',
+      placeholder: '{{ eq $json.active true }}',
+      help: 'Go template expression. Items go to "true" handle if condition passes, "false" otherwise.' },
+  ],
+  'core.filter': [
+    { key: 'condition', label: 'Condition', type: 'textarea', rows: 2, default: '{{ eq $json.status "todo" }}',
+      placeholder: '{{ eq $json.status "todo" }}',
+      help: 'Go template expression that evaluates to true/false for each item. Use $json.fieldName to access fields.' },
+    { key: 'mode', label: 'Mode', type: 'select', options: ['keep','remove'], default: 'keep',
+      help: 'keep = pass items where condition is true; remove = pass items where condition is false' },
+    { key: '_help', label: 'Condition Reference', type: '_help', helpContent: [
+      { title: 'Compare text', examples: ['{{ eq $json.status "todo" }}', '{{ ne $json.status "done" }}'] },
+      { title: 'Compare numbers', examples: ['{{ gt $json.age 18 }}', '{{ le $json.price 100 }}'] },
+      { title: 'Check if field exists', examples: ['{{ $json.email }}', '{{ ne $json.name "" }}'] },
+      { title: 'Contains text', examples: ['{{ contains $json.title "sale" }}', '{{ hasPrefix $json.url "https" }}'] },
+      { title: 'AND / OR', examples: ['{{ and (eq $json.status "todo") (ne $json.title "") }}', '{{ or (eq $json.type "A") (eq $json.type "B") }}'] },
+      { title: 'Available operators', examples: ['eq (=), ne (!=), gt (>), ge (>=), lt (<), le (<=), and, or, not, contains, hasPrefix, hasSuffix'] },
+    ]},
+  ],
+  'core.switch': [
+    { key: 'expression', label: 'Expression', type: 'text', default: '{{$json.status}}' },
+    { key: 'cases', label: 'Cases (JSON array)', type: 'textarea', default: '[{"value":"active"},{"value":"inactive"}]' },
+    { key: 'default_handle', label: 'Default Handle', type: 'text', default: 'default' },
+  ],
+  'core.set': [
+    { key: 'assignments', label: 'Assignments (JSON)', type: 'textarea', default: '[{"name":"output","value":"{{$json.input}}"}]' },
+    { key: 'include_input', label: 'Include Input Fields', type: 'select', options: ['true','false'], default: 'true' },
+  ],
+  'core.code': [
+    { key: 'code', label: 'JavaScript Code', type: 'textarea', default: '// return array of items\nreturn items.map(item => ({ ...item.json }))' },
+  ],
+  'core.wait': [
+    { key: 'duration', label: 'Duration (e.g. 5s, 2m, 1h)', type: 'text', default: '5s' },
+  ],
+  'core.limit': [
+    { key: 'max_items', label: 'Max Items', type: 'number', default: '10' },
+  ],
+  'core.split_in_batches': [
+    { key: 'batch_size', label: 'Batch Size', type: 'number', default: '10' },
+  ],
+  'core.sort': [
+    { key: 'field', label: 'Field', type: 'text', default: 'name' },
+    { key: 'order', label: 'Order', type: 'select', options: ['asc','desc'], default: 'asc' },
+    { key: 'type', label: 'Sort Type', type: 'select', options: ['string','number','date'], default: 'string' },
+  ],
+  'core.remove_duplicates': [
+    { key: 'field', label: 'Field Key', type: 'text', default: 'id' },
+    { key: 'keep', label: 'Keep', type: 'select', options: ['first','last'], default: 'first' },
+  ],
+  'core.stop_error': [
+    { key: 'message', label: 'Error Message', type: 'text', default: 'Workflow stopped with error' },
+  ],
+  'core.merge': [
+    { key: 'mode', label: 'Mode', type: 'select', options: ['append','first'], default: 'append' },
+  ],
+  'core.compare_datasets': [
+    { key: 'key_field', label: 'Key Field', type: 'text', default: 'id' },
+    { key: 'split_at', label: 'Split At Index', type: 'number', default: '' },
+  ],
+  'core.aggregate': [
+    { key: 'group_by', label: 'Group By Field', type: 'text', default: '' },
+    { key: 'operations', label: 'Operations (JSON)', type: 'textarea', default: '[{"field":"amount","operation":"sum","output_field":"total"}]' },
+  ],
+
+  // ── HTTP ──────────────────────────────────────────────────────────────────
+  'http.request': [
+    { key: 'method', label: 'Method', type: 'select', options: ['GET','POST','PUT','PATCH','DELETE','HEAD'], default: 'GET' },
+    { key: 'url', label: 'URL', type: 'text', default: 'https://api.example.com/endpoint' },
+    { key: 'body_type', label: 'Body Type', type: 'select', options: ['none','json','form','raw'], default: 'none' },
+    { key: 'body', label: 'Body (JSON)', type: 'textarea', default: '' },
+    { key: 'auth_type', label: 'Auth', type: 'select', options: ['none','bearer','basic','api_key'], default: 'none' },
+    { key: 'auth_api_key_value', label: 'API Key / Bearer Token', type: 'password', default: '' },
+    { key: 'response_format', label: 'Response Format', type: 'select', options: ['json','text','binary'], default: 'json' },
+  ],
+  'http.ftp': [
+    { key: 'host', label: 'Host', type: 'text', default: '' },
+    { key: 'port', label: 'Port', type: 'number', default: '21' },
+    { key: 'username', label: 'Username', type: 'text', default: '' },
+    { key: 'password', label: 'Password', type: 'password', default: '' },
+    { key: 'remote_path', label: 'Remote Path', type: 'text', default: '/' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list','download','upload','delete'], default: 'list' },
+  ],
+  'http.ssh': [
+    { key: 'host', label: 'Host', type: 'text', default: '' },
+    { key: 'port', label: 'Port', type: 'number', default: '22' },
+    { key: 'username', label: 'Username', type: 'text', default: '' },
+    { key: 'password', label: 'Password', type: 'password', default: '' },
+    { key: 'command', label: 'Command', type: 'textarea', default: 'echo hello' },
+  ],
+
+  // ── System ────────────────────────────────────────────────────────────────
+  'system.execute_command': [
+    { key: 'command', label: 'Command', type: 'text', default: 'echo' },
+    { key: 'args', label: 'Arguments (JSON array)', type: 'text', default: '["hello world"]' },
+    { key: 'working_dir', label: 'Working Directory', type: 'text', default: '' },
+    { key: 'timeout_seconds', label: 'Timeout (seconds)', type: 'number', default: '30' },
+  ],
+  'system.rss_read': [
+    { key: 'url', label: 'Feed URL', type: 'text', default: 'https://feeds.example.com/rss' },
+    { key: 'limit', label: 'Max Items', type: 'number', default: '20' },
+  ],
+
+  // ── Data ───────────────────────────────────────────────────────────────────
+  'data.datetime': [
+    { key: 'operation', label: 'Operation', type: 'select', options: ['format','parse','add','subtract','diff','now'], default: 'now' },
+    { key: 'field', label: 'Source Field', type: 'text', default: 'date' },
+    { key: 'input_format', label: 'Input Format', type: 'text', default: '' },
+    { key: 'output_format', label: 'Output Format', type: 'text', default: '2006-01-02T15:04:05Z07:00' },
+    { key: 'duration', label: 'Duration (e.g. 24h, 30m)', type: 'text', default: '' },
+    { key: 'output_field', label: 'Output Field', type: 'text', default: '' },
+  ],
+  'data.crypto': [
+    { key: 'operation', label: 'Operation', type: 'select', options: ['md5','sha256','sha512','hmac_sha256','uuid','random_bytes','base64_encode','base64_decode'], default: 'sha256' },
+    { key: 'field', label: 'Source Field', type: 'text', default: '' },
+    { key: 'key', label: 'HMAC Key', type: 'password', default: '' },
+    { key: 'encoding', label: 'Output Encoding', type: 'select', options: ['hex','base64'], default: 'hex' },
+  ],
+  'data.html': [
+    { key: 'operation', label: 'Operation', type: 'select', options: ['extract','extract_all','text','generate'], default: 'extract' },
+    { key: 'field', label: 'Source Field', type: 'text', default: '' },
+    { key: 'selector', label: 'CSS Selector', type: 'text', default: '' },
+    { key: 'attribute', label: 'Attribute', type: 'text', default: '' },
+    { key: 'template', label: 'HTML Template', type: 'textarea', default: '' },
+  ],
+  'data.xml': [
+    { key: 'operation', label: 'Operation', type: 'select', options: ['parse','generate'], default: 'parse' },
+    { key: 'field', label: 'Source Field', type: 'text', default: '' },
+    { key: 'root_element', label: 'Root Element', type: 'text', default: 'root' },
+  ],
+  'data.markdown': [
+    { key: 'field', label: 'Source Field', type: 'text', default: '' },
+    { key: 'output_field', label: 'Output Field', type: 'text', default: '' },
+  ],
+  'data.spreadsheet': [
+    { key: 'operation', label: 'Operation', type: 'select', options: ['read_csv','write_csv','read_xlsx','write_xlsx'], default: 'read_csv' },
+    { key: 'file_path', label: 'File Path', type: 'text', default: '' },
+    { key: 'sheet', label: 'Sheet Name', type: 'text', default: 'Sheet1' },
+    { key: 'has_header', label: 'Has Header Row', type: 'select', options: ['true','false'], default: 'true' },
+  ],
+  'data.compression': [
+    { key: 'operation', label: 'Operation', type: 'select', options: ['gzip_compress','gzip_decompress','zip_compress','zip_decompress'], default: 'gzip_compress' },
+    { key: 'field', label: 'Source Field (base64)', type: 'text', default: '' },
+    { key: 'filename', label: 'Filename (for zip)', type: 'text', default: 'data' },
+  ],
+  'data.write_binary_file': [
+    { key: 'file_path', label: 'Output File Path', type: 'text', default: '' },
+    { key: 'field', label: 'Source Field (base64)', type: 'text', default: '' },
+  ],
+
+  // ── Database ──────────────────────────────────────────────────────────────
+  'db.mysql': [
+    { key: 'host', label: 'Host', type: 'text', default: 'localhost' },
+    { key: 'port', label: 'Port', type: 'number', default: '3306' },
+    { key: 'database', label: 'Database', type: 'text', default: '' },
+    { key: 'username', label: 'Username', type: 'text', default: 'root' },
+    { key: 'password', label: 'Password', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['query','insert','update','delete'], default: 'query' },
+    { key: 'query', label: 'SQL Query', type: 'textarea', default: 'SELECT * FROM users LIMIT 10' },
+  ],
+  'db.postgres': [
+    { key: 'host', label: 'Host', type: 'text', default: 'localhost' },
+    { key: 'port', label: 'Port', type: 'number', default: '5432' },
+    { key: 'database', label: 'Database', type: 'text', default: '' },
+    { key: 'username', label: 'Username', type: 'text', default: 'postgres' },
+    { key: 'password', label: 'Password', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['query','insert','update','delete'], default: 'query' },
+    { key: 'query', label: 'SQL Query', type: 'textarea', default: 'SELECT * FROM users LIMIT 10' },
+  ],
+  'db.mongodb': [
+    { key: 'connection_string', label: 'Connection String', type: 'text', default: 'mongodb://localhost:27017' },
+    { key: 'database', label: 'Database', type: 'text', default: '' },
+    { key: 'collection', label: 'Collection', type: 'text', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['find','insertOne','insertMany','updateOne','updateMany','deleteOne','deleteMany','aggregate'], default: 'find' },
+    { key: 'filter', label: 'Filter (JSON)', type: 'textarea', default: '{}' },
+  ],
+  'db.redis': [
+    { key: 'addr', label: 'Address', type: 'text', default: 'localhost:6379' },
+    { key: 'password', label: 'Password', type: 'password', default: '' },
+    { key: 'db', label: 'DB Index', type: 'number', default: '0' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['get','set','del','exists','keys','lpush','rpush','lrange','hset','hget','hgetall'], default: 'get' },
+    { key: 'key', label: 'Key', type: 'text', default: '' },
+    { key: 'value', label: 'Value', type: 'text', default: '' },
+    { key: 'ttl_seconds', label: 'TTL (seconds)', type: 'number', default: '0' },
+  ],
+
+  // ── Communication ─────────────────────────────────────────────────────────
+  'comm.email_send': [
+    { key: 'smtp_host', label: 'SMTP Host', type: 'text', default: 'smtp.gmail.com' },
+    { key: 'smtp_port', label: 'SMTP Port', type: 'number', default: '587' },
+    { key: 'username', label: 'Username', type: 'text', default: '' },
+    { key: 'password', label: 'Password', type: 'password', default: '' },
+    { key: 'from', label: 'From', type: 'text', default: '' },
+    { key: 'to', label: 'To (comma-separated)', type: 'text', default: '' },
+    { key: 'subject', label: 'Subject', type: 'text', default: '' },
+    { key: 'body', label: 'Body', type: 'textarea', default: '' },
+    { key: 'body_type', label: 'Body Type', type: 'select', options: ['text','html'], default: 'text' },
+  ],
+  'comm.slack': [
+    { key: 'token', label: 'Bot Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['post_message','upload_file','get_user_info'], default: 'post_message' },
+    { key: 'channel', label: 'Channel', type: 'text', default: '#general' },
+    { key: 'text', label: 'Message Text', type: 'textarea', default: '' },
+  ],
+  'comm.telegram': [
+    { key: 'token', label: 'Bot Token', type: 'password', default: '' },
+    { key: 'chat_id', label: 'Chat ID', type: 'text', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['send_message','send_photo','send_document'], default: 'send_message' },
+    { key: 'text', label: 'Message Text', type: 'textarea', default: '' },
+    { key: 'parse_mode', label: 'Parse Mode', type: 'select', options: ['','Markdown','HTML'], default: '' },
+  ],
+  'comm.discord': [
+    { key: 'webhook_url', label: 'Webhook URL', type: 'text', default: '' },
+    { key: 'content', label: 'Message', type: 'textarea', default: '' },
+    { key: 'username', label: 'Username Override', type: 'text', default: '' },
+  ],
+  'comm.twilio': [
+    { key: 'account_sid', label: 'Account SID', type: 'text', default: '' },
+    { key: 'auth_token', label: 'Auth Token', type: 'password', default: '' },
+    { key: 'from', label: 'From Number', type: 'text', default: '' },
+    { key: 'to', label: 'To Number', type: 'text', default: '' },
+    { key: 'body', label: 'Message Body', type: 'textarea', default: '' },
+  ],
+  'comm.email_read': [
+    { key: 'imap_host', label: 'IMAP Host', type: 'text', default: 'imap.gmail.com' },
+    { key: 'imap_port', label: 'IMAP Port', type: 'number', default: '993' },
+    { key: 'username', label: 'Username', type: 'text', default: '' },
+    { key: 'password', label: 'Password', type: 'password', default: '' },
+    { key: 'mailbox', label: 'Mailbox', type: 'text', default: 'INBOX' },
+    { key: 'limit', label: 'Max Messages', type: 'number', default: '10' },
+    { key: 'unread_only', label: 'Unread Only', type: 'select', options: ['true','false'], default: 'false' },
+  ],
+  'comm.whatsapp': [
+    { key: 'access_token', label: 'WhatsApp API Token', type: 'password', default: '' },
+    { key: 'phone_number_id', label: 'Phone Number ID', type: 'text', default: '' },
+    { key: 'to', label: 'To (E.164 number)', type: 'text', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['send_message','send_template','send_media'], default: 'send_message' },
+    { key: 'text', label: 'Message Text', type: 'textarea', default: '' },
+    { key: 'template_name', label: 'Template Name', type: 'text', default: '' },
+    { key: 'template_language', label: 'Template Language', type: 'text', default: 'en_US' },
+    { key: 'media_url', label: 'Media URL', type: 'text', default: '' },
+  ],
+
+  // ── Services ──────────────────────────────────────────────────────────────
+  'service.github': [
+    { key: 'token', label: 'Personal Access Token', type: 'password', default: '' },
+    { key: 'owner', label: 'Owner (user/org)', type: 'text', default: '' },
+    { key: 'repo', label: 'Repository', type: 'text', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list_issues','get_issue','create_issue','update_issue','list_prs','list_releases','create_release'], default: 'list_issues' },
+    { key: 'number', label: 'Issue / PR Number', type: 'number', default: '' },
+    { key: 'title', label: 'Title', type: 'text', default: '' },
+    { key: 'body', label: 'Body', type: 'textarea', default: '' },
+    { key: 'state', label: 'State Filter', type: 'select', options: ['','open','closed','all'], default: '' },
+  ],
+  'service.notion': [
+    { key: 'token', label: 'Integration Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['get_page','create_page','update_page','query_database','create_database','append_blocks'], default: 'get_page' },
+    { key: 'page_id', label: 'Page ID', type: 'text', default: '' },
+    { key: 'database_id', label: 'Database ID', type: 'text', default: '' },
+    { key: 'parent_id', label: 'Parent ID', type: 'text', default: '' },
+  ],
+  'service.airtable': [
+    { key: 'token', label: 'Personal Access Token', type: 'password', default: '' },
+    { key: 'base_id', label: 'Base ID', type: 'text', default: '' },
+    { key: 'table', label: 'Table Name', type: 'text', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list','get','create','update','delete'], default: 'list' },
+    { key: 'record_id', label: 'Record ID', type: 'text', default: '' },
+    { key: 'filter_formula', label: 'Filter Formula', type: 'text', default: '' },
+    { key: 'max_records', label: 'Max Records', type: 'number', default: '100' },
+    { key: 'view', label: 'View Name', type: 'text', default: '' },
+  ],
+  'service.google_sheets': [
+    { key: 'access_token', label: 'OAuth Access Token', type: 'password', default: '' },
+    { key: 'spreadsheet_id', label: 'Spreadsheet ID', type: 'text', default: '' },
+    { key: 'sheet', label: 'Sheet Name', type: 'text', default: 'Sheet1' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['read','append','update','clear'], default: 'read' },
+    { key: 'range', label: 'Range (e.g. A1:Z)', type: 'text', default: 'A1:Z' },
+    { key: 'use_header_row', label: 'Use Header Row', type: 'select', options: ['true','false'], default: 'true' },
+    { key: 'value_input_option', label: 'Value Input', type: 'select', options: ['RAW','USER_ENTERED'], default: 'USER_ENTERED' },
+  ],
+  'service.gmail': [
+    { key: 'access_token', label: 'OAuth Access Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['send','list','read','trash'], default: 'send' },
+    { key: 'to', label: 'To', type: 'text', default: '' },
+    { key: 'subject', label: 'Subject', type: 'text', default: '' },
+    { key: 'body', label: 'Body', type: 'textarea', default: '' },
+    { key: 'body_type', label: 'Body Type', type: 'select', options: ['text','html'], default: 'text' },
+    { key: 'query', label: 'Search Query', type: 'text', default: '' },
+    { key: 'max_results', label: 'Max Results', type: 'number', default: '20' },
+  ],
+  'service.google_drive': [
+    { key: 'access_token', label: 'OAuth Access Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list','download','upload','delete','create_folder'], default: 'list' },
+    { key: 'file_id', label: 'File ID', type: 'text', default: '' },
+    { key: 'folder_id', label: 'Folder ID', type: 'text', default: '' },
+    { key: 'query', label: 'Search Query', type: 'text', default: '' },
+  ],
+  'service.jira': [
+    { key: 'base_url', label: 'Jira Base URL', type: 'text', default: 'https://yourorg.atlassian.net' },
+    { key: 'email', label: 'Email', type: 'text', default: '' },
+    { key: 'api_token', label: 'API Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list_issues','get_issue','create_issue','update_issue','add_comment'], default: 'list_issues' },
+    { key: 'project_key', label: 'Project Key', type: 'text', default: '' },
+    { key: 'issue_key', label: 'Issue Key', type: 'text', default: '' },
+    { key: 'issue_type', label: 'Issue Type', type: 'text', default: 'Task' },
+    { key: 'summary', label: 'Summary', type: 'text', default: '' },
+    { key: 'description', label: 'Description', type: 'textarea', default: '' },
+    { key: 'jql', label: 'JQL Query', type: 'text', default: '' },
+    { key: 'comment', label: 'Comment', type: 'textarea', default: '' },
+  ],
+  'service.linear': [
+    { key: 'token', label: 'API Key', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list_issues','get_issue','create_issue','update_issue','list_teams','list_cycles'], default: 'list_issues' },
+    { key: 'team_id', label: 'Team ID', type: 'text', default: '' },
+    { key: 'issue_id', label: 'Issue ID', type: 'text', default: '' },
+    { key: 'title', label: 'Title', type: 'text', default: '' },
+    { key: 'description', label: 'Description', type: 'textarea', default: '' },
+  ],
+  'service.asana': [
+    { key: 'token', label: 'Personal Access Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list_tasks','get_task','create_task','update_task','list_projects'], default: 'list_tasks' },
+    { key: 'project_id', label: 'Project ID', type: 'text', default: '' },
+    { key: 'task_id', label: 'Task ID', type: 'text', default: '' },
+    { key: 'name', label: 'Task Name', type: 'text', default: '' },
+    { key: 'notes', label: 'Notes', type: 'textarea', default: '' },
+  ],
+  'service.stripe': [
+    { key: 'api_key', label: 'Secret Key', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list_customers','get_customer','create_customer','list_charges','create_charge','list_subscriptions'], default: 'list_customers' },
+    { key: 'customer_id', label: 'Customer ID', type: 'text', default: '' },
+    { key: 'limit', label: 'Limit', type: 'number', default: '20' },
+  ],
+  'service.shopify': [
+    { key: 'shop_domain', label: 'Shop Domain', type: 'text', default: 'yourshop.myshopify.com' },
+    { key: 'access_token', label: 'Admin API Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list_orders','get_order','list_products','get_product','list_customers'], default: 'list_orders' },
+    { key: 'limit', label: 'Limit', type: 'number', default: '50' },
+    { key: 'status', label: 'Status Filter', type: 'text', default: '' },
+  ],
+  'service.salesforce': [
+    { key: 'instance_url', label: 'Instance URL', type: 'text', default: 'https://yourorg.salesforce.com' },
+    { key: 'access_token', label: 'Access Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['query','get','create','update','delete'], default: 'query' },
+    { key: 'object_type', label: 'Object Type', type: 'text', default: 'Contact' },
+    { key: 'soql', label: 'SOQL Query', type: 'textarea', default: 'SELECT Id, Name FROM Contact LIMIT 10' },
+    { key: 'record_id', label: 'Record ID', type: 'text', default: '' },
+  ],
+  'service.hubspot': [
+    { key: 'access_token', label: 'Private App Token', type: 'password', default: '' },
+    { key: 'operation', label: 'Operation', type: 'select', options: ['list_contacts','get_contact','create_contact','update_contact','list_deals','create_deal'], default: 'list_contacts' },
+    { key: 'contact_id', label: 'Contact ID', type: 'text', default: '' },
+    { key: 'limit', label: 'Limit', type: 'number', default: '50' },
+  ],
+
+  // ── AI ──────────────────────────────────────────────────────────────────
+  'ai.chat': [
+    { key: 'provider_id', label: 'AI Provider', type: 'text', default: '' },
+    { key: 'model', label: 'Model', type: 'text', default: '' },
+    { key: 'system_prompt', label: 'System Prompt', type: 'textarea', default: '' },
+    { key: 'prompt', label: 'Prompt', type: 'textarea', default: '{{$json.text}}' },
+    { key: 'temperature', label: 'Temperature', type: 'text', default: '0.7' },
+    { key: 'max_tokens', label: 'Max Tokens', type: 'number', default: '1024' },
+    { key: 'output_key', label: 'Output Key', type: 'text', default: 'ai_response' },
+  ],
+  'ai.extract': [
+    { key: 'provider_id', label: 'AI Provider', type: 'text', default: '' },
+    { key: 'model', label: 'Model', type: 'text', default: '' },
+    { key: 'prompt', label: 'Extraction Prompt', type: 'textarea', default: '' },
+    { key: 'output_schema', label: 'Output Schema (JSON)', type: 'textarea', default: '' },
+    { key: 'temperature', label: 'Temperature', type: 'text', default: '0.2' },
+    { key: 'max_tokens', label: 'Max Tokens', type: 'number', default: '1024' },
+    { key: 'output_key', label: 'Output Key', type: 'text', default: 'extracted' },
+  ],
+  'ai.classify': [
+    { key: 'provider_id', label: 'AI Provider', type: 'text', default: '' },
+    { key: 'model', label: 'Model', type: 'text', default: '' },
+    { key: 'categories', label: 'Categories (comma-separated)', type: 'text', default: '' },
+    { key: 'prompt_template', label: 'Custom Prompt', type: 'textarea', default: '' },
+    { key: 'temperature', label: 'Temperature', type: 'text', default: '0.3' },
+    { key: 'max_tokens', label: 'Max Tokens', type: 'number', default: '256' },
+  ],
+  'ai.transform': [
+    { key: 'provider_id', label: 'AI Provider', type: 'text', default: '' },
+    { key: 'model', label: 'Model', type: 'text', default: '' },
+    { key: 'instruction', label: 'Instruction', type: 'textarea', default: '' },
+    { key: 'input_field', label: 'Input Field', type: 'text', default: '' },
+    { key: 'temperature', label: 'Temperature', type: 'text', default: '0.5' },
+    { key: 'max_tokens', label: 'Max Tokens', type: 'number', default: '1024' },
+    { key: 'output_key', label: 'Output Key', type: 'text', default: 'transformed' },
+  ],
+  'ai.embed': [
+    { key: 'provider_id', label: 'AI Provider', type: 'text', default: '' },
+    { key: 'model', label: 'Model', type: 'text', default: '' },
+    { key: 'input_field', label: 'Input Field', type: 'text', default: '' },
+    { key: 'output_key', label: 'Output Key', type: 'text', default: 'embedding' },
+  ],
+  'ai.agent': [
+    { key: 'provider_id', label: 'AI Provider', type: 'text', default: '' },
+    { key: 'model', label: 'Model', type: 'text', default: '' },
+    { key: 'goal', label: 'Goal', type: 'textarea', default: '' },
+    { key: 'max_steps', label: 'Max Steps', type: 'number', default: '5' },
+    { key: 'temperature', label: 'Temperature', type: 'text', default: '0.7' },
+    { key: 'max_tokens', label: 'Max Tokens', type: 'number', default: '2048' },
+  ],
+
+  // ── Browser (social) ──────────────────────────────────────────────────────
+  'instagram.find_by_keyword': [
+    { key: 'keywords', label: 'Keywords (comma-separated)', type: 'text', default: '' },
+    { key: 'limit', label: 'Max Results', type: 'number', default: '50' },
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'message', label: 'DM Template', type: 'textarea', default: '' },
+  ],
+  'instagram.send_dms': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'message', label: 'Message Template', type: 'textarea', default: 'Hi {{name}},' },
+    { key: 'targets', label: 'Target Usernames (JSON array)', type: 'textarea', default: '["user1","user2"]' },
+  ],
+  'instagram.follow_users': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'targets', label: 'Target Usernames (JSON array)', type: 'textarea', default: '["user1","user2"]' },
+    { key: 'limit', label: 'Max Follows', type: 'number', default: '20' },
+  ],
+  'instagram.publish_post': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'text', label: 'Caption', type: 'textarea', default: '' },
+    { key: 'media', label: 'Image Path / URL', type: 'text', default: '' },
+  ],
+  'linkedin.find_by_keyword': [
+    { key: 'keywords', label: 'Keywords', type: 'text', default: '' },
+    { key: 'limit', label: 'Max Results', type: 'number', default: '50' },
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+  ],
+  'linkedin.send_dms': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'message', label: 'Message Template', type: 'textarea', default: 'Hi {{name}},' },
+    { key: 'targets', label: 'Target Profiles (JSON array)', type: 'textarea', default: '[]' },
+  ],
+  'linkedin.publish_post': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'text', label: 'Post Text', type: 'textarea', default: '' },
+    { key: 'media', label: 'Image Path / URL', type: 'text', default: '' },
+  ],
+  'x.find_by_keyword': [
+    { key: 'keywords', label: 'Keywords / Hashtags', type: 'text', default: '' },
+    { key: 'limit', label: 'Max Results', type: 'number', default: '50' },
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+  ],
+  'x.publish_post': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'text', label: 'Post Text', type: 'textarea', default: '' },
+  ],
+  'tiktok.find_by_keyword': [
+    { key: 'keywords', label: 'Keywords / Hashtags', type: 'text', default: '' },
+    { key: 'limit', label: 'Max Results', type: 'number', default: '50' },
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+  ],
+  'tiktok.publish_post': [
+    { key: 'username', label: 'Account Username', type: 'text', default: '' },
+    { key: 'text', label: 'Caption', type: 'textarea', default: '' },
+    { key: 'media', label: 'Video Path / URL', type: 'text', default: '' },
+  ],
+}
+
+// Fallback: generic fields for browser nodes not explicitly listed
+export const BROWSER_NODE_GENERIC = [
+  { key: 'username', label: 'Account Username', type: 'text', default: '' },
+  { key: 'targets', label: 'Targets (JSON array)', type: 'textarea', default: '[]' },
+  { key: 'limit', label: 'Max Items', type: 'number', default: '20' },
+  { key: 'message', label: 'Message / Caption', type: 'textarea', default: '' },
+]

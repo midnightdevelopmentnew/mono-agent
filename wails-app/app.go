@@ -2,30 +2,30 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
+	"monoagent/internal/action"
 	"monoagent/internal/ai"
 	aichat "monoagent/internal/ai/chat"
 	"monoagent/internal/connections"
-	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
-	"monoagent/internal/vault"
+	"monoagent/internal/noderegistry"
 	"monoagent/internal/workflow"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	_ "modernc.org/sqlite"
@@ -46,8 +46,14 @@ type App struct {
 	runningMu   sync.Mutex
 	runningCmds map[string]*exec.Cmd // workflowID → running subprocess
 
-	activeProfileID string // currently selected profile; all read/write queries are scoped to this
+	chatCancels sync.Map // workflowID → *cancelHandle for in-flight AI chat streams
+
+	activeProfileIDPtr atomic.Pointer[string] // currently selected profile; access via get/setActiveProfileID (read/written across Wails goroutines)
 }
+
+// cancelHandle wraps a stream's cancel func in a pointer so it has a comparable
+// identity for sync.Map.CompareAndDelete.
+type cancelHandle struct{ cancel context.CancelFunc }
 
 // NewApp creates the App instance.
 func NewApp() *App {
@@ -57,6 +63,22 @@ func NewApp() *App {
 		logs:        make([]LogEntry, 0, 200),
 		runningCmds: make(map[string]*exec.Cmd),
 	}
+}
+
+// getActiveProfileID returns the currently selected profile id. Wails dispatches
+// bound methods on independent goroutines, so this is read concurrently with
+// SwitchProfile writes — the atomic makes that access race-free. Defaults to
+// "default" before startup sets it.
+func (a *App) getActiveProfileID() string {
+	if p := a.activeProfileIDPtr.Load(); p != nil {
+		return *p
+	}
+	return "default"
+}
+
+// setActiveProfileID atomically updates the selected profile id.
+func (a *App) setActiveProfileID(id string) {
+	a.activeProfileIDPtr.Store(&id)
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -137,7 +159,7 @@ func (a *App) startup(ctx context.Context) {
 	if activeProfileID == "" {
 		activeProfileID = "default"
 	}
-	a.activeProfileID = activeProfileID
+	a.setActiveProfileID(activeProfileID)
 
 	a.emitLog("SYSTEM", "INFO", "Mono Agent UI connected to "+a.dbPath)
 
@@ -220,11 +242,11 @@ func (a *App) GetDashboardStats() DashboardStats {
 		return stats
 	}
 
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM crawler_sessions WHERE expiry > datetime('now') AND COALESCE(profile_id,'default') = ?", a.activeProfileID).Scan(&stats.ActiveSessions)
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM people WHERE COALESCE(profile_id,'default') = ?", a.activeProfileID).Scan(&stats.TotalPeople)
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM social_lists WHERE COALESCE(profile_id,'default') = ?", a.activeProfileID).Scan(&stats.TotalLists)
+	_ = a.db.QueryRow("SELECT COUNT(*) FROM crawler_sessions WHERE expiry > datetime('now') AND COALESCE(profile_id,'default') = ?", a.getActiveProfileID()).Scan(&stats.ActiveSessions)
+	_ = a.db.QueryRow("SELECT COUNT(*) FROM people WHERE COALESCE(profile_id,'default') = ?", a.getActiveProfileID()).Scan(&stats.TotalPeople)
+	_ = a.db.QueryRow("SELECT COUNT(*) FROM social_lists WHERE COALESCE(profile_id,'default') = ?", a.getActiveProfileID()).Scan(&stats.TotalLists)
 
-	rows, _ := a.db.Query("SELECT state, COUNT(*) FROM actions WHERE COALESCE(profile_id,'default') = ? GROUP BY state", a.activeProfileID)
+	rows, _ := a.db.Query("SELECT state, COUNT(*) FROM actions WHERE COALESCE(profile_id,'default') = ? GROUP BY state", a.getActiveProfileID())
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -238,7 +260,7 @@ func (a *App) GetDashboardStats() DashboardStats {
 	}
 
 	sessionRows, _ := a.db.Query(`SELECT platform, username, expiry, (expiry > datetime('now')) as active
-	                               FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform`, a.activeProfileID)
+	                               FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform`, a.getActiveProfileID())
 	if sessionRows != nil {
 		defer sessionRows.Close()
 		for sessionRows.Next() {
@@ -285,7 +307,7 @@ func (a *App) GetActions(platform, state string, limit int) []ActionInfo {
 	                 COALESCE(created_at_ts,''), COALESCE(updated_at_ts,'')
 	          FROM actions WHERE COALESCE(profile_id,'default') = ?`
 	var args []interface{}
-	args = append(args, a.activeProfileID)
+	args = append(args, a.getActiveProfileID())
 
 	if platform != "" && platform != "ALL" {
 		query += " AND target_platform = ?"
@@ -328,7 +350,7 @@ func (a *App) GetAction(id string) *ActionInfo {
 	                             reached_index, action_execution_count,
 	                             COALESCE(created_at_ts,''), COALESCE(updated_at_ts,''),
 	                             COALESCE(params,'{}')
-	                      FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID)
+	                      FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID())
 	var act ActionInfo
 	var paramsJSON string
 	if row.Scan(&act.ID, &act.Title, &act.Type, &act.State, &act.Platform,
@@ -371,7 +393,7 @@ func (a *App) CreateAction(req CreateActionRequest) (*ActionInfo, error) {
 	                      (id, created_at, title, type, state, target_platform, keywords, content_message, params, profile_id, created_at_ts, updated_at_ts)
 	                      VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?)`,
 		id, now.Unix(), req.Title, strings.ToUpper(req.Type), strings.ToUpper(req.Platform),
-		req.Keywords, req.ContentMessage, paramsJSON, a.activeProfileID, now.Format(time.RFC3339), now.Format(time.RFC3339))
+		req.Keywords, req.ContentMessage, paramsJSON, a.getActiveProfileID(), now.Format(time.RFC3339), now.Format(time.RFC3339))
 	if err != nil {
 		return nil, err
 	}
@@ -392,7 +414,7 @@ func (a *App) UpdateActionState(id, state string) error {
 		return fmt.Errorf("database not available")
 	}
 	res, err := a.db.Exec("UPDATE actions SET state = ?, updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
-		strings.ToUpper(state), time.Now().Format(time.RFC3339), id, a.activeProfileID)
+		strings.ToUpper(state), time.Now().Format(time.RFC3339), id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -413,7 +435,7 @@ func (a *App) UpdateActionParams(id string, params map[string]interface{}) error
 		}
 	}
 	res, err := a.db.Exec("UPDATE actions SET params = ?, updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
-		paramsJSON, time.Now().Format(time.RFC3339), id, a.activeProfileID)
+		paramsJSON, time.Now().Format(time.RFC3339), id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -427,7 +449,7 @@ func (a *App) DeleteAction(id string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	res, err := a.db.Exec("DELETE FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.activeProfileID)
+	res, err := a.db.Exec("DELETE FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -459,7 +481,7 @@ func (a *App) GetActionTargets(actionID string) []TargetInfo {
 	                          FROM action_targets
 	                          JOIN actions ON action_targets.action_id = actions.id
 	                          WHERE action_id = ? AND COALESCE(actions.profile_id,'default') = ?
-	                          ORDER BY action_targets.created_at DESC`, actionID, a.activeProfileID)
+	                          ORDER BY action_targets.created_at DESC`, actionID, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -479,7 +501,7 @@ func (a *App) AddActionTarget(actionID, link, platform string) error {
 		return fmt.Errorf("database not available")
 	}
 	var exists int
-	if err := a.db.QueryRow(`SELECT 1 FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, actionID, a.activeProfileID).Scan(&exists); err != nil {
+	if err := a.db.QueryRow(`SELECT 1 FROM actions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, actionID, a.getActiveProfileID()).Scan(&exists); err != nil {
 		return fmt.Errorf("action %s not found", actionID)
 	}
 	id := newUUID()
@@ -587,7 +609,7 @@ func (a *App) GetPeople(platform, search string, limit, offset int) []PersonInfo
 	                 COALESCE(job_title,''), COALESCE(category,''), COALESCE(created_at,'')
 	          FROM people WHERE COALESCE(profile_id,'default') = ?`
 	var args []interface{}
-	args = append(args, a.activeProfileID)
+	args = append(args, a.getActiveProfileID())
 	if platform != "" && platform != "ALL" {
 		query += " AND UPPER(platform) = ?"
 		args = append(args, strings.ToUpper(platform))
@@ -626,7 +648,7 @@ func (a *App) GetPeopleCount(platform, search string) int {
 	}
 	query := "SELECT COUNT(*) FROM people WHERE COALESCE(profile_id,'default') = ?"
 	var args []interface{}
-	args = append(args, a.activeProfileID)
+	args = append(args, a.getActiveProfileID())
 	if platform != "" && platform != "ALL" {
 		query += " AND UPPER(platform) = ?"
 		args = append(args, strings.ToUpper(platform))
@@ -652,7 +674,7 @@ func (a *App) GetPersonDetail(id string) *PersonDetailInfo {
 		       COALESCE(job_title,''), COALESCE(category,''),
 		       COALESCE(introduction,''), COALESCE(website,''), COALESCE(contact_details,''),
 		       COALESCE(created_at,''), COALESCE(updated_at,'')
-		FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID)
+		FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID())
 	var p PersonDetailInfo
 	var isVerified int
 	if err := row.Scan(&p.ID, &p.Username, &p.Platform,
@@ -681,7 +703,7 @@ func (a *App) GetPersonInteractions(id string) []PersonInteraction {
 		JOIN people p ON at.person_id = p.id
 		WHERE at.person_id = ? AND COALESCE(p.profile_id,'default') = ?
 		ORDER BY COALESCE(at.last_interacted_at, at.created_at) DESC
-		LIMIT 200`, id, a.activeProfileID)
+		LIMIT 200`, id, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -706,7 +728,7 @@ func (a *App) GetPersonMessages(personID string) []*storage.PersonMessage {
 	if a.db == nil {
 		return nil
 	}
-	messages, err := (&storage.Database{DB: a.db}).ListPersonMessages(personID, "", a.activeProfileID, 0, 0)
+	messages, err := (&storage.Database{DB: a.db}).ListPersonMessages(personID, "", a.getActiveProfileID(), 0, 0)
 	if err != nil {
 		return nil
 	}
@@ -720,7 +742,7 @@ func (a *App) GetAllPersonMessages(limit int) []*storage.PersonMessageWithPerson
 	if a.db == nil {
 		return nil
 	}
-	messages, err := (&storage.Database{DB: a.db}).ListAllPersonMessages(a.activeProfileID, "", limit, 0)
+	messages, err := (&storage.Database{DB: a.db}).ListAllPersonMessages(a.getActiveProfileID(), "", limit, 0)
 	if err != nil {
 		return nil
 	}
@@ -742,7 +764,7 @@ func (a *App) AddPersonMessage(personID, source, externalID, direction, sender, 
 		Subject:    subject,
 		Body:       body,
 	}
-	return (&storage.Database{DB: a.db}).UpsertPersonMessage(msg, a.activeProfileID)
+	return (&storage.Database{DB: a.db}).UpsertPersonMessage(msg, a.getActiveProfileID())
 }
 
 // ComposePersonMessage sends (or drafts, when asDraft is true) an email to a
@@ -755,7 +777,7 @@ func (a *App) ComposePersonMessage(personID, connectionID, subject, body string,
 	var toAddr string
 	if err := a.db.QueryRow(
 		`SELECT platform_username FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
-		personID, a.activeProfileID,
+		personID, a.getActiveProfileID(),
 	).Scan(&toAddr); err != nil {
 		return nil, fmt.Errorf("person not found: %w", err)
 	}
@@ -803,7 +825,7 @@ func (a *App) ComposePersonMessage(personID, connectionID, subject, body string,
 		SentAt:     time.Now().UTC(),
 	}
 	db := &storage.Database{DB: a.db}
-	if err := db.UpsertPersonMessage(msg, a.activeProfileID); err != nil {
+	if err := db.UpsertPersonMessage(msg, a.getActiveProfileID()); err != nil {
 		return nil, err
 	}
 	return msg, nil
@@ -815,7 +837,7 @@ func (a *App) GetDraftPersonMessages() ([]*storage.PersonMessageWithPerson, erro
 	if a.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	return (&storage.Database{DB: a.db}).ListPersonMessagesByStatus(a.activeProfileID, "draft")
+	return (&storage.Database{DB: a.db}).ListPersonMessagesByStatus(a.getActiveProfileID(), "draft")
 }
 
 // draftMessageConnectionID extracts the connection_id stashed in a draft
@@ -918,7 +940,7 @@ func (a *App) GetLatestPersonStatus(personId string) *storage.PersonStatusUpdate
 	if a.db == nil {
 		return nil
 	}
-	u, err := (&storage.Database{DB: a.db}).GetLatestPersonStatusUpdate(personId, a.activeProfileID)
+	u, err := (&storage.Database{DB: a.db}).GetLatestPersonStatusUpdate(personId, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -931,7 +953,7 @@ func (a *App) AddPersonStatus(personId, text string) (*storage.PersonStatusUpdat
 	if a.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	return (&storage.Database{DB: a.db}).AddPersonStatusUpdate(personId, a.activeProfileID, text)
+	return (&storage.Database{DB: a.db}).AddPersonStatusUpdate(personId, a.getActiveProfileID(), text)
 }
 
 // GetPersonStatusHistory returns every status update for a person, newest
@@ -941,7 +963,7 @@ func (a *App) GetPersonStatusHistory(personId string, limit int) []*storage.Pers
 	if a.db == nil {
 		return nil
 	}
-	updates, err := (&storage.Database{DB: a.db}).ListPersonStatusUpdates(personId, a.activeProfileID, limit)
+	updates, err := (&storage.Database{DB: a.db}).ListPersonStatusUpdates(personId, a.getActiveProfileID(), limit)
 	if err != nil {
 		return nil
 	}
@@ -982,7 +1004,7 @@ func (a *App) GetPersonPosts(personID string) []PostSummary {
 		JOIN people pe ON p.person_id = pe.id
 		WHERE p.person_id = ? AND COALESCE(pe.profile_id,'default') = ?
 		ORDER BY p.scraped_at DESC`,
-		personID, a.activeProfileID,
+		personID, a.getActiveProfileID(),
 	)
 	if err != nil {
 		return []PostSummary{}
@@ -1031,7 +1053,7 @@ func (a *App) GetPostDetail(postID string) *PostDetail {
 		FROM posts
 		JOIN people ON posts.person_id = people.id
 		WHERE posts.id = ? AND COALESCE(people.profile_id,'default') = ?`,
-		postID, a.activeProfileID,
+		postID, a.getActiveProfileID(),
 	).Scan(
 		&p.ID, &p.Shortcode, &p.URL, &p.ThumbnailURL,
 		&p.LikeCount, &p.CommentCount, &p.Caption,
@@ -1058,7 +1080,7 @@ func (a *App) GetPostComments(postID string) []PostComment {
 		JOIN people ON posts.person_id = people.id
 		WHERE post_id = ? AND COALESCE(people.profile_id,'default') = ?
 		ORDER BY timestamp ASC`,
-		postID, a.activeProfileID,
+		postID, a.getActiveProfileID(),
 	)
 	if err != nil {
 		return []PostComment{}
@@ -1100,7 +1122,7 @@ func (a *App) GetAllTags() []TagInfo {
 	if a.db == nil {
 		return nil
 	}
-	rows, err := a.db.Query(`SELECT id, name, color FROM tags WHERE COALESCE(profile_id,'default') = ? ORDER BY name COLLATE NOCASE`, a.activeProfileID)
+	rows, err := a.db.Query(`SELECT id, name, color FROM tags WHERE COALESCE(profile_id,'default') = ? ORDER BY name COLLATE NOCASE`, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -1126,7 +1148,7 @@ func (a *App) GetPersonTags(personId string) []TagInfo {
 		JOIN people_tags pt ON pt.tag_id = t.id
 		JOIN people p ON pt.person_id = p.id
 		WHERE pt.person_id = ? AND COALESCE(t.profile_id,'default') = ? AND COALESCE(p.profile_id,'default') = ?
-		ORDER BY t.name COLLATE NOCASE`, personId, a.activeProfileID, a.activeProfileID)
+		ORDER BY t.name COLLATE NOCASE`, personId, a.getActiveProfileID(), a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -1153,7 +1175,7 @@ func (a *App) AddPersonTag(personId, tagName, color string) *TagInfo {
 	}
 
 	var personExists int
-	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.activeProfileID).Scan(&personExists); err != nil {
+	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.getActiveProfileID()).Scan(&personExists); err != nil {
 		return nil
 	}
 
@@ -1172,14 +1194,14 @@ func (a *App) AddPersonTag(personId, tagName, color string) *TagInfo {
 
 	// Find or create the tag within the active profile.
 	var tagId, tagColor string
-	err = tx.QueryRow(`SELECT id, color FROM tags WHERE LOWER(name) = LOWER(?) AND COALESCE(profile_id,'default') = ?`, tagName, a.activeProfileID).Scan(&tagId, &tagColor)
+	err = tx.QueryRow(`SELECT id, color FROM tags WHERE LOWER(name) = LOWER(?) AND COALESCE(profile_id,'default') = ?`, tagName, a.getActiveProfileID()).Scan(&tagId, &tagColor)
 	if err != nil {
 		// Create new tag scoped to the active profile.
 		tagId = newUUID()
 		if color == "" {
 			color = "#00b4d8"
 		}
-		if _, err = tx.Exec(`INSERT INTO tags(id, name, color, profile_id) VALUES(?,?,?,?)`, tagId, tagName, color, a.activeProfileID); err != nil {
+		if _, err = tx.Exec(`INSERT INTO tags(id, name, color, profile_id) VALUES(?,?,?,?)`, tagId, tagName, color, a.getActiveProfileID()); err != nil {
 			return nil
 		}
 		tagColor = color
@@ -1202,7 +1224,7 @@ func (a *App) RemovePersonTag(personId, tagId string) {
 		return
 	}
 	var exists int
-	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.activeProfileID).Scan(&exists); err != nil {
+	if err := a.db.QueryRow(`SELECT 1 FROM people WHERE id = ? AND COALESCE(profile_id,'default') = ?`, personId, a.getActiveProfileID()).Scan(&exists); err != nil {
 		return
 	}
 	_, _ = a.db.Exec(`DELETE FROM people_tags WHERE person_id = ? AND tag_id = ?`, personId, tagId)
@@ -1222,7 +1244,7 @@ func (a *App) GetPeopleTagsMap(personIds []string) map[string][]TagInfo {
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	args = append(args, a.activeProfileID, a.activeProfileID)
+	args = append(args, a.getActiveProfileID(), a.getActiveProfileID())
 	query := fmt.Sprintf(`
 		SELECT pt.person_id, t.id, t.name, t.color
 		FROM people_tags pt
@@ -1267,7 +1289,7 @@ func (a *App) GetSessions() []SessionInfo {
 	}
 	rows, err := a.db.Query(`SELECT id, username, platform, expiry, when_added,
 	                                (expiry > datetime('now')) as active
-	                          FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform, username`, a.activeProfileID)
+	                          FROM crawler_sessions WHERE COALESCE(profile_id,'default') = ? ORDER BY platform, username`, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -1293,7 +1315,7 @@ func (a *App) TestSession(id int) string {
 	var activeInt int
 	err := a.db.QueryRow(
 		`SELECT platform, cookies_json, (expiry > datetime('now')) as active
-		 FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID,
+		 FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID(),
 	).Scan(&platform, &cookiesJSON, &activeInt)
 	if err != nil {
 		return "error: session not found"
@@ -1311,7 +1333,7 @@ func (a *App) DeleteSession(id int) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	res, err := a.db.Exec("DELETE FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.activeProfileID)
+	res, err := a.db.Exec("DELETE FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -1339,7 +1361,7 @@ func (a *App) GetSocialLists() []SocialListInfo {
 		return nil
 	}
 	rows, err := a.db.Query(`SELECT id, name, COALESCE(list_type,''), item_count, COALESCE(created_at,'')
-	                          FROM social_lists WHERE COALESCE(profile_id,'default') = ? ORDER BY created_at DESC`, a.activeProfileID)
+	                          FROM social_lists WHERE COALESCE(profile_id,'default') = ? ORDER BY created_at DESC`, a.getActiveProfileID())
 	if err != nil {
 		return nil
 	}
@@ -1452,8 +1474,10 @@ func (a *App) ExecuteAction(id string) error {
 		return err
 	}
 
-	_, _ = a.db.Exec("UPDATE actions SET state = 'RUNNING', updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
-		time.Now().Format(time.RFC3339), id, a.activeProfileID)
+	if _, err := a.db.Exec("UPDATE actions SET state = 'RUNNING', updated_at_ts = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?",
+		time.Now().Format(time.RFC3339), id, a.getActiveProfileID()); err != nil {
+		a.emitLog("RUNNER", "WARN", fmt.Sprintf("failed to mark action %s RUNNING: %v", id, err))
+	}
 
 	cmd := exec.CommandContext(a.ctx, cliBin, "run", id, "--verbose")
 	stdout, _ := cmd.StdoutPipe()
@@ -1490,6 +1514,49 @@ func (a *App) ExecuteAction(id string) error {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Data export
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ExportResult summarizes a completed export.
+type ExportResult struct {
+	OutputDir    string `json:"output_dir"`
+	PeopleCount  int    `json:"people_count"`
+	ActionsCount int    `json:"actions_count"`
+	Cancelled    bool   `json:"cancelled,omitempty"`
+}
+
+// ExportData asks the user for a destination folder and exports all people and
+// actions to JSON files there by invoking the CLI (`monoagentcli export`).
+func (a *App) ExportData() (*ExportResult, error) {
+	cliBin, err := findMonoAgentCLI()
+	if err != nil {
+		return nil, err
+	}
+	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Choose export folder"})
+	if err != nil {
+		return nil, err
+	}
+	if dir == "" {
+		return &ExportResult{Cancelled: true}, nil
+	}
+	cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.getActiveProfileID(), "--json", "export", "--output-dir", dir)
+	out, err := cmd.Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("export failed: %s", strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, fmt.Errorf("export failed: %w", err)
+	}
+	var res ExportResult
+	if err := json.Unmarshal(out, &res); err != nil {
+		return nil, fmt.Errorf("unexpected export output: %w", err)
+	}
+	a.emitLog("EXPORT", "INFO", fmt.Sprintf("Exported %d people and %d actions to %s", res.PeopleCount, res.ActionsCount, res.OutputDir))
+	return &res, nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Logs
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1518,27 +1585,28 @@ func (a *App) ClearLogs() {
 // Metadata
 // ─────────────────────────────────────────────────────────────────────────────
 
+// GetAvailableActionTypes returns action types grouped by platform, derived from
+// the on-disk action definitions (data/actions/<platform>/<TYPE>.json plus any
+// user-installed templates) — the same source `monoagentcli node list` uses — so
+// the GUI can't drift from the platforms and actions that actually exist.
 func (a *App) GetAvailableActionTypes() map[string][]string {
-	return map[string][]string{
-		"INSTAGRAM": {
-			"find_by_keyword", "export_followers", "scrape_profile_info", "engage_with_posts",
-			"send_dms", "auto_reply_dms", "publish_post",
-			"like_posts", "comment_on_posts", "like_comments_on_posts", "extract_post_data",
-			"follow_users", "unfollow_users", "watch_stories", "engage_user_posts",
-		},
-		"LINKEDIN": {
-			"find_by_keyword", "export_followers", "scrape_profile_info", "engage_with_posts",
-			"send_dms", "auto_reply_dms", "publish_post",
-		},
-		"X": {
-			"find_by_keyword", "export_followers", "scrape_profile_info", "engage_with_posts",
-			"send_dms", "auto_reply_dms", "publish_post",
-		},
-		"TIKTOK": {
-			"find_by_keyword", "export_followers", "scrape_profile_info", "engage_with_posts",
-			"send_dms", "auto_reply_dms", "publish_post",
-		},
+	out := map[string][]string{}
+	entries, err := action.GetLoader().ListAvailable() // "platform/action_type"
+	if err != nil {
+		return out
 	}
+	for _, e := range entries {
+		platform, actionType, ok := strings.Cut(e, "/")
+		if !ok {
+			continue
+		}
+		key := strings.ToUpper(platform)
+		out[key] = append(out[key], actionType)
+	}
+	for k := range out {
+		sort.Strings(out[k])
+	}
+	return out
 }
 
 func (a *App) GetDBPath() string {
@@ -1576,7 +1644,7 @@ func (a *App) GetProfiles() ([]ProfileInfo, error) {
 	for rows.Next() {
 		var p ProfileInfo
 		if rows.Scan(&p.ID, &p.Name, &p.CreatedAt) == nil {
-			p.IsActive = p.ID == a.activeProfileID
+			p.IsActive = p.ID == a.getActiveProfileID()
 			profiles = append(profiles, p)
 		}
 	}
@@ -1617,7 +1685,7 @@ func (a *App) SwitchProfile(id string) error {
 	if err != nil {
 		return fmt.Errorf("persist active profile: %w", err)
 	}
-	a.activeProfileID = id
+	a.setActiveProfileID(id)
 	a.emitLog("SYSTEM", "INFO", "Switched to profile: "+id)
 	return nil
 }
@@ -1627,7 +1695,7 @@ func (a *App) GetActiveProfile() (*ProfileInfo, error) {
 		return nil, fmt.Errorf("database not available")
 	}
 	var p ProfileInfo
-	err := a.db.QueryRow(`SELECT id, name, created_at FROM profiles WHERE id = ?`, a.activeProfileID).
+	err := a.db.QueryRow(`SELECT id, name, created_at FROM profiles WHERE id = ?`, a.getActiveProfileID()).
 		Scan(&p.ID, &p.Name, &p.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("active profile not found: %w", err)
@@ -1788,7 +1856,7 @@ func (a *App) CreateWorkflowFromTemplate(templateID string) (*WorkflowSummary, e
 		// profile — default it to the active profile so the template works
 		// correctly out of the box.
 		if n.Type == "people.sync_outlook_message" {
-			config["profile_id"] = a.activeProfileID
+			config["profile_id"] = a.getActiveProfileID()
 		}
 		req.Nodes = append(req.Nodes, WorkflowNodeData{
 			ID:        idMap[n.ID],
@@ -1821,7 +1889,7 @@ func (a *App) ListWorkflows() ([]WorkflowSummary, error) {
 	                                 COALESCE(created_at,''), COALESCE(updated_at,'')
 	                          FROM workflows
 	                          WHERE COALESCE(profile_id,'default') = ?
-	                          ORDER BY updated_at DESC`, a.activeProfileID)
+	                          ORDER BY updated_at DESC`, a.getActiveProfileID())
 	if err != nil {
 		return nil, err
 	}
@@ -1857,7 +1925,7 @@ func (a *App) GetWorkflow(id string) (*WorkflowDetail, error) {
 	if a.db != nil {
 		var wfProfile string
 		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
-		if wfProfile != "" && wfProfile != a.activeProfileID {
+		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return nil, fmt.Errorf("workflow %s not found", id)
 		}
 	}
@@ -1871,7 +1939,7 @@ func (a *App) SaveWorkflow(req SaveWorkflowRequest) (*WorkflowSummary, error) {
 	if a.db != nil && req.ID != "" {
 		var wfProfile string
 		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, req.ID).Scan(&wfProfile)
-		if wfProfile != "" && wfProfile != a.activeProfileID {
+		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return nil, fmt.Errorf("workflow %s not found", req.ID)
 		}
 	}
@@ -1881,7 +1949,7 @@ func (a *App) SaveWorkflow(req SaveWorkflowRequest) (*WorkflowSummary, error) {
 		Name:        req.Name,
 		Description: req.Description,
 		IsActive:    req.IsActive,
-		ProfileID:   a.activeProfileID,
+		ProfileID:   a.getActiveProfileID(),
 	}
 	for _, n := range req.Nodes {
 		node := workflow.WorkflowNode{
@@ -1916,7 +1984,7 @@ func (a *App) SaveWorkflow(req SaveWorkflowRequest) (*WorkflowSummary, error) {
 	// Tag the workflow with the active profile. The store doesn't know about profiles,
 	// so we set it with a follow-up UPDATE.
 	if a.db != nil {
-		_, _ = a.db.Exec(`UPDATE workflows SET profile_id = ? WHERE id = ?`, a.activeProfileID, wf.ID)
+		_, _ = a.db.Exec(`UPDATE workflows SET profile_id = ? WHERE id = ?`, a.getActiveProfileID(), wf.ID)
 	}
 	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Saved workflow: %s [%s]", wf.Name, wf.ID))
 	return &WorkflowSummary{
@@ -1937,7 +2005,7 @@ func (a *App) DeleteWorkflow(id string) error {
 	if a.db != nil {
 		var wfProfile string
 		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
-		if wfProfile != "" && wfProfile != a.activeProfileID {
+		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return fmt.Errorf("workflow %s not found", id)
 		}
 	}
@@ -1956,7 +2024,7 @@ func (a *App) SetWorkflowActive(id string, active bool) error {
 	if a.db != nil {
 		var wfProfile string
 		_ = a.db.QueryRow(`SELECT COALESCE(profile_id,'default') FROM workflows WHERE id = ?`, id).Scan(&wfProfile)
-		if wfProfile != "" && wfProfile != a.activeProfileID {
+		if wfProfile != "" && wfProfile != a.getActiveProfileID() {
 			return fmt.Errorf("workflow %s not found", id)
 		}
 	}
@@ -1982,12 +2050,12 @@ func (a *App) RunWorkflow(id string) error {
 
 	// Ensure workflow is active so the engine doesn't reject it.
 	if a.db != nil {
-		_, _ = a.db.Exec("UPDATE workflows SET is_active = 1 WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.activeProfileID)
+		_, _ = a.db.Exec("UPDATE workflows SET is_active = 1 WHERE id = ? AND COALESCE(profile_id,'default') = ?", id, a.getActiveProfileID())
 	}
 
 	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Starting workflow %s", id))
 
-	cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.activeProfileID, "workflow", "run", id)
+	cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.getActiveProfileID(), "workflow", "run", id)
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
 
@@ -2055,7 +2123,7 @@ func (a *App) GetWorkflowExecutions(workflowID string, limit int) ([]WorkflowExe
 	                          JOIN workflows w ON w.id = we.workflow_id
 	                          WHERE we.workflow_id = ? AND COALESCE(w.profile_id,'default') = ?
 	                          ORDER BY we.created_at DESC
-	                          LIMIT ?`, workflowID, a.activeProfileID, limit)
+	                          LIMIT ?`, workflowID, a.getActiveProfileID(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2091,7 +2159,7 @@ func (a *App) GetRecentExecutions(limit int) ([]WorkflowExecutionSummary, error)
 	                          LEFT JOIN workflows w ON e.workflow_id = w.id
 	                          WHERE COALESCE(w.profile_id, 'default') = ?
 	                          ORDER BY e.created_at DESC
-	                          LIMIT ?`, a.activeProfileID, limit)
+	                          LIMIT ?`, a.getActiveProfileID(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2124,7 +2192,7 @@ func (a *App) GetExecutionDetail(executionID string) (map[string]interface{}, er
 	                              COALESCE(finished_at,'') as finished_at,
 	                              COALESCE(error_message,'') as error_message,
 	                              created_at
-	                       FROM workflow_executions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.activeProfileID).
+	                       FROM workflow_executions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID()).
 		Scan(&execID, &wfID, &status, &triggerType, &startedAt, &finishedAt, &errMsg, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("execution not found: %w", err)
@@ -2193,7 +2261,7 @@ func (a *App) CancelWorkflow(executionID string) error {
 	// profile so one profile cannot resolve (and kill) another's subprocess.
 	var workflowID string
 	var pid int
-	_ = a.db.QueryRow(`SELECT workflow_id, COALESCE(pid,0) FROM workflow_executions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.activeProfileID).Scan(&workflowID, &pid)
+	_ = a.db.QueryRow(`SELECT workflow_id, COALESCE(pid,0) FROM workflow_executions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID()).Scan(&workflowID, &pid)
 
 	// Kill the subprocess if tracked by Wails (started via RunWorkflow).
 	a.runningMu.Lock()
@@ -2222,9 +2290,9 @@ func (a *App) CancelWorkflow(executionID string) error {
 	}
 
 	// Mark cancelled in DB — scoped to the active profile for safety.
-	_, _ = a.db.Exec(`UPDATE workflow_executions SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.activeProfileID)
+	_, _ = a.db.Exec(`UPDATE workflow_executions SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID())
 	// Reject any pending HIL items for this execution so they don't stay blocked forever.
-	_, _ = a.db.Exec(`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE execution_id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`, executionID, a.activeProfileID)
+	_, _ = a.db.Exec(`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE execution_id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`, executionID, a.getActiveProfileID())
 	a.emitLog("WORKFLOW", "INFO", fmt.Sprintf("Execution %s cancelled", executionID))
 	return nil
 }
@@ -2261,7 +2329,7 @@ func (a *App) GetHILItems() ([]HILItem, error) {
 		 LEFT JOIN workflows w ON w.id = h.workflow_id
 		 WHERE h.status = 'pending' AND COALESCE(h.profile_id, 'default') = ?
 		 ORDER BY h.created_at ASC`,
-		a.activeProfileID,
+		a.getActiveProfileID(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("GetHILItems: %w", err)
@@ -2302,7 +2370,7 @@ func (a *App) ApproveHIL(id string, editedDataJSON string) error {
 	}
 	res, err := a.db.Exec(
 		`UPDATE hil_pending SET status='approved', edited_data=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`,
-		editedDataJSON, id, a.activeProfileID,
+		editedDataJSON, id, a.getActiveProfileID(),
 	)
 	if err != nil {
 		return fmt.Errorf("ApproveHIL: %w", err)
@@ -2321,7 +2389,7 @@ func (a *App) RejectHIL(id string) error {
 	}
 	res, err := a.db.Exec(
 		`UPDATE hil_pending SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending' AND COALESCE(profile_id,'default') = ?`,
-		id, a.activeProfileID,
+		id, a.getActiveProfileID(),
 	)
 	if err != nil {
 		return fmt.Errorf("RejectHIL: %w", err)
@@ -2342,7 +2410,7 @@ func (a *App) ListCredentials() ([]CredentialSummary, error) {
 		return nil, fmt.Errorf("database not available")
 	}
 	rows, err := a.db.Query(`SELECT id, name, service_type, created_at, updated_at
-	                          FROM credentials WHERE profile_id = ? ORDER BY name`, a.activeProfileID)
+	                          FROM credentials WHERE profile_id = ? ORDER BY name`, a.getActiveProfileID())
 	if err != nil {
 		return nil, err
 	}
@@ -2379,7 +2447,7 @@ func (a *App) SaveCredential(req SaveCredentialRequest) (*CredentialSummary, err
 		credID = uuid.New().String()
 		_, err := a.db.Exec(`INSERT INTO credentials (id, name, service_type, encrypted_data, profile_id, created_at, updated_at)
 		                      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			credID, req.Name, req.ServiceType, dataJSON, a.activeProfileID, now, now)
+			credID, req.Name, req.ServiceType, dataJSON, a.getActiveProfileID(), now, now)
 		if err != nil {
 			return nil, fmt.Errorf("insert credential: %w", err)
 		}
@@ -2387,7 +2455,7 @@ func (a *App) SaveCredential(req SaveCredentialRequest) (*CredentialSummary, err
 		credID = req.ID
 		res, err := a.db.Exec(`UPDATE credentials SET name = ?, service_type = ?, encrypted_data = ?, updated_at = ?
 		                      WHERE id = ? AND COALESCE(profile_id,'default') = ?`,
-			req.Name, req.ServiceType, dataJSON, now, credID, a.activeProfileID)
+			req.Name, req.ServiceType, dataJSON, now, credID, a.getActiveProfileID())
 		if err != nil {
 			return nil, fmt.Errorf("update credential: %w", err)
 		}
@@ -2408,7 +2476,7 @@ func (a *App) DeleteCredential(id string) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
-	res, err := a.db.Exec(`DELETE FROM credentials WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID)
+	res, err := a.db.Exec(`DELETE FROM credentials WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
@@ -2435,7 +2503,7 @@ func (a *App) GetWorkflowNodeTypes() map[string]interface{} {
 		return nodeDesc{Type: t, Label: label, Category: cat, Description: desc, Schema: schema}
 	}
 
-	return map[string]interface{}{
+	catalog := map[string][]nodeDesc{
 		"triggers": []nodeDesc{
 			mkNode("trigger.manual", "Manual Trigger", "triggers", "Start a workflow run manually"),
 			mkNode("trigger.schedule", "Schedule", "triggers", "Run workflow on a cron or interval schedule"),
@@ -2587,6 +2655,65 @@ func (a *App) GetWorkflowNodeTypes() map[string]interface{} {
 			mkNode("people.sync_outlook_message", "Sync Email to People", "people", "Upsert the sender as a person and save the message to their history"),
 		},
 	}
+
+	// Reconcile the hand-written catalog against the live node registry (the
+	// same one the CLI runs) so the GUI always matches what can actually run:
+	// stale entries drop out, newly registered types appear with a derived label.
+	reg := noderegistry.Build(a.db)
+	groupOf := func(t string) string {
+		prefix, _, _ := strings.Cut(t, ".")
+		switch prefix {
+		case "core":
+			return "control"
+		case "data", "http", "system", "db", "comm", "service", "ai", "people", "image":
+			return prefix
+		default: // platform bots: instagram, linkedin, x, tiktok, gemini, hackernews, ...
+			return "browser"
+		}
+	}
+	title := func(s string) string {
+		words := strings.Split(strings.ReplaceAll(s, "_", " "), " ")
+		for i, w := range words {
+			if w != "" {
+				words[i] = strings.ToUpper(w[:1]) + w[1:]
+			}
+		}
+		return strings.Join(words, " ")
+	}
+	deriveLabel := func(t string) string {
+		prefix, rest, _ := strings.Cut(t, ".")
+		if groupOf(t) == "browser" {
+			return title(prefix) + ": " + title(rest)
+		}
+		return title(rest)
+	}
+
+	seen := map[string]bool{}
+	for group, list := range catalog {
+		if group == "triggers" {
+			continue // triggers run via the trigger manager, not the node registry
+		}
+		kept := list[:0]
+		for _, n := range list {
+			if reg.Has(n.Type) {
+				kept = append(kept, n)
+				seen[n.Type] = true
+			}
+		}
+		catalog[group] = kept
+	}
+	for _, t := range reg.Types() { // Types() is sorted, so extras append deterministically
+		if !seen[t] {
+			g := groupOf(t)
+			catalog[g] = append(catalog[g], mkNode(t, deriveLabel(t), g, ""))
+		}
+	}
+
+	out := make(map[string]interface{}, len(catalog))
+	for group, list := range catalog {
+		out[group] = list
+	}
+	return out
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2672,18 +2799,29 @@ func (a *App) RunNode(req NodeRunRequest) NodeRunResult {
 		return NodeRunResult{Error: "invalid input: " + err.Error()}
 	}
 
+	// Pass config + input via stdin, not argv: any secrets typed directly into
+	// node fields (DB passwords, API keys) would otherwise be world-readable via
+	// ps / /proc/<pid>/cmdline for the subprocess lifetime.
+	payload, err := json.Marshal(map[string]json.RawMessage{
+		"config": json.RawMessage(configBytes),
+		"input":  json.RawMessage(inputBytes),
+	})
+	if err != nil {
+		return NodeRunResult{Error: "encoding node payload: " + err.Error()}
+	}
+
 	start := time.Now()
 	args := []string{
-		"--profile", a.activeProfileID,
+		"--profile", a.getActiveProfileID(),
 		"node", "run", req.NodeType,
-		"--config", string(configBytes),
-		"--input", string(inputBytes),
+		"--stdin",
 		"--output", "json",
 	}
 	if credID != "" {
 		args = append(args, "--credential", credID)
 	}
 	cmd := exec.Command(cliBin, args...)
+	cmd.Stdin = bytes.NewReader(payload)
 	out, runErr := cmd.Output()
 	elapsed := time.Since(start).Milliseconds()
 
@@ -2767,9 +2905,9 @@ func (a *App) ListCredentialsForNode(nodeType string) []CredentialOption {
 	var conns []connections.Connection
 	var err error
 	if platform != "" {
-		conns, err = store.ListByPlatform(a.ctx, platform, a.activeProfileID)
+		conns, err = store.ListByPlatform(a.ctx, platform, a.getActiveProfileID())
 	} else {
-		conns, err = store.ListAll(a.ctx, a.activeProfileID)
+		conns, err = store.ListAll(a.ctx, a.getActiveProfileID())
 	}
 	if err != nil || conns == nil {
 		return []CredentialOption{}
@@ -2792,7 +2930,7 @@ func (a *App) ListConnections(platform string) []connections.SafeConnection {
 	if a.connMgr == nil {
 		return []connections.SafeConnection{}
 	}
-	result, err := a.connMgr.List(a.ctx, platform, a.activeProfileID)
+	result, err := a.connMgr.List(a.ctx, platform, a.getActiveProfileID())
 	if err != nil {
 		return []connections.SafeConnection{}
 	}
@@ -2861,7 +2999,7 @@ func (a *App) TestConnection(id string) string {
 	if a.connMgr != nil {
 		if conn, err := a.connMgr.Get(a.ctx, id); err == nil && conn != nil {
 			// Enforce profile scope.
-			if conn.ProfileID != "" && conn.ProfileID != a.activeProfileID {
+			if conn.ProfileID != "" && conn.ProfileID != a.getActiveProfileID() {
 				return "error: connection not found"
 			}
 			// OAuth: attempt silent token refresh before testing.
@@ -2882,7 +3020,7 @@ func (a *App) TestConnection(id string) string {
 	if a.db != nil {
 		var platform, cookiesJSON, expiry string
 		err := a.db.QueryRow(
-			`SELECT platform, cookies_json, expiry FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID,
+			`SELECT platform, cookies_json, expiry FROM crawler_sessions WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.getActiveProfileID(),
 		).Scan(&platform, &cookiesJSON, &expiry)
 		if err == nil {
 			// Check expiry
@@ -2906,7 +3044,7 @@ func (a *App) TestConnection(id string) string {
 	// Also try looking up by platform name (fallback for credential_id = platform string).
 	if a.connMgr != nil {
 		platform := nodeTypeToPlatform(id)
-		if conns, err := a.connMgr.List(a.ctx, platform, a.activeProfileID); err == nil && len(conns) > 0 {
+		if conns, err := a.connMgr.List(a.ctx, platform, a.getActiveProfileID()); err == nil && len(conns) > 0 {
 			for _, c := range conns {
 				if c.Status == "active" {
 					return "ok"
@@ -2928,10 +3066,10 @@ func (a *App) RemoveConnection(id string) string {
 	if err != nil || conn == nil {
 		return "error: connection not found"
 	}
-	if conn.ProfileID != "" && conn.ProfileID != a.activeProfileID {
+	if conn.ProfileID != "" && conn.ProfileID != a.getActiveProfileID() {
 		return "error: connection not found"
 	}
-	if err := a.connMgr.Remove(a.ctx, id, a.activeProfileID); err != nil {
+	if err := a.connMgr.Remove(a.ctx, id, a.getActiveProfileID()); err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
 	return "ok"
@@ -2955,7 +3093,7 @@ func (a *App) GetOAuthCredentials(platformID string) string {
 	var clientID, clientSecret string
 	err := a.db.QueryRow(
 		`SELECT client_id, client_secret FROM platform_oauth_credentials WHERE platform = ? AND profile_id = ?`,
-		platformID, a.activeProfileID,
+		platformID, a.getActiveProfileID(),
 	).Scan(&clientID, &clientSecret)
 	if err != nil {
 		return ""
@@ -2978,7 +3116,7 @@ func (a *App) SetOAuthCredentials(platformID, clientID, clientSecret string) str
 	_, err := a.db.Exec(
 		`INSERT OR REPLACE INTO platform_oauth_credentials (platform, profile_id, client_id, client_secret, updated_at)
 		 VALUES (?, ?, ?, ?, ?)`,
-		platformID, a.activeProfileID, clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
+		platformID, a.getActiveProfileID(), clientID, clientSecret, time.Now().UTC().Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
@@ -3021,7 +3159,7 @@ func (a *App) ConnectPlatformOAuth(platformID string) string {
 			}
 		}
 
-		conn, err := a.connMgr.ConnectOAuthWithProgress(a.ctx, platformID, emit, oauthClientID, oauthClientSecret, a.activeProfileID)
+		conn, err := a.connMgr.ConnectOAuthWithProgress(a.ctx, platformID, emit, oauthClientID, oauthClientSecret, a.getActiveProfileID())
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{
 				"platform": platformID,
@@ -3068,7 +3206,7 @@ func (a *App) LoginSocial(platform string) string {
 	}
 
 	go func() {
-		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.activeProfileID, "login", pid)
+		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.getActiveProfileID(), "login", pid)
 		stderr, _ := cmd.StderrPipe()
 
 		if startErr := cmd.Start(); startErr != nil {
@@ -3114,7 +3252,7 @@ func (a *App) ConfirmSocialLogin(platform string) string {
 	}
 
 	go func() {
-		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.activeProfileID, "login", "confirm", pid)
+		cmd := exec.CommandContext(a.ctx, cliBin, "--profile", a.getActiveProfileID(), "login", "confirm", pid)
 		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
 
@@ -3177,7 +3315,7 @@ func (a *App) SaveConnectionDirect(platformID string, method string, fieldValues
 		Label:     p.Name,
 		Data:      fieldValues,
 		Status:    "active",
-		ProfileID: a.activeProfileID,
+		ProfileID: a.getActiveProfileID(),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -3201,480 +3339,3 @@ func (a *App) SaveConnectionDirect(platformID string, method string, fieldValues
 	return "ok:" + conn.ID
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AI Providers
-// ─────────────────────────────────────────────────────────────────────────────
-
-func (a *App) ListAIProviders() string {
-	if a.aiStore == nil {
-		return "[]"
-	}
-	providers, err := a.aiStore.ListProviders(a.activeProfileID)
-	if err != nil {
-		return aiError(err)
-	}
-	b, _ := json.Marshal(providers)
-	return string(b)
-}
-
-func (a *App) SaveAIProvider(providerJSON string) string {
-	if a.aiStore == nil {
-		return aiError(fmt.Errorf("ai store not initialized"))
-	}
-	var p ai.AIProvider
-	if err := json.Unmarshal([]byte(providerJSON), &p); err != nil {
-		return aiError(err)
-	}
-	if p.ID == "" {
-		p.ID = newUUID()
-	} else if _, err := a.aiStore.GetProvider(p.ID, a.activeProfileID); err != nil {
-		return aiError(fmt.Errorf("provider %s not found", p.ID))
-	}
-	p.ProfileID = a.activeProfileID
-	if err := a.aiStore.SaveProvider(p); err != nil {
-		return aiError(err)
-	}
-	b, _ := json.Marshal(p)
-	return string(b)
-}
-
-func (a *App) DeleteAIProvider(id string) string {
-	if a.aiStore == nil {
-		return aiError(fmt.Errorf("ai store not initialized"))
-	}
-	if err := a.aiStore.DeleteProvider(id, a.activeProfileID); err != nil {
-		return aiError(err)
-	}
-	return `{"ok":true}`
-}
-
-func (a *App) TestAIProvider(id string) string {
-	if a.aiStore == nil {
-		return aiError(fmt.Errorf("ai store not initialized"))
-	}
-	p, err := a.aiStore.GetProvider(id, a.activeProfileID)
-	if err != nil {
-		return aiError(err)
-	}
-	client, err := ai.NewClient(p)
-	if err != nil {
-		return aiError(err)
-	}
-	model := p.DefaultModel
-	if model == "" {
-		def, ok := ai.GetProviderDef(p.ProviderID)
-		if ok && len(def.Models) > 0 {
-			model = def.Models[0].ID
-		} else {
-			model = "gpt-4o-mini"
-		}
-	}
-	_, err = client.Complete(context.Background(), ai.CompletionRequest{
-		Model:     model,
-		Messages:  []ai.Message{{Role: ai.RoleUser, Content: "Say ok"}},
-		MaxTokens: 5,
-	})
-	status := "active"
-	if err != nil {
-		status = "error"
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	_ = a.aiStore.UpdateProviderStatus(id, status, now, a.activeProfileID)
-	if err != nil {
-		return fmt.Sprintf(`{"status":"error","error":%q}`, err.Error())
-	}
-	return `{"status":"active"}`
-}
-
-func (a *App) GetAIModels(providerID string) string {
-	def, ok := ai.GetProviderDef(providerID)
-	if !ok {
-		return "[]"
-	}
-	b, _ := json.Marshal(def.Models)
-	return string(b)
-}
-
-func (a *App) GetAIRegistry() string {
-	b, _ := json.Marshal(ai.ProviderRegistry)
-	return string(b)
-}
-
-func aiError(err error) string {
-	return fmt.Sprintf(`{"error":%q}`, err.Error())
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AI Chat
-// ─────────────────────────────────────────────────────────────────────────────
-
-func (a *App) StreamAIChat(workflowID, message, providerID, model string) string {
-	if a.chatService == nil {
-		return aiError(fmt.Errorf("chat service not initialized"))
-	}
-	a.chatService.SetProfileID(a.activeProfileID)
-	go func() {
-		err := a.chatService.StreamChat(
-			context.Background(),
-			workflowID, message, providerID, model,
-			func(chunk ai.StreamChunk) {
-				runtime.EventsEmit(a.ctx, "ai:chunk", map[string]interface{}{
-					"workflowID": workflowID,
-					"content":    chunk.Content,
-					"done":       chunk.Done,
-				})
-			},
-			func(name, args, result string) {
-				runtime.EventsEmit(a.ctx, "ai:tool", map[string]interface{}{
-					"workflowID": workflowID,
-					"tool":       name,
-					"args":       args,
-					"result":     result,
-				})
-			},
-		)
-		if err != nil {
-			runtime.EventsEmit(a.ctx, "ai:error", map[string]interface{}{
-				"workflowID": workflowID,
-				"error":      err.Error(),
-			})
-		} else {
-			// Signal streaming is complete.
-			runtime.EventsEmit(a.ctx, "ai:chunk", map[string]interface{}{
-				"workflowID": workflowID,
-				"content":    "",
-				"done":       true,
-			})
-		}
-	}()
-	return `{"ok":true}`
-}
-
-func (a *App) GetAIChatHistory(workflowID string) string {
-	if a.chatService == nil {
-		return "[]"
-	}
-	a.chatService.SetProfileID(a.activeProfileID)
-	msgs, err := a.chatService.GetHistory(workflowID)
-	if err != nil {
-		return aiError(err)
-	}
-	b, _ := json.Marshal(msgs)
-	return string(b)
-}
-
-func (a *App) ClearAIChatHistory(workflowID string) string {
-	if a.chatService == nil {
-		return aiError(fmt.Errorf("chat service not initialized"))
-	}
-	a.chatService.SetProfileID(a.activeProfileID)
-	if err := a.chatService.ClearHistory(workflowID); err != nil {
-		return aiError(err)
-	}
-	return `{"ok":true}`
-}
-
-// GetRunLogs returns the most recent run log entries written by CLI processes.
-func (a *App) GetRunLogs(limit int) []LogEntry {
-	if a.db == nil || limit <= 0 {
-		return nil
-	}
-	rows, err := a.db.Query(
-		`SELECT source, level, message, created_at FROM run_logs ORDER BY id DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []LogEntry
-	for rows.Next() {
-		var e LogEntry
-		if rows.Scan(&e.Source, &e.Level, &e.Message, &e.Time) == nil {
-			out = append(out, e)
-		}
-	}
-	// Reverse so oldest is first.
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out
-}
-
-// ── Image Vault ──────────────────────────────────────────────────────────────
-
-func (a *App) GetVaultImages(limit int) ([]map[string]interface{}, error) {
-	if a.db == nil {
-		return nil, fmt.Errorf("database not available")
-	}
-	if limit <= 0 {
-		limit = 200
-	}
-	rows, err := a.db.Query(`
-		SELECT id, seq, path, filename, size_bytes, source,
-		       COALESCE(workflow_id,'') as workflow_id,
-		       COALESCE(execution_id,'') as execution_id,
-		       COALESCE(label,'') as label, created_at
-		FROM vault_images WHERE COALESCE(profile_id,'default') = ? ORDER BY seq DESC LIMIT ?`, a.activeProfileID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []map[string]interface{}
-	for rows.Next() {
-		var id, path, filename, source, workflowID, executionID, label, createdAt string
-		var seq, sizeBytes int
-		if err := rows.Scan(&id, &seq, &path, &filename, &sizeBytes, &source, &workflowID, &executionID, &label, &createdAt); err != nil {
-			continue
-		}
-		out = append(out, map[string]interface{}{
-			"id": id, "seq": seq, "path": path, "filename": filename,
-			"size_bytes": sizeBytes, "source": source,
-			"workflow_id": workflowID, "execution_id": executionID,
-			"label": label, "created_at": createdAt,
-			"url": "/vault-image/" + filename,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if out == nil {
-		out = []map[string]interface{}{}
-	}
-	return out, nil
-}
-
-func (a *App) GetVaultImage(id string) (map[string]interface{}, error) {
-	if a.db == nil {
-		return nil, fmt.Errorf("database not available")
-	}
-	var imgID, path, filename, source, workflowID, executionID, label, createdAt string
-	var seq, sizeBytes int
-	err := a.db.QueryRow(`
-		SELECT id, seq, path, filename, size_bytes, source,
-		       COALESCE(workflow_id,'') as workflow_id,
-		       COALESCE(execution_id,'') as execution_id,
-		       COALESCE(label,'') as label, created_at
-		FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID).
-		Scan(&imgID, &seq, &path, &filename, &sizeBytes, &source, &workflowID, &executionID, &label, &createdAt)
-	if err != nil {
-		return nil, fmt.Errorf("vault image %q not found: %w", id, err)
-	}
-	return map[string]interface{}{
-		"id": imgID, "seq": seq, "path": path, "filename": filename,
-		"size_bytes": sizeBytes, "source": source,
-		"workflow_id": workflowID, "execution_id": executionID,
-		"label": label, "created_at": createdAt,
-		"url": "/vault-image/" + filename,
-	}, nil
-}
-
-// ── Secrets Vault ────────────────────────────────────────────────────────────
-
-func (a *App) ListSecrets() ([]secrets.Entry, error) {
-	entries, err := secrets.List(context.Background(), a.db, a.activeProfileID)
-	if err != nil {
-		return nil, err
-	}
-	if entries == nil {
-		entries = []secrets.Entry{}
-	}
-	return entries, nil
-}
-
-func (a *App) AddSecret(kind, name, value, username, url, notes string) (string, error) {
-	return secrets.Add(context.Background(), a.db, a.activeProfileID, kind, name, value, username, url, notes)
-}
-
-// RevealSecret returns the plaintext value for id. This is the GUI's only
-// decrypt entrypoint, calling the identical secrets.DecryptEntry function
-// the CLI's `secret reveal --reveal` command calls.
-func (a *App) RevealSecret(id string) (string, error) {
-	return secrets.DecryptEntry(context.Background(), a.db, a.activeProfileID, id)
-}
-
-func (a *App) DeleteSecret(id string) error {
-	return secrets.Delete(context.Background(), a.db, a.activeProfileID, id)
-}
-
-// GetVaultImageData reads a vault image from disk and returns it as a base64
-// data URL (e.g. "data:image/png;base64,..."). This is the reliable way to
-// display vault images inside the Wails WebView without relying on the HTTP
-// asset handler.
-func (a *App) GetVaultImageData(id string) (string, error) {
-	if a.db == nil {
-		return "", fmt.Errorf("database not available")
-	}
-	var path string
-	err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID).Scan(&path)
-	if err != nil {
-		return "", fmt.Errorf("vault image %q not found: %w", id, err)
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return "", fmt.Errorf("vault image file open: %w", err)
-	}
-	defer f.Close()
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return "", fmt.Errorf("vault image file read: %w", err)
-	}
-	mimeType := mime.TypeByExtension(filepath.Ext(path))
-	if mimeType == "" {
-		mimeType = "image/png"
-	}
-	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
-}
-
-func (a *App) AddVaultImage(srcPath, label string) (map[string]interface{}, error) {
-	if a.db == nil {
-		return nil, fmt.Errorf("database not available")
-	}
-	vaultCtx := vault.ContextWithProfileID(context.Background(), a.activeProfileID)
-	id, err := vault.Register(vaultCtx, a.db, srcPath, "upload", "", "")
-	if err != nil {
-		return nil, fmt.Errorf("vault register: %w", err)
-	}
-	if label != "" {
-		_, _ = a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?`, label, id, a.activeProfileID)
-	}
-	return a.GetVaultImage(id)
-}
-
-// OpenVaultFilePicker opens a native file picker and returns the selected file path (empty if cancelled).
-func (a *App) OpenVaultFilePicker() string {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Image",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Images", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp"},
-		},
-	})
-	if err != nil {
-		return ""
-	}
-	return path
-}
-
-// SaveVaultImageToFile opens a native Save File dialog pre-filled with suggestedName,
-// then copies the vault image file to the chosen path. Returns "" if the user cancels.
-func (a *App) SaveVaultImageToFile(id, suggestedName string) string {
-	if a.db == nil {
-		return "error: database not available"
-	}
-	var srcPath string
-	err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID).Scan(&srcPath)
-	if err != nil {
-		return "error: image not found"
-	}
-	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Save Image",
-		DefaultFilename: suggestedName,
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Images", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.tif"},
-		},
-	})
-	if err != nil || dest == "" {
-		return ""
-	}
-	src, err := os.Open(srcPath)
-	if err != nil {
-		return "error: " + err.Error()
-	}
-	defer src.Close()
-	out, err := os.Create(dest)
-	if err != nil {
-		return "error: " + err.Error()
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, src); err != nil {
-		return "error: " + err.Error()
-	}
-	return dest
-}
-
-func (a *App) UpdateVaultImageLabel(id, label string) error {
-	if a.db == nil {
-		return fmt.Errorf("database not available")
-	}
-	var nullLabel interface{} = nil
-	if label != "" {
-		nullLabel = label
-	}
-	res, err := a.db.Exec(`UPDATE vault_images SET label = ? WHERE id = ? AND COALESCE(profile_id,'default') = ?`, nullLabel, id, a.activeProfileID)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("vault image %s not found", id)
-	}
-	return nil
-}
-
-func (a *App) DeleteVaultImage(id string) error {
-	if a.db == nil {
-		return fmt.Errorf("database not available")
-	}
-	var path string
-	if err := a.db.QueryRow(`SELECT path FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID).Scan(&path); err != nil {
-		return fmt.Errorf("vault image %q not found: %w", id, err)
-	}
-	if _, err := a.db.Exec(`DELETE FROM vault_images WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, a.activeProfileID); err != nil {
-		return fmt.Errorf("delete record: %w", err)
-	}
-	_ = os.Remove(path) // best-effort
-	return nil
-}
-
-func (a *App) SearchVaultImages(query string) ([]map[string]interface{}, error) {
-	if a.db == nil {
-		return nil, fmt.Errorf("database not available")
-	}
-	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
-	q := "%" + escaped + "%"
-	rows, err := a.db.Query(`
-		SELECT id, seq, path, filename, size_bytes, source,
-		       COALESCE(workflow_id,'') as workflow_id,
-		       COALESCE(execution_id,'') as execution_id,
-		       COALESCE(label,'') as label, created_at
-		FROM vault_images
-		WHERE COALESCE(profile_id,'default') = ? AND (label LIKE ? ESCAPE '\' OR filename LIKE ? ESCAPE '\' OR source LIKE ? ESCAPE '\' OR workflow_id LIKE ? ESCAPE '\')
-		ORDER BY seq DESC LIMIT 100`, a.activeProfileID, q, q, q, q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []map[string]interface{}
-	for rows.Next() {
-		var id, path, filename, source, workflowID, executionID, label, createdAt string
-		var seq, sizeBytes int
-		if err := rows.Scan(&id, &seq, &path, &filename, &sizeBytes, &source, &workflowID, &executionID, &label, &createdAt); err != nil {
-			continue
-		}
-		out = append(out, map[string]interface{}{
-			"id": id, "seq": seq, "path": path, "filename": filename,
-			"size_bytes": sizeBytes, "source": source,
-			"workflow_id": workflowID, "execution_id": executionID,
-			"label": label, "created_at": createdAt,
-			"url": "/vault-image/" + filename,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if out == nil {
-		out = []map[string]interface{}{}
-	}
-	return out, nil
-}
-
-func (a *App) GetVaultStats() (map[string]interface{}, error) {
-	if a.db == nil {
-		return nil, fmt.Errorf("database not available")
-	}
-	var count int
-	var totalBytes int64
-	err := a.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(size_bytes),0) FROM vault_images WHERE COALESCE(profile_id,'default') = ?`, a.activeProfileID).
-		Scan(&count, &totalBytes)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]interface{}{"count": count, "total_bytes": totalBytes}, nil
-}

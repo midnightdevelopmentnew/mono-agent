@@ -60,6 +60,8 @@ export function DeleteWorkflow(arg1:string):Promise<void>;
 
 export function ExecuteAction(arg1:string):Promise<void>;
 
+export function ExportData():Promise<main.ExportResult>;
+
 export function GetAIChatHistory(arg1:string):Promise<string>;
 
 export function GetAIModels(arg1:string):Promise<string>;
@@ -207,6 +209,8 @@ export function SendDraftPersonMessage(arg1:string):Promise<storage.PersonMessag
 export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetWorkflowActive(arg1:string,arg2:boolean):Promise<void>;
+
+export function StopAIChat(arg1:string):Promise<string>;
 
 export function StreamAIChat(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
