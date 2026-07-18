@@ -42,6 +42,10 @@ function Tile({ platform, conn, onClick }) {
   return (
     <div
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${platform.name}${connected ? ' (connected)' : expired ? ' (expired)' : ''}`}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
       style={{

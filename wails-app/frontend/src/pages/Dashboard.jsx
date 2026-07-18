@@ -197,6 +197,7 @@ function WorkflowRow({ wf, execMap, onRun, onStop, onToggle, onNavigate }) {
         onClick={() => onNavigate('noderunner', last ? { workflowId: wf.id, executionId: last.id } : { workflowId: wf.id })}
         style={{ padding: 3, color: 'var(--text-dim)' }}
         title="Open in editor"
+        aria-label={`Open ${wf.name || 'workflow'} in editor`}
       >
         <ChevronRight size={14} />
       </button>

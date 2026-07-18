@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 // Promise-based confirm to replace blocking native window.confirm(), which looks
 // foreign in a styled Wails app and freezes the webview. Usage:
@@ -23,6 +23,7 @@ function settle(value) {
 // ConfirmHost renders the dialog; mount once near the app root.
 export default function ConfirmHost() {
   const [req, setReq] = useState(null)
+  const dialogRef = useRef(null)
 
   const close = useCallback((value) => {
     settle(value)
@@ -34,6 +35,26 @@ export default function ConfirmHost() {
     bus.addEventListener('confirm:open', handler)
     return () => bus.removeEventListener('confirm:open', handler)
   }, [])
+
+  // Trap Tab focus within the dialog so keyboard users can't tab out to the
+  // obscured page behind it.
+  useEffect(() => {
+    if (!req) return
+    const onTab = (e) => {
+      if (e.key !== 'Tab' || !dialogRef.current) return
+      const focusable = dialogRef.current.querySelectorAll('button, [href], input, [tabindex]:not([tabindex="-1"])')
+      if (!focusable.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus()
+      }
+    }
+    document.addEventListener('keydown', onTab)
+    return () => document.removeEventListener('keydown', onTab)
+  }, [req])
 
   useEffect(() => {
     if (!req) return
@@ -59,6 +80,7 @@ export default function ConfirmHost() {
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={req.title || 'Confirm'}
