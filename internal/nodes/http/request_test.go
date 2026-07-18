@@ -89,3 +89,30 @@ func TestRequestNode_RequiresURL(t *testing.T) {
 		t.Error("expected an error when url is missing")
 	}
 }
+
+func TestSSHNode_ValidatesConfig(t *testing.T) {
+	n := &SSHNode{}
+	// Missing host, username, command all error before any network use.
+	for _, cfg := range []map[string]interface{}{
+		{},
+		{"host": "h"},
+		{"host": "h", "username": "u"},
+	} {
+		if _, err := n.Execute(context.Background(), workflow.NodeInput{}, cfg); err == nil {
+			t.Errorf("SSHNode.Execute(%v) = nil error, want validation error", cfg)
+		}
+	}
+}
+
+func TestFTPNode_ValidatesConfig(t *testing.T) {
+	n := &FTPNode{}
+	for _, cfg := range []map[string]interface{}{
+		{},
+		{"operation": "download"},
+		{"operation": "download", "host": "h"},
+	} {
+		if _, err := n.Execute(context.Background(), workflow.NodeInput{}, cfg); err == nil {
+			t.Errorf("FTPNode.Execute(%v) = nil error, want validation error", cfg)
+		}
+	}
+}
