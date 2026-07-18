@@ -1,11 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
+
+// printJSON writes v to stdout as indented JSON. Small shared helper for the
+// commands that honor the global --json flag.
+func printJSON(v interface{}) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
 
 func newProfileCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
@@ -45,18 +55,40 @@ func newProfileListCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer rows.Close()
 
-			fmt.Printf("%-36s  %-20s  %s\n", "ID", "NAME", "CREATED")
+			type profileRow struct {
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				CreatedAt string `json:"created_at"`
+				Active    bool   `json:"active"`
+			}
+			var profiles []profileRow
 			for rows.Next() {
-				var id, name, createdAt string
-				if rows.Scan(&id, &name, &createdAt) == nil {
-					marker := ""
-					if id == activeID {
-						marker = " *"
-					}
-					fmt.Printf("%-36s  %-20s  %s%s\n", id, name, createdAt, marker)
+				var p profileRow
+				if rows.Scan(&p.ID, &p.Name, &p.CreatedAt) == nil {
+					p.Active = p.ID == activeID
+					profiles = append(profiles, p)
 				}
 			}
-			return rows.Err()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+
+			if cfg.JSONOutput {
+				if profiles == nil {
+					profiles = []profileRow{}
+				}
+				return printJSON(profiles)
+			}
+
+			fmt.Printf("%-36s  %-20s  %s\n", "ID", "NAME", "CREATED")
+			for _, p := range profiles {
+				marker := ""
+				if p.Active {
+					marker = " *"
+				}
+				fmt.Printf("%-36s  %-20s  %s%s\n", p.ID, p.Name, p.CreatedAt, marker)
+			}
+			return nil
 		},
 	}
 }
@@ -78,6 +110,9 @@ func newProfileCreateCmd(cfg *globalConfig) *cobra.Command {
 			_, err = db.DB.Exec(`INSERT INTO profiles (id, name) VALUES (?, ?)`, id, name)
 			if err != nil {
 				return fmt.Errorf("create profile: %w", err)
+			}
+			if cfg.JSONOutput {
+				return printJSON(map[string]string{"id": id, "name": name})
 			}
 			fmt.Printf("Created profile: %s (%s)\n", name, id)
 			return nil
@@ -110,6 +145,9 @@ func newProfileSwitchCmd(cfg *globalConfig) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("switch profile: %w", err)
 			}
+			if cfg.JSONOutput {
+				return printJSON(map[string]string{"id": id})
+			}
 			fmt.Printf("Switched to profile: %s\n", id)
 			return nil
 		},
@@ -131,8 +169,14 @@ func newProfileCurrentCmd(cfg *globalConfig) *cobra.Command {
 			err = db.DB.QueryRow(`SELECT p.id, p.name FROM profiles p
 			                      INNER JOIN settings s ON s.value = p.id AND s.key = 'active_profile_id'`).Scan(&id, &name)
 			if err != nil {
+				if cfg.JSONOutput {
+					return printJSON(map[string]string{"id": "default", "name": "default"})
+				}
 				fmt.Println("default")
 				return nil
+			}
+			if cfg.JSONOutput {
+				return printJSON(map[string]string{"id": id, "name": name})
 			}
 			fmt.Printf("%s (%s)\n", name, id)
 			return nil

@@ -167,7 +167,7 @@ func newConnectListCmd(cfg *globalConfig) *cobra.Command {
 		Short: "List saved connections (or all supported platforms with --all)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if all {
-				return printAllPlatforms(jsonOut)
+				return printAllPlatforms(jsonOut || cfg.JSONOutput)
 			}
 
 			db, err := initDB(cfg)
@@ -186,7 +186,7 @@ func newConnectListCmd(cfg *globalConfig) *cobra.Command {
 				return err
 			}
 
-			if jsonOut {
+			if jsonOut || cfg.JSONOutput {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(connections.RedactAll(conns))

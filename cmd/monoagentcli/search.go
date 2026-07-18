@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -26,10 +27,6 @@ func newSearchCmd(cfg *globalConfig) *cobra.Command {
   monoagentcli search x --keyword "AI engineer"`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if keyword == "" {
-				return fmt.Errorf("--keyword is required")
-			}
-
 			platform := strings.ToLower(args[0])
 
 			db, err := initDB(cfg)
@@ -46,7 +43,8 @@ func newSearchCmd(cfg *globalConfig) *cobra.Command {
 				Title:          fmt.Sprintf("Quick search: %s on %s", keyword, platform),
 				Type:           "KEYWORD_SEARCH",
 				State:          "PENDING",
-				TargetPlatform: platform,
+				// Uppercase to match the GUI platform filter (see action.go).
+				TargetPlatform: strings.ToUpper(platform),
 				Keywords:       keyword,
 			}
 
@@ -56,11 +54,14 @@ func newSearchCmd(cfg *globalConfig) *cobra.Command {
 
 			// Create a single target representing the search.
 			targetID := storage.NewID()
+			metadata, err := json.Marshal(map[string]interface{}{"keyword": keyword, "max_results": maxResults})
+			if err != nil {
+				return fmt.Errorf("encoding search metadata: %w", err)
+			}
 			_, err = db.DB.Exec(
 				`INSERT INTO action_targets (id, action_id, platform, status, metadata)
 				 VALUES (?, ?, ?, 'PENDING', ?)`,
-				targetID, actionID, platform,
-				fmt.Sprintf(`{"keyword":"%s","max_results":%d}`, keyword, maxResults),
+				targetID, actionID, platform, string(metadata),
 			)
 			if err != nil {
 				return fmt.Errorf("creating search target: %w", err)

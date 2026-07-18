@@ -18,6 +18,7 @@ import (
 	browserpkg "monoagent/internal/browser"
 	"monoagent/internal/config"
 	"monoagent/internal/extension"
+	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 	"monoagent/internal/util"
 	"github.com/olekukonko/tablewriter"
@@ -318,17 +319,22 @@ func upsertAction(db *storage.Database, a *storage.Action, profileID string) err
 			paramsJSON = string(b)
 		}
 	}
+	// created_at_ts is what the GUI sorts actions by; set it (preserving an
+	// existing value on re-upsert) so CLI-created actions sort correctly there.
 	_, err := db.DB.Exec(
 		`INSERT OR REPLACE INTO actions
 		 (id, created_at, title, type, state, disabled, target_platform, position,
 		  content_subject, content_message, content_blob_urls,
 		  scheduled_date, execution_interval, start_date, end_date,
-		  campaign_id, reached_index, keywords, action_execution_count, params, profile_id, updated_at_ts)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		  campaign_id, reached_index, keywords, action_execution_count, params, profile_id,
+		  created_at_ts, updated_at_ts)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		         COALESCE((SELECT created_at_ts FROM actions WHERE id = ?), CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)`,
 		a.ID, a.CreatedAt, a.Title, a.Type, a.State, disabled, a.TargetPlatform, a.Position,
 		a.ContentSubject, a.ContentMessage, a.ContentBlobURLs,
 		a.ScheduledDate, a.ExecutionInterval, a.StartDate, a.EndDate,
 		a.CampaignID, a.ReachedIndex, a.Keywords, a.ActionExecutionCount, paramsJSON, profileID,
+		a.ID,
 	)
 	return err
 }
@@ -530,7 +536,8 @@ func launchBrowserPage(cfg *globalConfig, db *storage.Database, platform string)
 	).Scan(&cookiesJSON)
 	if err == nil && cookiesJSON != "" {
 		var cookies []*proto.NetworkCookieParam
-		if jsonErr := json.Unmarshal([]byte(cookiesJSON), &cookies); jsonErr == nil {
+		cookieBytes, _ := secrets.DecryptBlob(context.Background(), db.DB, cookiesJSON)
+		if jsonErr := json.Unmarshal(cookieBytes, &cookies); jsonErr == nil {
 			if setErr := page.SetCookies(cookies); setErr == nil {
 				fmt.Fprintf(os.Stderr, "  Session cookies restored for %s\n", platform)
 				_ = page.Reload()

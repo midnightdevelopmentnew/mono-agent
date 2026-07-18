@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sort"
@@ -17,12 +18,8 @@ import (
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"monoagent/internal/action"
-	"monoagent/internal/ai"
 	cfgpkg "monoagent/internal/config"
 	"monoagent/internal/connections"
-	ainodes "monoagent/internal/ai/nodes"
-	crawlnodes "monoagent/internal/nodes/ai/crawl"
-	imagenodes "monoagent/internal/nodes/image"
 	"monoagent/internal/bot"
 	_ "monoagent/internal/bot/instagram"
 	_ "monoagent/internal/bot/linkedin"
@@ -30,15 +27,10 @@ import (
 	_ "monoagent/internal/bot/gemini"
 	_ "monoagent/internal/bot/x"
 	"monoagent/internal/extension"
+	"monoagent/internal/noderegistry"
 	"monoagent/internal/nodes"
-	"monoagent/internal/nodes/comm"
-	"monoagent/internal/nodes/control"
-	"monoagent/internal/nodes/data"
-	dbnodes "monoagent/internal/nodes/db"
-	httpnodes "monoagent/internal/nodes/http"
 	peoplenodes "monoagent/internal/nodes/people"
-	"monoagent/internal/nodes/service"
-	"monoagent/internal/nodes/system"
+	"monoagent/internal/secrets"
 	"monoagent/internal/workflow"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -207,7 +199,8 @@ func (sp *cliSessionProvider) GetPage(ctx context.Context, platform string, user
 		).Scan(&cookiesJSON)
 		if qErr == nil && cookiesJSON != "" {
 			var cookies []*proto.NetworkCookieParam
-			if jsonErr := json.Unmarshal([]byte(cookiesJSON), &cookies); jsonErr == nil {
+			cookieBytes, _ := secrets.DecryptBlob(context.Background(), sp.db, cookiesJSON)
+			if jsonErr := json.Unmarshal(cookieBytes, &cookies); jsonErr == nil {
 				if setErr := page.SetCookies(cookies); setErr == nil {
 					fmt.Fprintf(os.Stderr, "  Session cookies restored for %s (%d cookies)\n", platform, len(cookies))
 					_ = page.Reload()
@@ -258,57 +251,8 @@ func (r *cliBotRegistry) GetAdapter(platform string) (action.BotAdapter, bool) {
 
 // buildNodeRegistry creates a registry with all built-in node types registered.
 // If db is non-nil, AI nodes are also registered (they need an AIStore backed by the DB).
-func buildNodeRegistry(verbose bool, db *sql.DB) *workflow.NodeTypeRegistry {
-	registry := workflow.NewNodeTypeRegistry()
-	control.RegisterAll(registry)
-	data.RegisterAll(registry)
-	httpnodes.RegisterAll(registry)
-	system.RegisterAll(registry)
-	dbnodes.RegisterAll(registry)
-	comm.RegisterAll(registry)
-	service.RegisterAll(registry)
-	nodes.RegisterBrowserNodes(registry)
-	peoplenodes.RegisterAll(registry, db)
-
-	// Register AI nodes when a database connection is available.
-	if db != nil {
-		store, err := ai.NewAIStore(db)
-		if err == nil {
-			ainodes.RegisterAll(registry, store)
-		}
-	}
-
-	// Image processing nodes (Tier 1)
-	imagenodes.RegisterAll(registry)
-
-	// AI crawl nodes
-	crawlnodes.RegisterAll(registry, cfgpkg.NewAPIClient(zerolog.Nop()))
-
-	// Register legacy (unprefixed) aliases so old workflows still resolve.
-	for legacy, canonical := range map[string]string{
-		"google_sheets": "service.google_sheets", "gmail": "service.gmail", "google_drive": "service.google_drive",
-		"github": "service.github", "notion": "service.notion", "airtable": "service.airtable",
-		"jira": "service.jira", "linear": "service.linear", "asana": "service.asana",
-		"stripe": "service.stripe", "shopify": "service.shopify", "salesforce": "service.salesforce",
-		"hubspot": "service.hubspot",
-		"slack": "comm.slack", "discord": "comm.discord", "telegram": "comm.telegram",
-		"twilio": "comm.twilio", "whatsapp": "comm.whatsapp",
-		"email_send": "comm.email_send", "email_read": "comm.email_read",
-		"mysql": "db.mysql", "postgres": "db.postgres", "mongodb": "db.mongodb", "redis": "db.redis",
-		"datetime": "data.datetime", "crypto": "data.crypto", "html": "data.html",
-		"xml": "data.xml", "markdown": "data.markdown", "spreadsheet": "data.spreadsheet",
-		"compression": "data.compression", "write_binary_file": "data.write_binary_file",
-		"if": "core.if", "switch": "core.switch", "merge": "core.merge", "set": "core.set",
-		"code": "core.code", "filter": "core.filter", "sort": "core.sort", "limit": "core.limit",
-		"aggregate": "core.aggregate", "wait": "core.wait",
-		"http_request": "http.request", "http_response": "http.response",
-		"execute_command": "system.execute_command", "rss_read": "system.rss_read",
-		"read_write_file": "system.read_write_file",
-	} {
-		registry.Alias(legacy, canonical)
-	}
-
-	return registry
+func buildNodeRegistry(_ bool, db *sql.DB) *workflow.NodeTypeRegistry {
+	return noderegistry.Build(db)
 }
 
 // newNodeCmd returns the `node` command with subcommands.
@@ -383,6 +327,7 @@ func newNodeRunCmd(cfg *globalConfig) *cobra.Command {
 		inputJSON    string
 		outputFmt    string
 		credentialID string
+		stdinPayload bool
 	)
 
 	cmd := &cobra.Command{
@@ -467,6 +412,29 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			nodeType := args[0]
+
+			// --stdin reads {"config":{...},"input":[...]} from stdin so secrets in
+			// config (DB passwords, API keys) never appear in argv, which is
+			// world-readable via ps / /proc/<pid>/cmdline.
+			if stdinPayload {
+				raw, err := io.ReadAll(os.Stdin)
+				if err != nil {
+					return fmt.Errorf("reading --stdin payload: %w", err)
+				}
+				var payload struct {
+					Config json.RawMessage `json:"config"`
+					Input  json.RawMessage `json:"input"`
+				}
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					return fmt.Errorf("invalid --stdin JSON payload: %w", err)
+				}
+				if len(payload.Config) > 0 {
+					configJSON = string(payload.Config)
+				}
+				if len(payload.Input) > 0 {
+					inputJSON = string(payload.Input)
+				}
+			}
 
 			// Open DB so AI nodes are available for execution.
 			var rawDB *sql.DB
@@ -733,6 +701,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 
 	cmd.Flags().StringVar(&configJSON, "config", "", "Node config as JSON object")
 	cmd.Flags().StringVar(&inputJSON, "input", "", "Input items as JSON array of {\"json\":{...}} objects, or a single JSON object")
+	cmd.Flags().BoolVar(&stdinPayload, "stdin", false, `Read {"config":{...},"input":[...]} from stdin instead of --config/--input (keeps secrets out of argv)`)
 	cmd.Flags().StringVar(&outputFmt, "output", "pretty", "Output format: pretty|json|jsonl")
 	cmd.Flags().StringVar(&credentialID, "credential", "", "Connection ID or platform name for credential lookup (auto-resolved from node type if omitted)")
 	return cmd

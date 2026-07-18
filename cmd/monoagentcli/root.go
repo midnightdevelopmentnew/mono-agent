@@ -86,6 +86,8 @@ be used — prefer it over guessing from --help output alone.`,
 		newRefCmd(),
 		newProfileCmd(cfg),
 		newSecretCmd(cfg),
+		newHILCmd(cfg),
+		newAICmd(cfg),
 	)
 
 	return cmd

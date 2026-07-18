@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"monoagent/internal/bot"
 	"monoagent/internal/chromecookies"
+	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 
 	// Import platform bots to trigger init() registration.
@@ -63,10 +65,16 @@ func loginProfileDir(profileID, platform string) (string, error) {
 // resetting the auto-increment id/when_added on every re-login.
 func saveSession(db *storage.Database, profileID, platform, username string, cookiesJSON []byte) error {
 	expiry := time.Now().Add(30 * 24 * time.Hour) // 30 days
+	// Session cookies are live-login material; encrypt them under the same vault
+	// envelope used for connection credentials rather than storing plaintext.
+	enc, err := secrets.EncryptBlob(context.Background(), db.DB, cookiesJSON)
+	if err != nil {
+		return fmt.Errorf("encrypting session cookies: %w", err)
+	}
 	res, err := db.DB.Exec(
 		`UPDATE crawler_sessions SET cookies_json = ?, expiry = ?
 		 WHERE username = ? AND platform = ? AND COALESCE(profile_id,'default') = ?`,
-		string(cookiesJSON), expiry, username, platform, profileID,
+		enc, expiry, username, platform, profileID,
 	)
 	if err != nil {
 		return err
@@ -75,7 +83,7 @@ func saveSession(db *storage.Database, profileID, platform, username string, coo
 		_, err = db.DB.Exec(
 			`INSERT INTO crawler_sessions (username, platform, cookies_json, expiry, profile_id)
 			 VALUES (?, ?, ?, ?, ?)`,
-			username, platform, string(cookiesJSON), expiry, profileID,
+			username, platform, enc, expiry, profileID,
 		)
 	}
 	return err

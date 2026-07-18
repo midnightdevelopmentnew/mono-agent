@@ -43,7 +43,7 @@ func userCaptureDir() (string, error) {
 	return dir, nil
 }
 
-func newActionTemplateCmd(_ *globalConfig) *cobra.Command {
+func newActionTemplateCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template",
 		Short: "Manage action templates for new platforms",
@@ -59,7 +59,7 @@ Workflow:
 	cmd.AddCommand(
 		newActionTemplateCaptureCmd(),
 		newActionTemplateInstallCmd(),
-		newActionTemplateListCmd(),
+		newActionTemplateListCmd(cfg),
 	)
 
 	return cmd
@@ -207,7 +207,7 @@ func newActionTemplateInstallCmd() *cobra.Command {
 	}
 }
 
-func newActionTemplateListCmd() *cobra.Command {
+func newActionTemplateListCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List user-installed action templates",
@@ -218,21 +218,16 @@ func newActionTemplateListCmd() *cobra.Command {
 			}
 			actionsDir := filepath.Join(home, ".monoagent", "actions")
 
-			platforms, err := os.ReadDir(actionsDir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					fmt.Println("No user-installed templates. Install with: monoagent action template install <file>")
-					return nil
-				}
-				return fmt.Errorf("read actions dir: %w", err)
-			}
-
 			type entry struct {
-				nodeType string
-				file     string
+				NodeType string `json:"node_type"`
+				File     string `json:"file"`
 			}
 			var entries []entry
 
+			platforms, err := os.ReadDir(actionsDir)
+			if err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("read actions dir: %w", err)
+			}
 			for _, pd := range platforms {
 				if !pd.IsDir() {
 					continue
@@ -242,22 +237,29 @@ func newActionTemplateListCmd() *cobra.Command {
 					if !f.IsDir() && strings.HasSuffix(f.Name(), ".json") {
 						name := strings.TrimSuffix(f.Name(), ".json")
 						entries = append(entries, entry{
-							nodeType: fmt.Sprintf("%s.%s", pd.Name(), name),
-							file:     filepath.Join(actionsDir, pd.Name(), f.Name()),
+							NodeType: fmt.Sprintf("%s.%s", pd.Name(), name),
+							File:     filepath.Join(actionsDir, pd.Name(), f.Name()),
 						})
 					}
 				}
 			}
 
+			if cfg.JSONOutput {
+				if entries == nil {
+					entries = []entry{}
+				}
+				return printJSON(entries)
+			}
+
 			if len(entries) == 0 {
-				fmt.Println("No user-installed templates found.")
+				fmt.Println("No user-installed templates. Install with: monoagent action template install <file>")
 				return nil
 			}
 
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "NODE TYPE\tFILE")
 			for _, e := range entries {
-				fmt.Fprintf(tw, "%s\t%s\n", e.nodeType, e.file)
+				fmt.Fprintf(tw, "%s\t%s\n", e.NodeType, e.File)
 			}
 			tw.Flush()
 			return nil

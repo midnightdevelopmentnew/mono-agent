@@ -222,7 +222,10 @@ func newActionCreateCmd(cfg *globalConfig) *cobra.Command {
 				Title:          fmt.Sprintf("%s on %s", strings.ToUpper(actionType), strings.ToLower(platform)),
 				Type:           strings.ToUpper(actionType),
 				State:          "PENDING",
-				TargetPlatform: strings.ToLower(platform),
+				// Store uppercase to match the GUI's platform filter (execution
+				// paths re-normalize case themselves). Lowercase here made
+				// CLI-created actions invisible in the GUI's platform-filtered list.
+				TargetPlatform: strings.ToUpper(platform),
 				Keywords:       keyword,
 				ContentMessage: message,
 			}
