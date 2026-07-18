@@ -412,6 +412,9 @@ func RunExecution(
 			}
 			pauseCtx, pauseCancel := dbCtx()
 			werr := store.SetExecutionWaiting(pauseCtx, exec.ID, string(state))
+			// Mark this node's record PAUSED rather than leaving it stuck RUNNING
+			// in past-run views (resume adds a fresh record when it continues).
+			_ = store.SetExecutionNodeFinished(pauseCtx, execNode.ID, "PAUSED", nil, "")
 			pauseCancel()
 			if werr != nil {
 				return fmt.Errorf("pause: persist waiting state for execution %s: %w", exec.ID, werr)
