@@ -11,8 +11,13 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	goftp "github.com/jlaffaye/ftp"
+	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // ValidateConnection calls the platform-specific validator and returns the
@@ -59,6 +64,16 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateHubSpot(ctx, c)
 	case "salesforce":
 		return validateSalesforce(ctx, c)
+	case "ssh", "sftp":
+		return validateSSH(ctx, c)
+	case "ftp":
+		return validateFTP(ctx, c)
+	case "generic_api", "generic_basic":
+		baseURL := getStr(c.Data, "base_url")
+		if baseURL == "" {
+			return "", fmt.Errorf("validate %s: missing base_url", c.Platform)
+		}
+		return baseURL, nil
 	case "postgresql", "mysql", "mongodb", "redis":
 		cs := getStr(c.Data, "connection_string")
 		if cs == "" {
@@ -77,6 +92,110 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 	default:
 		return "", nil
 	}
+}
+
+// validateSSH validates an SSH/SFTP connection by performing a live SSH
+// handshake and authentication (no remote command is run) — without this,
+// any garbage host/username/password/private_key gets saved as "connected"
+// and only fails later when a workflow node tries to actually use it.
+func validateSSH(ctx context.Context, c *Connection) (string, error) {
+	host := getStr(c.Data, "host")
+	username := getStr(c.Data, "username")
+	if host == "" || username == "" {
+		return "", fmt.Errorf("validateSSH: host and username are required")
+	}
+
+	port := 22
+	if p := getStr(c.Data, "port"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			port = v
+		}
+	}
+
+	var authMethods []ssh.AuthMethod
+	if privateKeyPEM := getStr(c.Data, "private_key"); privateKeyPEM != "" {
+		var signer ssh.Signer
+		var err error
+		if passphrase := getStr(c.Data, "passphrase"); passphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKeyPEM), []byte(passphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey([]byte(privateKeyPEM))
+		}
+		if err != nil {
+			return "", fmt.Errorf("validateSSH: parse private key: %w", err)
+		}
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	}
+	if password := getStr(c.Data, "password"); password != "" {
+		authMethods = append(authMethods, ssh.Password(password))
+	}
+	if len(authMethods) == 0 {
+		return "", fmt.Errorf("validateSSH: password or private_key is required")
+	}
+
+	// Mirrors internal/nodes/http/ssh.go: verify against a known_hosts file
+	// when given, otherwise skip host key verification for this liveness check.
+	hostKeyCallback := ssh.InsecureIgnoreHostKey() //nolint:gosec
+	if knownHosts := getStr(c.Data, "known_hosts"); knownHosts != "" {
+		cb, err := knownhosts.New(knownHosts)
+		if err != nil {
+			return "", fmt.Errorf("validateSSH: parse known_hosts: %w", err)
+		}
+		hostKeyCallback = cb
+	}
+
+	cfg := &ssh.ClientConfig{
+		User:            username,
+		Auth:            authMethods,
+		HostKeyCallback: hostKeyCallback,
+		Timeout:         15 * time.Second,
+	}
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	dialer := &net.Dialer{Timeout: cfg.Timeout}
+	netConn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return "", fmt.Errorf("validateSSH: dial: %w", err)
+	}
+	sshConn, chans, reqs, err := ssh.NewClientConn(netConn, addr, cfg)
+	if err != nil {
+		netConn.Close()
+		return "", fmt.Errorf("validateSSH: handshake: %w", err)
+	}
+	ssh.NewClient(sshConn, chans, reqs).Close()
+
+	return username + "@" + host, nil
+}
+
+// validateFTP validates an FTP connection by performing a live dial and
+// login, mirroring the check internal/nodes/http/ftp.go performs at run time.
+func validateFTP(ctx context.Context, c *Connection) (string, error) {
+	host := getStr(c.Data, "host")
+	username := getStr(c.Data, "username")
+	password := getStr(c.Data, "password")
+	if host == "" || username == "" {
+		return "", fmt.Errorf("validateFTP: host and username are required")
+	}
+
+	port := 21
+	if p := getStr(c.Data, "port"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			port = v
+		}
+	}
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	conn, err := goftp.Dial(addr, goftp.DialWithTimeout(15*time.Second), goftp.DialWithContext(ctx))
+	if err != nil {
+		return "", fmt.Errorf("validateFTP: dial: %w", err)
+	}
+	defer conn.Quit()
+
+	if err := conn.Login(username, password); err != nil {
+		return "", fmt.Errorf("validateFTP: login: %w", err)
+	}
+
+	return username + "@" + host, nil
 }
 
 // validateOutlookAppPassword validates an Outlook/Hotmail app-password
@@ -802,8 +921,8 @@ func validateHubSpot(ctx context.Context, c *Connection) (string, error) {
 		return "", fmt.Errorf("validateHubSpot: unexpected status %d", status)
 	}
 	var r struct {
-		User   string `json:"user"`
-		HubID  int    `json:"hub_id"`
+		User  string `json:"user"`
+		HubID int    `json:"hub_id"`
 	}
 	_ = json.Unmarshal(body, &r)
 	if r.User != "" {

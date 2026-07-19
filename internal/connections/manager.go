@@ -73,7 +73,7 @@ func (m *Manager) Connect(ctx context.Context, platformID string, opts ConnectOp
 		if err := m.connectOAuth(ctx, p, conn, opts.OAuthTimeout); err != nil {
 			return nil, fmt.Errorf("connect: oauth: %w", err)
 		}
-	case MethodAPIKey, MethodAppPass, MethodConnStr:
+	case MethodAPIKey, MethodAppPass, MethodConnStr, MethodSSHKey:
 		if err := m.connectFields(p, method, conn, opts.FieldValues, stdinReader); err != nil {
 			return nil, fmt.Errorf("connect: fields: %w", err)
 		}

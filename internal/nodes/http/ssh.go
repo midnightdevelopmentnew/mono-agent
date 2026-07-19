@@ -52,10 +52,17 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 	var authMethods []ssh.AuthMethod
 
 	privateKeyPEM, _ := config["private_key"].(string)
+	passphrase, _ := config["passphrase"].(string)
 	password, _ := config["password"].(string)
 
 	if privateKeyPEM != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(privateKeyPEM))
+		var signer ssh.Signer
+		var err error
+		if passphrase != "" {
+			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(privateKeyPEM), []byte(passphrase))
+		} else {
+			signer, err = ssh.ParsePrivateKey([]byte(privateKeyPEM))
+		}
 		if err != nil {
 			return nil, fmt.Errorf("http.ssh: failed to parse private key: %w", err)
 		}

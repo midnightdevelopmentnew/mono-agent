@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// allExpectedIDs lists all 37 platform IDs that must exist in the registry.
+// allExpectedIDs lists all 42 platform IDs that must exist in the registry.
 var allExpectedIDs = []string{
 	// social
 	"instagram", "linkedin", "x", "tiktok", "reddit", "mastodon", "bluesky", "hackernews", "producthunt", "gemini", "telegram",
@@ -16,21 +16,25 @@ var allExpectedIDs = []string{
 	"slack", "discord", "twilio", "whatsapp", "smtp",
 	// database
 	"postgresql", "mysql", "mongodb", "redis",
+	// infrastructure
+	"ssh", "sftp", "ftp",
+	// custom
+	"generic_api", "generic_basic",
 }
 
 // TestRegistryHasAllExpectedPlatforms verifies that every expected platform ID
 // is present in the Registry.
 func TestRegistryHasAllExpectedPlatforms(t *testing.T) {
-	if len(allExpectedIDs) != 37 {
-		t.Fatalf("test setup error: expected 37 IDs, got %d", len(allExpectedIDs))
+	if len(allExpectedIDs) != 42 {
+		t.Fatalf("test setup error: expected 42 IDs, got %d", len(allExpectedIDs))
 	}
 	for _, id := range allExpectedIDs {
 		if _, ok := Registry[id]; !ok {
 			t.Errorf("Registry missing platform %q", id)
 		}
 	}
-	if got := len(Registry); got != 37 {
-		t.Errorf("Registry has %d platforms, want 37", got)
+	if got := len(Registry); got != 42 {
+		t.Errorf("Registry has %d platforms, want 42", got)
 	}
 }
 
@@ -45,10 +49,10 @@ func TestPlatformMethodsNonEmpty(t *testing.T) {
 }
 
 // TestAPIKeyPlatformsHaveFields verifies that any platform that lists
-// MethodAPIKey, MethodConnStr, or MethodAppPass as a method also has a
-// non-empty Fields entry for that method.
+// MethodAPIKey, MethodConnStr, MethodAppPass, or MethodSSHKey as a method
+// also has a non-empty Fields entry for that method.
 func TestAPIKeyPlatformsHaveFields(t *testing.T) {
-	credMethods := []AuthMethod{MethodAPIKey, MethodConnStr, MethodAppPass}
+	credMethods := []AuthMethod{MethodAPIKey, MethodConnStr, MethodAppPass, MethodSSHKey}
 	for id, p := range Registry {
 		for _, m := range p.Methods {
 			for _, cm := range credMethods {

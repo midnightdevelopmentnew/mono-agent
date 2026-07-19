@@ -1,11 +1,12 @@
 {
-  "credential_platform": null,
+  "credential_platform": "ssh",
   "fields": [
     { "key": "host", "label": "SSH Host", "type": "text", "required": true },
     { "key": "port", "label": "Port", "type": "number", "required": false, "default": 22 },
     { "key": "username", "label": "Username", "type": "text", "required": true },
     { "key": "password", "label": "Password", "type": "password", "required": false },
     { "key": "private_key", "label": "Private Key (PEM)", "type": "textarea", "required": false, "rows": 6 },
+    { "key": "passphrase", "label": "Key Passphrase", "type": "password", "required": false },
     { "key": "command", "label": "Command", "type": "text", "required": true, "placeholder": "ls -la /var/log" }
   ]
 }

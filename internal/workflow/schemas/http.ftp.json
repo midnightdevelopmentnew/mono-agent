@@ -1,5 +1,5 @@
 {
-  "credential_platform": null,
+  "credential_platform": "ftp",
   "fields": [
     { "key": "host", "label": "FTP Host", "type": "text", "required": true },
     { "key": "port", "label": "Port", "type": "number", "required": false, "default": 21 },

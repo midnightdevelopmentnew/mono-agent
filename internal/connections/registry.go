@@ -9,6 +9,7 @@ const (
 	MethodBrowser AuthMethod = "browser"
 	MethodConnStr AuthMethod = "connstring"
 	MethodAppPass AuthMethod = "apppassword"
+	MethodSSHKey  AuthMethod = "sshkey"
 )
 
 // CredentialField describes a single credential input field.
@@ -42,6 +43,24 @@ type PlatformDef struct {
 	Fields     map[AuthMethod][]CredentialField
 	OAuth      *OAuthConfig
 	IconEmoji  string
+}
+
+// sshKeyFields and sshPasswordFields are shared between "ssh" and "sftp" —
+// both protocols authenticate identically over the same transport.
+var sshKeyFields = []CredentialField{
+	{Key: "host", Label: "Host", Secret: false, Required: true},
+	{Key: "port", Label: "Port", Secret: false, Required: false, HelpText: "Defaults to 22"},
+	{Key: "username", Label: "Username", Secret: false, Required: true},
+	{Key: "private_key", Label: "Private Key (PEM)", Secret: true, Required: true},
+	{Key: "passphrase", Label: "Key Passphrase", Secret: true, Required: false},
+	{Key: "known_hosts", Label: "Known Hosts Path", Secret: false, Required: false, HelpText: "Path to a known_hosts file for host key verification (optional)"},
+}
+
+var sshPasswordFields = []CredentialField{
+	{Key: "host", Label: "Host", Secret: false, Required: true},
+	{Key: "port", Label: "Port", Secret: false, Required: false, HelpText: "Defaults to 22"},
+	{Key: "username", Label: "Username", Secret: false, Required: true},
+	{Key: "password", Label: "Password", Secret: true, Required: true},
 }
 
 // Registry is the map of all supported platforms keyed by platform ID.
@@ -722,6 +741,82 @@ var Registry = map[string]PlatformDef{
 			},
 		},
 		IconEmoji: "🔴",
+	},
+
+	// ─── Infrastructure ────────────────────────────────────────────────────────
+
+	"ssh": {
+		ID:         "ssh",
+		Name:       "SSH",
+		Category:   "infrastructure",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodSSHKey, MethodAppPass},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodSSHKey:  sshKeyFields,
+			MethodAppPass: sshPasswordFields,
+		},
+		IconEmoji: "🔐",
+	},
+	"sftp": {
+		ID:         "sftp",
+		Name:       "SFTP",
+		Category:   "infrastructure",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodSSHKey, MethodAppPass},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodSSHKey:  sshKeyFields,
+			MethodAppPass: sshPasswordFields,
+		},
+		IconEmoji: "📂",
+	},
+	"ftp": {
+		ID:         "ftp",
+		Name:       "FTP / FTPS",
+		Category:   "infrastructure",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAppPass},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAppPass: {
+				{Key: "host", Label: "Host", Secret: false, Required: true},
+				{Key: "port", Label: "Port", Secret: false, Required: false, HelpText: "Defaults to 21"},
+				{Key: "username", Label: "Username", Secret: false, Required: true},
+				{Key: "password", Label: "Password", Secret: true, Required: true},
+			},
+		},
+		IconEmoji: "🗄️",
+	},
+
+	// ─── Custom ────────────────────────────────────────────────────────────────
+
+	"generic_api": {
+		ID:         "generic_api",
+		Name:       "Generic API Key",
+		Category:   "custom",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "base_url", Label: "Base URL", Secret: false, Required: true},
+				{Key: "api_key", Label: "API Key / Token", Secret: true, Required: true},
+				{Key: "header_name", Label: "Header Name", Secret: false, Required: false, HelpText: "Defaults to Authorization"},
+			},
+		},
+		IconEmoji: "🔑",
+	},
+	"generic_basic": {
+		ID:         "generic_basic",
+		Name:       "Generic Basic Auth",
+		Category:   "custom",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAppPass},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAppPass: {
+				{Key: "base_url", Label: "Base URL", Secret: false, Required: true},
+				{Key: "username", Label: "Username", Secret: false, Required: true},
+				{Key: "password", Label: "Password", Secret: true, Required: true},
+			},
+		},
+		IconEmoji: "🌐",
 	},
 }
 
