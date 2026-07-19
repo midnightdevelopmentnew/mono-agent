@@ -99,17 +99,18 @@ coverage.out
 .worktrees/
 
 # Monomind runtime state
-.monomind/sessions/
-.monomind/data/
-.monomind/metrics/
-.monomind/knowledge/
-.monomind/*.json
-.monomind/*.jsonl
-**/.monomind/sessions/
-**/.monomind/*.json
+.monomind/
+.monograph/
 data/sessions/
 data/mastermind-*.json
 data/mastermind-*.jsonl
 **/.claude-flow/
 .hive-mind/
 .swarm/
+
+# Claude Code local settings/state
+.claude/
+
+# Local build output
+/monoagentcli
+GRAPH_REPORT.md
