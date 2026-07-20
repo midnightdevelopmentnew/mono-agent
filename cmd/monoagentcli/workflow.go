@@ -17,7 +17,6 @@ import (
 	browserpkg "monoagent/internal/browser"
 	cfgpkg "monoagent/internal/config"
 	"monoagent/internal/connections"
-	"monoagent/internal/extension"
 	"monoagent/internal/nodes"
 	"monoagent/internal/scheduler"
 	"monoagent/internal/storage"
@@ -57,22 +56,15 @@ func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEn
 
 	// Set up browser session provider, bot registry, and config manager
 	// so browser/social nodes work in workflows.
-	sp := &cliSessionProvider{db: db.DB}
+	sp := &cliSessionProvider{db: db.DB, profileID: cfg.ProfileID}
 
-	// Start extension server and try to use Chrome extension first.
+	// Use the Chrome extension first, sharing another local process's
+	// connection when one already exists (e.g. the daemon).
 	extLogger := logger.With().Str("component", "extension").Logger()
-	extServer := extension.NewServer("127.0.0.1:9222", extLogger)
-	extServer.StartAsync(context.Background())
-	_ = extServer.WaitForConnection(30 * time.Second)
-
-	if extServer.IsConnected() {
-		fmt.Fprintln(os.Stderr, "  Chrome extension connected -- using your browser")
-	} else {
-		fmt.Fprintln(os.Stderr, "  Chrome extension not connected -- using Chromium with cookie restore")
-	}
+	extBridge := setupExtensionBridge(extLogger, 30*time.Second)
 
 	hybridProvider := &browserpkg.HybridSessionProvider{
-		ExtBridge:   &extension.ServerBridge{Server: extServer},
+		ExtBridge:   extBridge,
 		RodProvider: sp,
 		Logger:      extLogger,
 	}

@@ -3,7 +3,7 @@
   "name": "MonoAgent Bridge",
   "version": "1.0.0",
   "description": "Browser automation bridge for MonoAgent",
-  "permissions": ["tabs", "scripting", "activeTab", "storage", "alarms", "debugger"],
+  "permissions": ["tabs", "scripting", "activeTab", "storage", "alarms", "debugger", "cookies"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

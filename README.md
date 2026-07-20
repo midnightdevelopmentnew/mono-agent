@@ -128,6 +128,7 @@ Think of it as **n8n meets Playwright** — a fully self-hosted, code-first auto
 
 ### 🌐 Browser Automation
 - Real Chrome via Rod (Chrome DevTools Protocol)
+- Or drive your own logged-in Chrome via the bundled extension bridge — see [Chrome Extension](#-chrome-extension) below
 - Stealth mode — evades bot detection
 - Instagram, LinkedIn, X, TikTok fully supported
 - Human-like delays, typing, scrolling
@@ -488,6 +489,24 @@ wails dev
 # Build desktop app
 wails build
 ```
+
+### 🧩 Chrome Extension
+
+`chrome-extension/` bridges monoagentcli to your **real, already-logged-in Chrome browser** — no separate automation profile, no re-authenticating for sites (like Google/Gemini) that invalidate sessions ported into a bot-flagged browser. When connected, browser nodes drive your actual Chrome tabs instead of falling back to a fresh Chromium instance.
+
+It's not published to the Chrome Web Store — load it as an unpacked extension. Either clone this repo, or grab `monoagent-chrome-extension.zip` from the [latest release](https://github.com/monoes/mono-agent/releases/latest) and unzip it:
+
+1. Open `chrome://extensions` in Chrome
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked**
+4. Select the `chrome-extension/` folder (from the repo clone, or the unzipped release download)
+5. "MonoAgent Bridge" should now appear in your extensions list, enabled
+
+That's it — no configuration needed. The extension connects automatically to `ws://127.0.0.1:9222/monoagent` whenever a `monoagentcli` process (the `daemon`, or a `node run` / `workflow run` invocation) needs a browser. If one process already owns that connection, others share it automatically instead of competing for it.
+
+To confirm it's working, run any browser node and look for `Chrome extension connected -- using your browser` (or, when another `monoagentcli` process already holds the connection, `Reusing existing extension connection`) in the output.
+
+**Updating:** after pulling changes that touch `chrome-extension/`, reload it from `chrome://extensions` (the reload icon on its card) to pick up the changes — Chrome does not auto-reload unpacked extensions.
 
 ---
 

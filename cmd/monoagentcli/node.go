@@ -218,6 +218,33 @@ func (sp *cliSessionProvider) Close() {
 	}
 }
 
+const extensionServerAddr = "http://127.0.0.1:9222"
+
+// setupExtensionBridge returns a browser.ExtensionBridge for talking to the
+// Chrome extension. If another local monoagentcli process (typically the
+// daemon) already owns the extension connection, it relays through that
+// process's server instead of starting a second one — starting a second
+// server would just fail to bind the fixed extension port and silently
+// degrade to the Rod/Chromium fallback even though a perfectly good
+// extension connection already exists elsewhere.
+func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration) browserpkg.ExtensionBridge {
+	if extension.Probe(extensionServerAddr) {
+		fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (shared with another monoagentcli process)")
+		return &extension.RemoteBridge{Sender: extension.NewRemoteSender(extensionServerAddr)}
+	}
+
+	extServer := extension.NewServer("127.0.0.1:9222", logger)
+	extServer.StartAsync(context.Background())
+	_ = extServer.WaitForConnection(waitForConnection)
+
+	if extServer.IsConnected() {
+		fmt.Fprintln(os.Stderr, "  ✓ Chrome extension connected -- using your browser")
+	} else {
+		fmt.Fprintln(os.Stderr, "  Chrome extension not connected -- using Chromium with cookie restore")
+	}
+	return &extension.ServerBridge{Server: extServer}
+}
+
 // findLocalChromePath returns the path to the local Chrome binary, or empty string.
 func findLocalChromePath() string {
 	candidates := []string{
@@ -532,23 +559,16 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				sp := &cliSessionProvider{db: rawDB, profileID: cfg.ProfileID}
 				defer sp.Close()
 
-				// Start extension server and try to use Chrome extension first.
+				// Use the Chrome extension first, sharing another local
+				// process's connection when one already exists.
 				extLogger := zerolog.New(os.Stderr).With().Timestamp().Str("component", "extension").Logger()
 				if !cfg.Verbose {
 					extLogger = extLogger.Level(zerolog.WarnLevel)
 				}
-				extServer := extension.NewServer("127.0.0.1:9222", extLogger)
-				extServer.StartAsync(context.Background())
-				_ = extServer.WaitForConnection(30 * time.Second)
-
-				if extServer.IsConnected() {
-					fmt.Fprintln(os.Stderr, "  ✓ Chrome extension connected -- using your browser")
-				} else {
-					fmt.Fprintln(os.Stderr, "  Chrome extension not connected -- using Chromium with cookie restore")
-				}
+				extBridge := setupExtensionBridge(extLogger, 30*time.Second)
 
 				hybridProvider := &browserpkg.HybridSessionProvider{
-					ExtBridge:   &extension.ServerBridge{Server: extServer},
+					ExtBridge:   extBridge,
 					RodProvider: sp,
 					Logger:      extLogger,
 				}

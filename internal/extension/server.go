@@ -95,6 +95,8 @@ func (s *Server) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/monoagent", s.handleWS)
+	mux.HandleFunc("/monoagent/health", s.handleHealth)
+	mux.HandleFunc("/monoagent/relay", s.handleRelay)
 
 	addr := loopbackAddr(s.addr)
 	s.server = &http.Server{
@@ -259,6 +261,48 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info().Str("remote", conn.RemoteAddr().String()).Msg("extension connected")
 
 	s.readLoop(conn)
+}
+
+// handleHealth reports whether this server is alive and whether it currently
+// holds a live extension connection. Other local monoagentcli processes probe
+// this before deciding whether to relay through this server instead of
+// starting their own (which would otherwise race for the same port and leave
+// the extension connected to only one of them).
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"connected": s.IsConnected()})
+}
+
+// handleRelay lets another local monoagentcli process dispatch a Command
+// through this server's live extension connection and get the Response back,
+// without needing to own the WebSocket connection itself. This is what makes
+// it safe for a short-lived CLI invocation to share the daemon's already-
+// connected extension instead of starting a second, competing server.
+func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var cmd Command
+	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
+		http.Error(w, fmt.Sprintf("invalid command: %v", err), http.StatusBadRequest)
+		return
+	}
+	timeout := defaultTimeout
+	if ms := r.URL.Query().Get("timeout_ms"); ms != "" {
+		if n, err := time.ParseDuration(ms + "ms"); err == nil {
+			timeout = n
+		}
+	}
+	resp, err := s.SendCommand(&cmd, timeout)
+	w.Header().Set("Content-Type", "application/json")
+	if resp == nil {
+		resp = &Response{ID: cmd.ID}
+	}
+	if err != nil && resp.Error == "" {
+		resp.Error = err.Error()
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // readLoop reads messages from the WebSocket and dispatches responses to

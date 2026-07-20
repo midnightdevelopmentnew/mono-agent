@@ -217,17 +217,27 @@ func ReadCookies(chromePath, userDataDir, domain string) ([]Cookie, error) {
 	return cookies, nil
 }
 
-// DomainFromLoginURL extracts the bare domain to filter cookies by from a
-// platform's login URL (e.g. "https://www.producthunt.com/login" ->
-// "producthunt.com").
+// DomainFromLoginURL extracts the registrable (apex) domain to filter
+// cookies by from a platform's login URL (e.g. "https://www.producthunt.com/login" ->
+// "producthunt.com", "https://gemini.google.com/app" -> "google.com").
+//
+// The apex domain, not the exact host, is used because auth session cookies
+// (e.g. Google's SID/HSID/__Secure-*PSID) are set on the parent domain and
+// shared across its subdomains — filtering by the exact login host would
+// silently capture only unauthenticated analytics/product cookies scoped to
+// that subdomain and miss the actual session.
 func DomainFromLoginURL(loginURL string) (string, error) {
 	u, err := url.Parse(loginURL)
 	if err != nil {
 		return "", err
 	}
-	host := u.Hostname()
+	host := strings.TrimPrefix(u.Hostname(), "www.")
 	if host == "" {
 		return "", fmt.Errorf("no host in login URL %q", loginURL)
 	}
-	return strings.TrimPrefix(host, "www."), nil
+	labels := strings.Split(host, ".")
+	if len(labels) > 2 {
+		host = strings.Join(labels[len(labels)-2:], ".")
+	}
+	return host, nil
 }

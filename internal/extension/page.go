@@ -8,15 +8,27 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-rod/rod/lib/proto"
+
 	"monoagent/internal/browser"
 )
 
 const defaultTimeout = 30 * time.Second
 
+// commandSender abstracts where a Command actually gets dispatched to the
+// Chrome extension: either a *Server holding the live WebSocket connection
+// directly, or a *RemoteSender relaying through another local process's
+// Server over HTTP. This lets ExtensionPage/ExtensionElement work identically
+// whether this process owns the extension connection or not.
+type commandSender interface {
+	SendCommand(cmd *Command, timeout time.Duration) (*Response, error)
+}
+
 // ExtensionPage implements browser.PageInterface by sending commands to the
-// Chrome Extension over WebSocket.
+// Chrome Extension, either directly (via *Server) or relayed through another
+// process that owns the extension connection (via *RemoteSender).
 type ExtensionPage struct {
-	server  *Server
+	server  commandSender
 	tabID   int
 	timeout time.Duration
 }
@@ -25,7 +37,7 @@ type ExtensionPage struct {
 var _ browser.PageInterface = (*ExtensionPage)(nil)
 
 // NewExtensionPage creates a page handle for the given tab.
-func NewExtensionPage(server *Server, tabID int) *ExtensionPage {
+func NewExtensionPage(server commandSender, tabID int) *ExtensionPage {
 	return &ExtensionPage{
 		server:  server,
 		tabID:   tabID,
@@ -365,11 +377,66 @@ func (ep *ExtensionPage) FetchImageBase64(selector string) ([]map[string]interfa
 }
 
 // ---------------------------------------------------------------------------
-// Cookies (no-op — the extension already has the browser's real cookies)
+// Cookies
 // ---------------------------------------------------------------------------
 
-func (ep *ExtensionPage) SetCookies(_ interface{}) error    { return nil }
-func (ep *ExtensionPage) GetCookies() (interface{}, error)   { return nil, nil }
+// SetCookies injects session cookies into the extension-connected tab via
+// chrome.cookies.set. Expects []*proto.NetworkCookieParam, matching the
+// RodPage implementation so callers (e.g. cliSessionProvider) can treat both
+// backends uniformly.
+func (ep *ExtensionPage) SetCookies(cookies interface{}) error {
+	params, ok := cookies.([]*proto.NetworkCookieParam)
+	if !ok {
+		return fmt.Errorf("SetCookies: expected []*proto.NetworkCookieParam, got %T", cookies)
+	}
+	if len(params) == 0 {
+		return nil
+	}
+
+	payload := make([]map[string]interface{}, 0, len(params))
+	for _, c := range params {
+		cookie := map[string]interface{}{
+			"name":     c.Name,
+			"value":    c.Value,
+			"domain":   c.Domain,
+			"path":     c.Path,
+			"secure":   c.Secure,
+			"httpOnly": c.HTTPOnly,
+		}
+		if c.SameSite != "" {
+			cookie["sameSite"] = string(c.SameSite)
+		}
+		if c.Expires > 0 {
+			cookie["expires"] = float64(c.Expires)
+		}
+		payload = append(payload, cookie)
+	}
+
+	resp, err := ep.send("set_cookies", map[string]interface{}{"cookies": payload})
+	if err != nil {
+		return fmt.Errorf("set_cookies: %w", err)
+	}
+	if m := resp.dataMap(); m != nil {
+		if failed, ok := m["failed"].(float64); ok && failed > 0 {
+			if set, ok := m["set"].(float64); !ok || set == 0 {
+				return fmt.Errorf("set_cookies: all %d cookie(s) failed", int(failed))
+			}
+		}
+	}
+	return nil
+}
+
+// GetCookies returns the extension-connected tab's current cookies for its URL.
+func (ep *ExtensionPage) GetCookies() (interface{}, error) {
+	resp, err := ep.send("get_cookies", nil)
+	if err != nil {
+		return nil, fmt.Errorf("get_cookies: %w", err)
+	}
+	if m := resp.dataMap(); m != nil {
+		return m["cookies"], nil
+	}
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // Timeout
@@ -391,7 +458,7 @@ func (ep *ExtensionPage) Timeout(d time.Duration) browser.PageInterface {
 // ExtensionElement implements browser.ElementHandle by sending commands for a
 // specific element (identified by elementID) to the Chrome Extension.
 type ExtensionElement struct {
-	server    *Server
+	server    commandSender
 	tabID     int
 	elementID string
 	timeout   time.Duration

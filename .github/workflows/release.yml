@@ -270,9 +270,26 @@ jobs:
           path: |
             dist/MonoAgent-linux-amd64.tar.gz
 
+  # ─── 2f. Package Chrome extension (unpacked bridge, not Web-Store-published) ─
+  build-chrome-extension:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zip chrome extension
+        run: |
+          mkdir -p dist
+          zip -r dist/monoagent-chrome-extension.zip chrome-extension -x '*.DS_Store'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension
+          path: dist/monoagent-chrome-extension.zip
+
   # ─── 3. Publish GitHub Release with all artifacts ─────────────────────────
   release:
-    needs: [version, build-cli, build-cli-macos, build-macos-arm64, build-windows, build-linux]
+    needs: [version, build-cli, build-cli-macos, build-macos-arm64, build-windows, build-linux, build-chrome-extension]
     runs-on: ubuntu-latest
     env:
       TAG:  ${{ needs.version.outputs.tag }}
@@ -356,6 +373,14 @@ jobs:
             echo "# Self-update (once installed)"
             echo "monoagentcli update"
             echo '```'
+            echo ""
+            echo "## Chrome Extension"
+            echo ""
+            echo "Bridges monoagentcli to your real, already-logged-in Chrome browser. Not on the Web Store — download, unzip, and load unpacked:"
+            echo ""
+            echo "1. Download [monoagent-chrome-extension.zip](https://github.com/monoes/mono-agent/releases/download/${TAG}/monoagent-chrome-extension.zip) and unzip it"
+            echo "2. Open \`chrome://extensions\`, enable **Developer mode**"
+            echo "3. Click **Load unpacked** and select the unzipped \`chrome-extension\` folder"
             echo 'RELEASE_EOF'
           } >> "$GITHUB_OUTPUT"
 

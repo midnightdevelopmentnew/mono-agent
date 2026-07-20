@@ -204,6 +204,12 @@ async function handleCommand(cmd) {
       case "wait_load":
         result = await waitForLoad(params);
         break;
+      case "set_cookies":
+        result = await setCookies(params);
+        break;
+      case "get_cookies":
+        result = await getCookies(params);
+        break;
       // All DOM operations are forwarded to the content script
       case "element":
       case "elements":
@@ -277,6 +283,49 @@ async function pageInfo({ tabId }) {
   if (!tabId) throw new Error("tabId is required");
   const tab = await chrome.tabs.get(tabId);
   return { tabId: tab.id, url: tab.url, title: tab.title, status: tab.status };
+}
+
+// Maps CDP Network.CookieParam.sameSite ("Strict"/"Lax"/"None") to the
+// chrome.cookies.set sameSite values ("strict"/"lax"/"no_restriction").
+const SAME_SITE_MAP = { Strict: "strict", Lax: "lax", None: "no_restriction" };
+
+async function setCookies({ tabId, cookies }) {
+  if (!tabId) throw new Error("tabId is required");
+  if (!Array.isArray(cookies) || cookies.length === 0) return { set: 0, failed: 0 };
+  const tab = await chrome.tabs.get(tabId);
+  let set = 0;
+  const errors = [];
+  for (const c of cookies) {
+    const host = (c.domain || "").replace(/^\./, "") || new URL(tab.url).hostname;
+    const cookieSpec = {
+      url: `https://${host}${c.path || "/"}`,
+      name: c.name,
+      value: c.value,
+      path: c.path || "/",
+      secure: !!c.secure,
+      httpOnly: !!c.httpOnly,
+    };
+    if (c.domain) cookieSpec.domain = c.domain;
+    if (c.sameSite && SAME_SITE_MAP[c.sameSite]) cookieSpec.sameSite = SAME_SITE_MAP[c.sameSite];
+    if (c.expires && c.expires > 0) cookieSpec.expirationDate = c.expires;
+    try {
+      await chrome.cookies.set(cookieSpec);
+      set++;
+    } catch (err) {
+      errors.push(`${c.name}: ${err.message}`);
+    }
+  }
+  if (set === 0 && errors.length > 0) {
+    throw new Error(`Failed to set any cookies: ${errors.join("; ")}`);
+  }
+  return { set, failed: errors.length, errors };
+}
+
+async function getCookies({ tabId }) {
+  if (!tabId) throw new Error("tabId is required");
+  const tab = await chrome.tabs.get(tabId);
+  const cookies = await chrome.cookies.getAll({ url: tab.url });
+  return { cookies };
 }
 
 /**
