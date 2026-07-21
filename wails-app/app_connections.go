@@ -338,16 +338,16 @@ func (a *App) ConnectPlatformOAuth(platformID string) string {
 }
 
 // LoginSocial spawns `monoagentcli login <platform>` as a subprocess, which
-// only opens a plain, non-automated browser window at the login page and
-// returns immediately — it never touches the browser via CDP again. Log in
+// opens the login page as a new tab in the user's real, already-running
+// Chrome (via the mono-agent extension) and returns immediately. Log in
 // happens entirely by hand; the UI should then call ConfirmSocialLogin once
-// the user says they're done, which is the only step that connects and
-// captures the session. Splitting these apart (rather than one call that
+// the user says they're done, which is the only step that reads cookies
+// back out of that tab. Splitting these apart (rather than one call that
 // auto-polls until login completes) is what lets bot-verification
-// challenges (Google sign-in, Cloudflare, etc.) succeed — continuous CDP
-// activity during the challenge is itself a signal those systems detect.
-// Emits "conn:opened" (browser is up, waiting for the user) or "conn:done"
-// with success:false on failure to launch.
+// challenges (Google sign-in, Cloudflare, etc.) succeed — continuous
+// automated activity during the challenge is itself a signal those systems
+// detect. Emits "conn:opened" (tab is up, waiting for the user) or
+// "conn:done" with success:false on failure to open it.
 func (a *App) LoginSocial(platform string) string {
 	pid := strings.ToLower(platform)
 	cliBin, err := findMonoAgentCLI()
@@ -389,9 +389,9 @@ func (a *App) LoginSocial(platform string) string {
 }
 
 // ConfirmSocialLogin spawns `monoagentcli login confirm <platform>`, the
-// one step that connects to the browser LoginSocial opened, checks you're
-// actually logged in, and captures the session. Call this after the user
-// has finished logging in (and any bot-verification challenge) by hand.
+// one step that reconnects to the Chrome tab LoginSocial opened and reads
+// its cookies to capture the session. Call this after the user has finished
+// logging in (and any bot-verification challenge) by hand.
 // Progress/result are streamed via the same "conn:progress"/"conn:done"
 // events LoginSocial uses.
 func (a *App) ConfirmSocialLogin(platform string) string {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"monoagent/internal/bot"
 	"monoagent/internal/chromecookies"
@@ -28,34 +29,140 @@ import (
 	_ "monoagent/internal/bot/x"
 )
 
-// findSystemChrome returns the path to the user's real Chrome/Chromium browser.
-// Falls back to empty string (Rod default) if none found.
-func findSystemChrome() string {
-	paths := []string{
-		"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-		"/Applications/Chromium.app/Contents/MacOS/Chromium",
-		"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-		"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-	}
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
+// newExtensionLoginLogger builds the same warn-level stderr logger used by
+// `node run`/`workflow run` when talking to the Chrome extension bridge.
+func newExtensionLoginLogger() zerolog.Logger {
+	return zerolog.New(os.Stderr).With().Timestamp().Str("component", "extension").Logger().Level(zerolog.WarnLevel)
 }
 
-// loginProfileDir returns the Chrome user-data-dir for a given app-profile +
-// platform pair. Scoped per-platform (not just per-profile) because Chrome
-// enforces a single running instance per user-data-dir — sharing one dir
-// across platforms meant opening a second platform's login while the first
-// was still open silently handed off to the already-running instance.
-func loginProfileDir(profileID, platform string) (string, error) {
+// connChecker is the minimal slice of browser.ExtensionBridge that
+// ensureExtensionConnected needs — defined locally to avoid pulling in the
+// browser package just for a type name.
+type connChecker interface {
+	IsConnected() bool
+}
+
+// ensureExtensionConnected returns once the extension bridge is connected,
+// launching the user's real Chrome first if it doesn't seem to be running.
+// The launch is a bare process start — no --user-data-dir override, no
+// --remote-debugging-port — so it opens (or focuses) the user's actual
+// default profile, complete with whatever extensions (including this one)
+// and logins are already there, rather than a blank throwaway profile.
+func ensureExtensionConnected(bridge connChecker, timeout time.Duration) error {
+	if bridge.IsConnected() {
+		return nil
+	}
+
+	chromePath := findLocalChromePath()
+	if chromePath == "" {
+		return fmt.Errorf("Chrome extension not connected, and Google Chrome wasn't found on this machine — install Chrome and the mono-agent extension, then try again")
+	}
+	fmt.Fprintln(os.Stderr, "Chrome doesn't seem to be running — launching it now...")
+	if err := exec.Command(chromePath).Start(); err != nil {
+		return fmt.Errorf("launching Chrome: %w", err)
+	}
+
+	deadline := time.Now().Add(timeout)
+	for !bridge.IsConnected() && time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !bridge.IsConnected() {
+		return fmt.Errorf("Chrome opened, but the mono-agent extension didn't connect within %s — make sure it's installed and enabled, then try again", timeout)
+	}
+	return nil
+}
+
+// loginTabStatePath returns the path to the small state file recording the
+// Chrome tab ID opened by `login <platform>`, so `login confirm <platform>`
+// — a separate process invocation — can find that same tab in the user's
+// real, extension-connected browser.
+func loginTabStatePath(profileID, platform string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".monoagent", "chrome-profile-"+profileID+"-"+strings.ToLower(platform)), nil
+	return filepath.Join(home, ".monoagent", "login-tab-"+profileID+"-"+strings.ToLower(platform)+".json"), nil
+}
+
+func saveLoginTabID(profileID, platform string, tabID int) error {
+	path, err := loginTabStatePath(profileID, platform)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(struct {
+		TabID int `json:"tab_id"`
+	}{TabID: tabID})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func readLoginTabID(profileID, platform string) (int, error) {
+	path, err := loginTabStatePath(profileID, platform)
+	if err != nil {
+		return 0, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("no login tab recorded — run `login %s` first: %w", strings.ToLower(platform), err)
+	}
+	var v struct {
+		TabID int `json:"tab_id"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return 0, err
+	}
+	return v.TabID, nil
+}
+
+// convertExtensionCookies converts the raw chrome.cookies.getAll() result
+// returned by the extension bridge (fields: name, value, domain, path,
+// secure, httpOnly, expirationDate, ...) into chromecookies.Cookie — the
+// shape cliSessionProvider.GetPage already expects when restoring a saved
+// session (it json.Unmarshals cookies_json into []*proto.NetworkCookieParam,
+// which uses these same field names).
+func convertExtensionCookies(raw interface{}) ([]chromecookies.Cookie, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected cookies payload type %T", raw)
+	}
+	cookies := make([]chromecookies.Cookie, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		c := chromecookies.Cookie{
+			Name:     stringField(m, "name"),
+			Value:    stringField(m, "value"),
+			Domain:   stringField(m, "domain"),
+			Path:     stringField(m, "path"),
+			Secure:   boolField(m, "secure"),
+			HTTPOnly: boolField(m, "httpOnly"),
+		}
+		if exp, ok := m["expirationDate"].(float64); ok {
+			c.Expires = exp
+		}
+		cookies = append(cookies, c)
+	}
+	return cookies, nil
+}
+
+func stringField(m map[string]interface{}, key string) string {
+	v, _ := m[key].(string)
+	return v
+}
+
+func boolField(m map[string]interface{}, key string) bool {
+	v, _ := m[key].(bool)
+	return v
 }
 
 // saveSession upserts a crawler_sessions row scoped to the active profile.
@@ -92,12 +199,11 @@ func saveSession(db *storage.Database, profileID, platform, username string, coo
 func newLoginCmd(cfg *globalConfig) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login <platform>",
-		Short: "Open a browser window to log in to a social platform",
-		Long: "Opens a genuinely plain browser window at the platform's login page — no --remote-debugging-port, " +
-			"no CDP, nothing at all distinguishing it from a browser you launched yourself — and returns immediately. " +
-			"Log in by hand (any method, including Google/SSO buttons and bot-verification challenges), then run " +
-			"`login confirm <platform>` to capture the session by reading it directly from the browser's own cookie " +
-			"store on disk.",
+		Short: "Open a tab in your real Chrome to log in to a social platform",
+		Long: "Opens the platform's login page as a new tab in your actual, already-running Chrome — via the " +
+			"mono-agent Chrome extension — instead of a separate throwaway browser instance. Log in by hand (any " +
+			"method, including Google/SSO buttons and bot-verification challenges), then run `login confirm " +
+			"<platform>` to capture the session directly from that tab.",
 		Example: `  monoagentcli login instagram
   monoagentcli login producthunt
   monoagentcli login confirm producthunt`,
@@ -121,41 +227,27 @@ func newLoginCmd(cfg *globalConfig) *cobra.Command {
 			// name or an ID) to the canonical ID — the same resolution
 			// `login confirm` relies on via its own initDB call. Skipping
 			// this would leave cfg.ProfileID as the raw --profile string, so
-			// the two steps would compute different chrome-profile-* dirs
-			// and never find each other's data.
+			// the two steps would compute different login-tab state files.
 			db, err := initDB(cfg)
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			db.Close()
 
-			chromePath := findSystemChrome()
-			if chromePath == "" {
-				return fmt.Errorf("no supported browser found (Chrome, Chromium, Brave, or Edge)")
+			bridge := setupExtensionBridge(newExtensionLoginLogger(), 3*time.Second)
+			if err := ensureExtensionConnected(bridge, 30*time.Second); err != nil {
+				return err
 			}
-			userDataDir, err := loginProfileDir(cfg.ProfileID, platform)
+
+			tabID, err := bridge.CreateTab(adapter.LoginURL())
 			if err != nil {
-				return fmt.Errorf("resolving profile directory: %w", err)
+				return fmt.Errorf("opening login tab: %w", err)
 			}
-			if err := os.MkdirAll(userDataDir, 0o755); err != nil {
-				return fmt.Errorf("creating profile directory: %w", err)
-			}
-
-			// A raw process launch — no go-rod, no launcher, no
-			// --remote-debugging-port at all. This is deliberate: sites like
-			// Google's sign-in flow appear to detect the mere presence of a
-			// remote debugging port, regardless of launch flags or whether
-			// anything is actively connected to it. --no-first-run just
-			// skips the onboarding dialog and carries no automation signal.
-			// The session is captured afterward by `login confirm`, which
-			// reads this profile's own Cookies database directly off disk
-			// instead of via CDP.
-			cmdChrome := exec.Command(chromePath, "--no-first-run", "--user-data-dir="+userDataDir, adapter.LoginURL())
-			if err := cmdChrome.Start(); err != nil {
-				return fmt.Errorf("launching browser: %w", err)
+			if err := saveLoginTabID(cfg.ProfileID, platform, tabID); err != nil {
+				return fmt.Errorf("recording login tab: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "Browser opened — please log in to %s manually in the window that appeared.\n", platform)
+			fmt.Fprintf(os.Stderr, "Opened %s login in your Chrome — please log in manually in that tab.\n", platform)
 			fmt.Fprintf(os.Stderr, "Once logged in, run: monoagentcli login confirm %s\n", strings.ToLower(platform))
 			return nil
 		},
@@ -174,47 +266,47 @@ func newLoginConfirmCmd(cfg *globalConfig) *cobra.Command {
 	return &cobra.Command{
 		Use:   "confirm <platform>",
 		Short: "Capture the session after you've logged in via `login <platform>`",
-		Long: "Reads and decrypts the cookies saved for that platform directly from the browser's own cookie " +
-			"database on disk (via the macOS Keychain — you may be prompted to approve access the first time), " +
-			"rather than connecting to the browser at all. Run this only after you've actually finished logging in " +
-			"(and any bot-verification challenge) by hand.",
+		Long: "Reads the cookies directly from the Chrome tab opened by `login <platform>`, via the mono-agent " +
+			"extension. Run this only after you've actually finished logging in (and any bot-verification " +
+			"challenge) by hand in that tab.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			platformArg := args[0]
 			platform := strings.ToUpper(platformArg)
 
-			factory, ok := bot.PlatformRegistry[platform]
-			if !ok {
+			if _, ok := bot.PlatformRegistry[platform]; !ok {
 				return fmt.Errorf("unsupported platform %q", platformArg)
 			}
-			adapter := factory()
 
 			// initDB must run first: it's what resolves cfg.ProfileID from
 			// the raw --profile value to the canonical ID `login <platform>`
-			// used to pick this same profile directory.
+			// used to record the login-tab state file.
 			db, err := initDB(cfg)
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
 
-			chromePath := findSystemChrome()
-			if chromePath == "" {
-				return fmt.Errorf("no supported browser found (Chrome, Chromium, Brave, or Edge)")
-			}
-			userDataDir, err := loginProfileDir(cfg.ProfileID, platform)
-			if err != nil {
-				return fmt.Errorf("resolving profile directory: %w", err)
-			}
-
-			domain, err := chromecookies.DomainFromLoginURL(adapter.LoginURL())
-			if err != nil {
-				return fmt.Errorf("determining cookie domain: %w", err)
-			}
-
-			cookies, err := chromecookies.ReadCookies(chromePath, userDataDir, domain)
+			tabID, err := readLoginTabID(cfg.ProfileID, platform)
 			if err != nil {
 				return err
+			}
+
+			bridge := setupExtensionBridge(newExtensionLoginLogger(), 3*time.Second)
+			if err := ensureExtensionConnected(bridge, 30*time.Second); err != nil {
+				return err
+			}
+
+			rawCookies, err := bridge.NewPage(tabID).GetCookies()
+			if err != nil {
+				return fmt.Errorf("reading cookies from login tab: %w", err)
+			}
+			cookies, err := convertExtensionCookies(rawCookies)
+			if err != nil {
+				return fmt.Errorf("parsing cookies: %w", err)
+			}
+			if len(cookies) == 0 {
+				return fmt.Errorf("no cookies found in the login tab — make sure you finished logging in before running this")
 			}
 			cookiesJSON, err := json.Marshal(cookies)
 			if err != nil {
