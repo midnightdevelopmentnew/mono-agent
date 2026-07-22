@@ -17,7 +17,6 @@ import (
 	"monoagent/internal/bot"
 	browserpkg "monoagent/internal/browser"
 	"monoagent/internal/config"
-	"monoagent/internal/extension"
 	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 	"monoagent/internal/util"
@@ -599,12 +598,9 @@ func executeAction(
 	extTabID := -1
 
 	extLogger := logger.With().Str("component", "extension").Logger()
-	extServer := extension.NewServer("127.0.0.1:9222", extLogger)
-	extServer.StartAsync(execCtx)
-	_ = extServer.WaitForConnection(15 * time.Second)
+	extBridge := setupExtensionBridge(extLogger, 15*time.Second)
 
-	if extServer.IsConnected() {
-		fmt.Fprintln(os.Stderr, "  Chrome extension connected -- using your browser")
+	if extBridge.IsConnected() {
 		platformURLs := map[string]string{
 			"gemini":    "https://gemini.google.com/app",
 			"instagram": "https://www.instagram.com",
@@ -616,15 +612,13 @@ func executeAction(
 		if startURL == "" {
 			startURL = "about:blank"
 		}
-		tabID, tabErr := extServer.CreateTab(startURL)
+		tabID, tabErr := extBridge.CreateTab(startURL)
 		if tabErr == nil {
-			pageIface = extension.NewExtensionPage(extServer, tabID)
+			pageIface = extBridge.NewPage(tabID)
 			extTabID = tabID
 		} else {
 			logger.Warn().Err(tabErr).Msg("extension tab creation failed, falling back to Rod")
 		}
-	} else {
-		fmt.Fprintln(os.Stderr, "  Chrome extension not connected -- using Chromium with cookie restore")
 	}
 
 	if pageIface == nil {
@@ -642,7 +636,7 @@ func executeAction(
 	}
 	if extTabID >= 0 {
 		defer func() {
-			if err := extServer.CloseTab(extTabID); err != nil {
+			if err := extBridge.CloseTab(extTabID); err != nil {
 				logger.Warn().Err(err).Int("tabId", extTabID).Msg("failed to close extension tab")
 			}
 		}()
