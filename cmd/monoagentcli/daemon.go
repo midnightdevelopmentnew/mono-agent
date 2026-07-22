@@ -26,10 +26,11 @@ func newDaemonCmd(cfg *globalConfig) *cobra.Command {
 			"workflow's cron/webhook triggers only live for the instant the activating command runs.",
 		Example: "  monoagentcli daemon",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			engine, err := buildEngine(cfg, true)
+			engine, closeBrowsers, err := buildEngine(cfg, true)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
+			defer closeBrowsers()
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

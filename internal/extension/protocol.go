@@ -24,6 +24,7 @@ type Response struct {
 const (
 	// Tab management
 	CmdCreateTab = "create_tab"
+	CmdCloseTab  = "close_tab"
 	CmdNavigate  = "navigate"
 	CmdReload    = "reload"
 	CmdPageInfo  = "page_info"

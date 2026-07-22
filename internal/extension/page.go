@@ -452,6 +452,16 @@ func (ep *ExtensionPage) Timeout(d time.Duration) browser.PageInterface {
 }
 
 // ---------------------------------------------------------------------------
+// Close
+// ---------------------------------------------------------------------------
+
+// Close closes this tab in the real Chrome browser.
+func (ep *ExtensionPage) Close() error {
+	_, err := ep.send(CmdCloseTab, nil)
+	return err
+}
+
+// ---------------------------------------------------------------------------
 // ExtensionElement
 // ---------------------------------------------------------------------------
 

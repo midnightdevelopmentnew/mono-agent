@@ -20,6 +20,7 @@ type SessionProvider interface {
 type ExtensionBridge interface {
 	IsConnected() bool
 	CreateTab(url string) (int, error)
+	CloseTab(tabID int) error
 	NewPage(tabID int) PageInterface
 }
 
@@ -59,4 +60,16 @@ func (h *HybridSessionProvider) GetPage(ctx context.Context, platform, username 
 		return h.RodProvider.GetPage(ctx, platform, username)
 	}
 	return nil, fmt.Errorf("no browser provider available (extension not connected, no Rod fallback)")
+}
+
+// Close shuts down the Rod fallback provider if it exposes a Close method
+// (e.g. cliSessionProvider quitting its launched Chromium process). Extension
+// tabs are not tracked here — each one is closed by the node that opened it
+// (see nodes.BrowserNode.Execute) right after use, since GetPage always opens
+// a fresh tab rather than reusing one. Safe to call even if GetPage was never
+// invoked.
+func (h *HybridSessionProvider) Close() {
+	if closer, ok := h.RodProvider.(interface{ Close() }); ok {
+		closer.Close()
+	}
 }

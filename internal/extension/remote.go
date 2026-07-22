@@ -108,6 +108,15 @@ func (r *RemoteSender) CreateTab(url string) (int, error) {
 	return int(tabID), nil
 }
 
+// CloseTab asks the remote server's extension to close a tab.
+func (r *RemoteSender) CloseTab(tabID int) error {
+	_, err := r.SendCommand(&Command{
+		Type:  CmdCloseTab,
+		TabID: tabID,
+	}, 30*time.Second)
+	return err
+}
+
 // RemoteBridge adapts *RemoteSender to satisfy browser.ExtensionBridge, the
 // same way ServerBridge adapts a locally-owned *Server.
 type RemoteBridge struct {
@@ -126,4 +135,8 @@ func (b *RemoteBridge) CreateTab(url string) (int, error) {
 
 func (b *RemoteBridge) NewPage(tabID int) browser.PageInterface {
 	return NewExtensionPage(b.Sender, tabID)
+}
+
+func (b *RemoteBridge) CloseTab(tabID int) error {
+	return b.Sender.CloseTab(tabID)
 }

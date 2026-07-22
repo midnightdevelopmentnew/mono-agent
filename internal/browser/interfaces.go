@@ -52,6 +52,11 @@ type PageInterface interface {
 	// Timeout returns a new PageInterface whose subsequent operations are
 	// bounded by d. This mirrors Rod's Page.Timeout pattern.
 	Timeout(d time.Duration) PageInterface
+
+	// Close closes this specific page/tab. It does not close the underlying
+	// browser process — callers that own the browser (e.g. a Rod fallback
+	// launched just for one session) close that separately.
+	Close() error
 }
 
 // ElementHandle abstracts a single DOM element on the page.

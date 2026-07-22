@@ -557,7 +557,6 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// Set up browser session provider, bot registry, and config manager for social/browser nodes.
 			if isBrowserNodeType(nodeType) {
 				sp := &cliSessionProvider{db: rawDB, profileID: cfg.ProfileID}
-				defer sp.Close()
 
 				// Use the Chrome extension first, sharing another local
 				// process's connection when one already exists.
@@ -572,6 +571,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					RodProvider: sp,
 					Logger:      extLogger,
 				}
+				defer hybridProvider.Close()
 				nodes.SetGlobalSessionProvider(hybridProvider)
 				nodes.SetGlobalBotRegistry(&cliBotRegistry{})
 				nodes.SetGlobalCredentialStore(connections.NewStore(rawDB))

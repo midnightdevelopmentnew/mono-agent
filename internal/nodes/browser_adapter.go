@@ -114,10 +114,13 @@ func (b *BrowserNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	}
 
 	// 2. Get a session (browser page) via the SessionProvider.
+	// Each call opens a fresh tab (no reuse across nodes), so close it once
+	// this node is done rather than leaving it open for the process lifetime.
 	page, err := globalSessionProvider.GetPage(ctx, b.platform, username)
 	if err != nil {
 		return nil, fmt.Errorf("nodes: getting page for %s/%s: %w", b.platform, username, err)
 	}
+	defer page.Close() //nolint:errcheck
 
 	// 3. Get the appropriate bot adapter via the BotRegistry (optional — not all platforms need it).
 	var botAdapter action.BotAdapter

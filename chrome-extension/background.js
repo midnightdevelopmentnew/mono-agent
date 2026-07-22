@@ -189,6 +189,9 @@ async function handleCommand(cmd) {
       case "create_tab":
         result = await createTab(params);
         break;
+      case "close_tab":
+        result = await closeTab(params);
+        break;
       case "navigate":
         result = await navigateTab(params);
         break;
@@ -261,6 +264,12 @@ async function createTab({ url, active = true }) {
   // Wait for the tab to finish loading
   await waitForTabComplete(tab.id);
   return { tabId: tab.id, url: tab.url };
+}
+
+async function closeTab({ tabId }) {
+  if (!tabId) throw new Error("tabId is required");
+  await chrome.tabs.remove(tabId);
+  return { tabId };
 }
 
 async function navigateTab({ tabId, url }) {

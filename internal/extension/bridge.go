@@ -22,3 +22,7 @@ func (b *ServerBridge) CreateTab(url string) (int, error) {
 func (b *ServerBridge) NewPage(tabID int) browser.PageInterface {
 	return NewExtensionPage(b.Server, tabID)
 }
+
+func (b *ServerBridge) CloseTab(tabID int) error {
+	return b.Server.CloseTab(tabID)
+}

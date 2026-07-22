@@ -38,6 +38,18 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: checkOrigin,
 }
 
+// pongWait is how long the server waits for a pong (or any message) before
+// giving up on a connection; pingInterval is how often it probes, kept well
+// under pongWait so a healthy extension always has time to reply. Without
+// this, a connection that dies without a clean TCP close (extension service
+// worker suspended, laptop sleep, network drop) leaves s.conn non-nil
+// forever: IsConnected() keeps reporting true while the extension is
+// actually gone.
+const (
+	pongWait     = 30 * time.Second
+	pingInterval = (pongWait * 9) / 10
+)
+
 // checkOrigin restricts the extension control channel to same-machine callers:
 // native clients that send no Origin, the browser extension itself
 // (chrome-extension:// / moz-extension://), and loopback origins. Arbitrary
@@ -222,6 +234,15 @@ func (s *Server) CreateTab(url string) (int, error) {
 	return int(tabID), nil
 }
 
+// CloseTab asks the extension to close the tab with the given ID.
+func (s *Server) CloseTab(tabID int) error {
+	_, err := s.SendCommand(&Command{
+		Type:  CmdCloseTab,
+		TabID: tabID,
+	}, 30*time.Second)
+	return err
+}
+
 // Close gracefully shuts down the server and closes the WebSocket connection.
 func (s *Server) Close() error {
 	if s.cancel != nil {
@@ -246,6 +267,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
 	// Replace any existing connection.
 	s.connMu.Lock()
 	old := s.conn
@@ -260,7 +287,30 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.connOnce.Do(func() { close(s.connected) })
 	s.logger.Info().Str("remote", conn.RemoteAddr().String()).Msg("extension connected")
 
+	done := make(chan struct{})
+	go s.pingLoop(conn, done)
 	s.readLoop(conn)
+	close(done)
+}
+
+// pingLoop periodically pings the connection so a dead peer is detected via
+// the read deadline in handleWS/readLoop instead of hanging indefinitely.
+func (s *Server) pingLoop(conn *websocket.Conn, done <-chan struct{}) {
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.writeMu.Lock()
+			err := conn.WriteMessage(websocket.PingMessage, nil)
+			s.writeMu.Unlock()
+			if err != nil {
+				return
+			}
+		case <-done:
+			return
+		}
+	}
 }
 
 // handleHealth reports whether this server is alive and whether it currently

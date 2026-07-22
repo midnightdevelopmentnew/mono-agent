@@ -596,6 +596,7 @@ func executeAction(
 	// Try Chrome extension first, fall back to Rod.
 	var pageIface browserpkg.PageInterface
 	var rodBrowser *rod.Browser
+	extTabID := -1
 
 	extLogger := logger.With().Str("component", "extension").Logger()
 	extServer := extension.NewServer("127.0.0.1:9222", extLogger)
@@ -618,6 +619,7 @@ func executeAction(
 		tabID, tabErr := extServer.CreateTab(startURL)
 		if tabErr == nil {
 			pageIface = extension.NewExtensionPage(extServer, tabID)
+			extTabID = tabID
 		} else {
 			logger.Warn().Err(tabErr).Msg("extension tab creation failed, falling back to Rod")
 		}
@@ -637,6 +639,13 @@ func executeAction(
 	}
 	if rodBrowser != nil {
 		defer rodBrowser.Close()
+	}
+	if extTabID >= 0 {
+		defer func() {
+			if err := extServer.CloseTab(extTabID); err != nil {
+				logger.Warn().Err(err).Int("tabId", extTabID).Msg("failed to close extension tab")
+			}
+		}()
 	}
 
 	// Create events channel for monitoring.

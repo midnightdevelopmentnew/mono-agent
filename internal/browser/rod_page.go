@@ -207,6 +207,14 @@ func (rp *RodPage) Timeout(d time.Duration) PageInterface {
 	}
 }
 
+// -- Close -------------------------------------------------------------------
+
+// Close closes this specific tab. It does not close the underlying browser
+// process (rod.Browser) — the caller that launched the browser owns that.
+func (rp *RodPage) Close() error {
+	return rp.page.Close()
+}
+
 // ---------------------------------------------------------------------------
 // RodElement — ElementHandle backed by *rod.Element
 // ---------------------------------------------------------------------------

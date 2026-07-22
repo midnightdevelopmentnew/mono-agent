@@ -41,10 +41,13 @@ func newHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 
 // buildEngine constructs a fully wired WorkflowEngine suitable for CLI use.
 // It creates its own scheduler (no action executor or store needed for workflow triggers).
-func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEngine, error) {
+// The returned cleanup func closes any browser session (extension tabs and/or
+// the Rod fallback browser) opened by nodes the engine ran; callers should
+// defer it alongside engine.Stop().
+func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEngine, func(), error) {
 	db, err := initDB(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("open database: %w", err)
+		return nil, func() {}, fmt.Errorf("open database: %w", err)
 	}
 
 	registry := buildNodeRegistry(cfg.Verbose, db.DB)
@@ -92,7 +95,7 @@ func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEn
 
 	hybridStore := newHybridStore(db)
 	engine := workflow.NewWorkflowEngineWithStore(hybridStore, db.DB, sched, registry, engCfg, logger)
-	return engine, nil
+	return engine, hybridProvider.Close, nil
 }
 
 // newWorkflowCmd returns the parent `workflow` cobra command with all subcommands attached.
@@ -348,10 +351,11 @@ func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := args[0]
 
-			engine, err := buildEngine(cfg, false)
+			engine, closeBrowsers, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
+			defer closeBrowsers()
 
 			ctx := context.Background()
 			if err := engine.Start(ctx); err != nil {
@@ -412,10 +416,11 @@ func newWorkflowActivateCmd(cfg *globalConfig) *cobra.Command {
 			"must be running continuously (it restores every active workflow's triggers on startup).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			engine, err := buildEngine(cfg, false)
+			engine, closeBrowsers, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
+			defer closeBrowsers()
 
 			ctx := context.Background()
 			if err := engine.Start(ctx); err != nil {
@@ -441,10 +446,11 @@ func newWorkflowDeactivateCmd(cfg *globalConfig) *cobra.Command {
 		Short: "Deactivate a workflow and stop its triggers",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			engine, err := buildEngine(cfg, false)
+			engine, closeBrowsers, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
+			defer closeBrowsers()
 
 			ctx := context.Background()
 			if err := engine.Start(ctx); err != nil {
@@ -484,10 +490,11 @@ func newWorkflowDeleteCmd(cfg *globalConfig) *cobra.Command {
 				}
 			}
 
-			engine, err := buildEngine(cfg, false)
+			engine, closeBrowsers, err := buildEngine(cfg, false)
 			if err != nil {
 				return fmt.Errorf("build engine: %w", err)
 			}
+			defer closeBrowsers()
 
 			ctx := context.Background()
 			if err := engine.Start(ctx); err != nil {
