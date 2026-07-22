@@ -537,8 +537,12 @@ func executeAction(
 	extBridge := setupExtensionBridge(extLogger, 15*time.Second)
 
 	if !extBridge.IsConnected() {
-		markActionFailed(db, act.ID)
-		return fmt.Errorf("Chrome extension not connected — no browser is launched as a fallback; connect the extension and try again")
+		// No throwaway automation browser — launch the user's real Chrome
+		// (same mechanism as `login`) so the extension can attach, then wait.
+		if err := ensureExtensionConnected(extBridge, 30*time.Second); err != nil {
+			markActionFailed(db, act.ID)
+			return err
+		}
 	}
 
 	platformURLs := map[string]string{

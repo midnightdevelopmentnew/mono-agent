@@ -1,0 +1,35 @@
+{
+  "name": "Gemini — Generate One Image",
+  "description": "Manually trigger with a prompt; generates a single image via Gemini and saves it to the image vault automatically. Run with: workflow run <id> --input '{\"prompt\":\"a red bicycle\"}'. Requires `monoagentcli login gemini` once beforehand.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Manual Trigger",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "generate_image",
+      "type": "gemini.generate_image",
+      "name": "Generate Image",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "prompt": "{{ $json.prompt }}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-generate",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "generate_image",
+      "target_handle": "main"
+    }
+  ]
+}

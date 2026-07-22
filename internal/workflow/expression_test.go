@@ -94,6 +94,49 @@ func TestExpressionEvaluateString_NodeOutput(t *testing.T) {
 	}
 }
 
+// TestExpressionEvaluateString_NodeOutputBracketSyntax locks in the
+// documented $node["Name"] bracket-index syntax (see cmd/monoagentcli/ref.go's
+// expression docs) — text/template has no native support for this, so the
+// engine must rewrite it into `(index $node "Name")` before parsing.
+func TestExpressionEvaluateString_NodeOutputBracketSyntax(t *testing.T) {
+	engine := NewExpressionEngine()
+	ctx := ExpressionContext{
+		Node: map[string][]Item{
+			"MyNode": {
+				{JSON: map[string]interface{}{"result": "ok"}},
+			},
+		},
+	}
+	got, err := engine.EvaluateString(`{{ $node["MyNode"].json.result }}`, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "ok" {
+		t.Errorf("got %q, want %q", got, "ok")
+	}
+}
+
+// TestExpressionEvaluateString_NodeOutputBracketSyntaxWithArrayIndex mirrors
+// the pattern used by the "Gemini — Multi-Image Consistent Session" workflow
+// template: indexing into an array field reached via bracket-index syntax.
+func TestExpressionEvaluateString_NodeOutputBracketSyntaxWithArrayIndex(t *testing.T) {
+	engine := NewExpressionEngine()
+	ctx := ExpressionContext{
+		Node: map[string][]Item{
+			"Manual Trigger": {
+				{JSON: map[string]interface{}{"prompts": []interface{}{"first", "second"}}},
+			},
+		},
+	}
+	got, err := engine.EvaluateString(`{{ index $node["Manual Trigger"].json.prompts 1 }}`, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "second" {
+		t.Errorf("got %q, want %q", got, "second")
+	}
+}
+
 func TestExpressionResolveConfig(t *testing.T) {
 	engine := NewExpressionEngine()
 	ctx := ExpressionContext{

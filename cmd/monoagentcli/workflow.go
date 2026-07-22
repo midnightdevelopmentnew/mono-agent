@@ -63,6 +63,13 @@ func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEn
 	// when one already exists (e.g. the daemon).
 	extLogger := logger.With().Str("component", "extension").Logger()
 	extBridge := setupExtensionBridge(extLogger, 30*time.Second)
+	if !extBridge.IsConnected() {
+		// No throwaway automation browser — launch the user's real Chrome
+		// (same mechanism as `login`) so the extension can attach, then wait.
+		if err := ensureExtensionConnected(extBridge, 30*time.Second); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: %v\n", err)
+		}
+	}
 
 	hybridProvider := &browserpkg.HybridSessionProvider{
 		ExtBridge: extBridge,
@@ -341,12 +348,21 @@ func newWorkflowGetCmd(cfg *globalConfig) *cobra.Command {
 
 // newWorkflowRunCmd manually triggers a workflow and polls for completion.
 func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
-	return &cobra.Command{
+	var inputJSON string
+
+	cmd := &cobra.Command{
 		Use:   "run <id>",
 		Short: "Manually trigger a workflow and wait for it to complete",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workflowID := args[0]
+
+			triggerData := map[string]interface{}{}
+			if inputJSON != "" {
+				if err := json.Unmarshal([]byte(inputJSON), &triggerData); err != nil {
+					return fmt.Errorf("invalid --input JSON (expected a JSON object): %w", err)
+				}
+			}
 
 			engine, closeBrowsers, err := buildEngine(cfg, false)
 			if err != nil {
@@ -360,7 +376,7 @@ func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer engine.Stop() //nolint:errcheck
 
-			executionID, err := engine.TriggerWorkflow(ctx, workflowID, map[string]interface{}{})
+			executionID, err := engine.TriggerWorkflow(ctx, workflowID, triggerData)
 			if err != nil {
 				return fmt.Errorf("trigger workflow: %w", err)
 			}
@@ -400,6 +416,9 @@ func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
 			}
 		},
 	}
+
+	cmd.Flags().StringVar(&inputJSON, "input", "", `Trigger data as a JSON object, e.g. --input '{"prompt":"a red bicycle"}' (available downstream as {{ $json.<field> }})`)
+	return cmd
 }
 
 // newWorkflowActivateCmd enables a workflow and registers its triggers.

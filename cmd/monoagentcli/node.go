@@ -483,6 +483,14 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					extLogger = extLogger.Level(zerolog.WarnLevel)
 				}
 				extBridge := setupExtensionBridge(extLogger, 30*time.Second)
+				if !extBridge.IsConnected() {
+					// No throwaway automation browser — launch the user's real
+					// Chrome (same mechanism as `login`) so the extension can
+					// attach, then wait.
+					if err := ensureExtensionConnected(extBridge, 30*time.Second); err != nil {
+						fmt.Fprintf(os.Stderr, "  Warning: %v\n", err)
+					}
+				}
 
 				hybridProvider := &browserpkg.HybridSessionProvider{
 					ExtBridge: extBridge,

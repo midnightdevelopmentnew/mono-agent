@@ -5,12 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
 )
+
+// bracketIndexPattern matches the documented $node["Name"] / $json["key"]
+// bracket-index syntax (see cmd/monoagentcli/ref.go's expression docs) so it
+// can be rewritten into Go template's actual index-function syntax before
+// parsing — text/template has no native support for `x["key"]`.
+var bracketIndexPattern = regexp.MustCompile(`(\$\w+)\["([^"]*)"\]`)
+
+// rewriteBracketIndex rewrites every `$name["key"]` occurrence in tmpl into
+// `(index $name "key")`.
+func rewriteBracketIndex(tmpl string) string {
+	return bracketIndexPattern.ReplaceAllString(tmpl, `(index $1 "$2")`)
+}
 
 // preamble is prepended to every template so authors can use $json, $node,
 // $workflow, $execution, and $env directly without referencing dot.
@@ -248,7 +261,7 @@ func (e *ExpressionEngine) parse(src string) (*template.Template, error) {
 	if v, ok := e.cache.Load(src); ok {
 		return v.(*template.Template), nil
 	}
-	full := preamble + src
+	full := preamble + rewriteBracketIndex(src)
 	t, err := template.New("").
 		Option("missingkey=zero").
 		Funcs(e.funcs).
