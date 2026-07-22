@@ -86,7 +86,7 @@
       "id": "t1_type_prompt",
       "type": "call_bot_method",
       "methodName": "type_prompt",
-      "args": ["generate an image that {{prompt}}"],
+      "args": ["Generate an image of {{prompt}}"],
       "variable_name": "typeResult",
       "timeout": 30,
       "onError": { "action": "skip" }
@@ -101,7 +101,7 @@
       "id": "t2_type_prompt",
       "type": "type_text",
       "target": "{{promptInput}}",
-      "text": "generate an image that {{prompt}}",
+      "text": "Generate an image of {{prompt}}",
       "humanize": true,
       "timeout": 30,
       "onError": { "action": "mark_failed" }

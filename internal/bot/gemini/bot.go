@@ -588,7 +588,16 @@ func (b *GeminiBot) methodWaitForImageResponse(_ context.Context, args ...interf
 					var els = document.querySelectorAll(textSels[j]);
 					if (els.length) { text = (els[els.length-1].textContent || '').trim(); break; }
 				}
-				return {imgCount: valid, text: text.substring(0, 300)};
+				// Those container tags are frequently stale against Gemini's
+				// current markup (they can legitimately match zero elements
+				// even after a real reply), which silently blinds the refusal
+				// check below. Fall back to the whole visible page text so a
+				// refusal ("can't create", "sign in", etc.) is still caught
+				// instead of surfacing only as an uninformative timeout.
+				if (!text) {
+					text = (document.body.innerText || '').trim();
+				}
+				return {imgCount: valid, text: text.substring(0, 600)};
 			})()`)
 			var imgCount int
 			var text string
@@ -619,17 +628,27 @@ func (b *GeminiBot) methodWaitForImageResponse(_ context.Context, args ...interf
 		time.Sleep(3 * time.Second)
 		result, err := page.Eval(`() => {
 			const containers = document.querySelectorAll('model-response, message-content, .response-container');
-			if (containers.length === 0) return {found: false, text: ''};
-			const last = containers[containers.length - 1];
-			const imgs = last.querySelectorAll('img');
+			let text = '';
 			let valid = 0;
-			for (const img of imgs) {
-				const w = img.width || img.naturalWidth || 0;
-				if (w > 0 && w < 48) continue;
-				const src = img.src || '';
-				if (src.startsWith('blob:') || src.startsWith('data:image') || (src.startsWith('https://') && w >= 100)) valid++;
+			if (containers.length > 0) {
+				const last = containers[containers.length - 1];
+				const imgs = last.querySelectorAll('img');
+				for (const img of imgs) {
+					const w = img.width || img.naturalWidth || 0;
+					if (w > 0 && w < 48) continue;
+					const src = img.src || '';
+					if (src.startsWith('blob:') || src.startsWith('data:image') || (src.startsWith('https://') && w >= 100)) valid++;
+				}
+				text = (last.textContent || '').trim();
 			}
-			return {found: valid > 0, text: (last.textContent || '').trim().substring(0, 300)};
+			// See the extension-path comment above: these container tags can
+			// legitimately match nothing even after a real reply, which
+			// blinds the refusal check below unless we fall back to the
+			// whole visible page text.
+			if (!text) {
+				text = (document.body.innerText || '').trim();
+			}
+			return {found: valid > 0, text: text.substring(0, 600)};
 		}`)
 		if err != nil {
 			continue
