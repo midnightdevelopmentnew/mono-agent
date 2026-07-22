@@ -41,9 +41,9 @@ func newHybridStore(db *storage.Database) *workflow.HybridWorkflowStore {
 
 // buildEngine constructs a fully wired WorkflowEngine suitable for CLI use.
 // It creates its own scheduler (no action executor or store needed for workflow triggers).
-// The returned cleanup func closes any browser session (extension tabs and/or
-// the Rod fallback browser) opened by nodes the engine ran; callers should
-// defer it alongside engine.Stop().
+// The returned cleanup func closes any browser session (extension tabs)
+// opened by nodes the engine ran; callers should defer it alongside
+// engine.Stop().
 func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEngine, func(), error) {
 	db, err := initDB(cfg)
 	if err != nil {
@@ -58,18 +58,15 @@ func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEn
 	}
 
 	// Set up browser session provider, bot registry, and config manager
-	// so browser/social nodes work in workflows.
-	sp := &cliSessionProvider{db: db.DB, profileID: cfg.ProfileID}
-
-	// Use the Chrome extension first, sharing another local process's
-	// connection when one already exists (e.g. the daemon).
+	// so browser/social nodes work in workflows. Chrome extension only —
+	// no Rod/Chromium fallback, sharing another local process's connection
+	// when one already exists (e.g. the daemon).
 	extLogger := logger.With().Str("component", "extension").Logger()
 	extBridge := setupExtensionBridge(extLogger, 30*time.Second)
 
 	hybridProvider := &browserpkg.HybridSessionProvider{
-		ExtBridge:   extBridge,
-		RodProvider: sp,
-		Logger:      extLogger,
+		ExtBridge: extBridge,
+		Logger:    extLogger,
 	}
 	nodes.SetGlobalSessionProvider(hybridProvider)
 	nodes.SetGlobalBotRegistry(&cliBotRegistry{})

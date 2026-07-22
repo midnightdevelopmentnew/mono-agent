@@ -24,52 +24,41 @@ type ExtensionBridge interface {
 	NewPage(tabID int) PageInterface
 }
 
-// HybridSessionProvider tries the Chrome extension first for browser pages,
-// falling back to Rod when the extension is not connected.
+// HybridSessionProvider gets browser pages exclusively through the Chrome
+// extension bridge. There is no local browser fallback: if the extension
+// isn't connected, GetPage fails instead of launching a browser process.
 type HybridSessionProvider struct {
-	ExtBridge   ExtensionBridge // may be nil if extension not configured
-	RodProvider SessionProvider // fallback Rod-based provider
-	Logger      zerolog.Logger
+	ExtBridge ExtensionBridge // may be nil if extension not configured
+	Logger    zerolog.Logger
 }
 
 func (h *HybridSessionProvider) GetPage(ctx context.Context, platform, username string) (PageInterface, error) {
 	connected := h.ExtBridge != nil && h.ExtBridge.IsConnected()
 	h.Logger.Info().Bool("ext_connected", connected).Str("platform", platform).Msg("GetPage called")
 
-	if connected {
-		platformURLs := map[string]string{
-			"gemini":    "https://gemini.google.com/app",
-			"instagram": "https://www.instagram.com",
-			"linkedin":  "https://www.linkedin.com",
-			"x":         "https://x.com",
-			"tiktok":    "https://www.tiktok.com",
-		}
-		url := platformURLs[strings.ToLower(platform)]
-		if url == "" {
-			url = "about:blank"
-		}
-		tabID, err := h.ExtBridge.CreateTab(url)
-		if err == nil {
-			h.Logger.Info().Str("platform", platform).Int("tabId", tabID).Msg("using Chrome extension")
-			return h.ExtBridge.NewPage(tabID), nil
-		}
-		h.Logger.Warn().Err(err).Msg("extension tab creation failed, falling back to Rod")
+	if !connected {
+		return nil, fmt.Errorf("Chrome extension not connected — no browser is launched as a fallback; connect the extension and try again")
 	}
 
-	if h.RodProvider != nil {
-		return h.RodProvider.GetPage(ctx, platform, username)
+	platformURLs := map[string]string{
+		"gemini":    "https://gemini.google.com/app",
+		"instagram": "https://www.instagram.com",
+		"linkedin":  "https://www.linkedin.com",
+		"x":         "https://x.com",
+		"tiktok":    "https://www.tiktok.com",
 	}
-	return nil, fmt.Errorf("no browser provider available (extension not connected, no Rod fallback)")
+	url := platformURLs[strings.ToLower(platform)]
+	if url == "" {
+		url = "about:blank"
+	}
+	tabID, err := h.ExtBridge.CreateTab(url)
+	if err != nil {
+		return nil, fmt.Errorf("creating extension tab: %w", err)
+	}
+	h.Logger.Info().Str("platform", platform).Int("tabId", tabID).Msg("using Chrome extension")
+	return h.ExtBridge.NewPage(tabID), nil
 }
 
-// Close shuts down the Rod fallback provider if it exposes a Close method
-// (e.g. cliSessionProvider quitting its launched Chromium process). Extension
-// tabs are not tracked here — each one is closed by the node that opened it
-// (see nodes.BrowserNode.Execute) right after use, since GetPage always opens
-// a fresh tab rather than reusing one. Safe to call even if GetPage was never
-// invoked.
-func (h *HybridSessionProvider) Close() {
-	if closer, ok := h.RodProvider.(interface{ Close() }); ok {
-		closer.Close()
-	}
-}
+// Close is a no-op now that there is no Rod fallback provider to shut down;
+// kept so existing `defer hybridProvider.Close()` call sites don't need to change.
+func (h *HybridSessionProvider) Close() {}

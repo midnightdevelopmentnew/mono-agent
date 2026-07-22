@@ -10,14 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
 	"monoagent/internal/action"
 	"monoagent/internal/bot"
 	browserpkg "monoagent/internal/browser"
 	"monoagent/internal/config"
-	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 	"monoagent/internal/util"
 	"github.com/olekukonko/tablewriter"
@@ -489,65 +485,6 @@ func (s *storageAdapter) SaveExtractedData(actionID string, items []map[string]i
 // Browser + session management
 // ---------------------------------------------------------------------------
 
-// launchBrowserPage opens the user's real Chrome profile so existing logins
-// (Google, Instagram, etc.) are available without cookie restoration.
-func launchBrowserPage(cfg *globalConfig, db *storage.Database, platform string) (*rod.Browser, *rod.Page, error) {
-	l := launcher.New().
-		Headless(cfg.Headless).
-		Set("disable-blink-features", "AutomationControlled")
-
-	launchURL, err := l.Launch()
-	if err != nil {
-		return nil, nil, fmt.Errorf("launching browser: %w", err)
-	}
-
-	browser := rod.New().ControlURL(launchURL)
-	if err := browser.Connect(); err != nil {
-		return nil, nil, fmt.Errorf("connecting to browser: %w", err)
-	}
-
-	// Navigate to platform domain first, then restore cookies, then reload.
-	platformDomains := map[string]string{
-		"gemini":    "https://gemini.google.com/app",
-		"instagram": "https://www.instagram.com",
-		"linkedin":  "https://www.linkedin.com",
-		"x":         "https://x.com",
-		"tiktok":    "https://www.tiktok.com",
-	}
-	startURL := "about:blank"
-	if domain, ok := platformDomains[strings.ToLower(platform)]; ok {
-		startURL = domain
-	}
-
-	page, err := browser.Page(proto.TargetCreateTarget{URL: startURL})
-	if err != nil {
-		browser.Close()
-		return nil, nil, fmt.Errorf("creating page: %w", err)
-	}
-	time.Sleep(5 * time.Second)
-
-	// Restore cookies from DB and reload.
-	platformLower := strings.ToLower(platform)
-	var cookiesJSON string
-	err = db.DB.QueryRow(
-		"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND profile_id = ? ORDER BY expiry DESC LIMIT 1",
-		platformLower, cfg.ProfileID,
-	).Scan(&cookiesJSON)
-	if err == nil && cookiesJSON != "" {
-		var cookies []*proto.NetworkCookieParam
-		cookieBytes, _ := secrets.DecryptBlob(context.Background(), db.DB, cookiesJSON)
-		if jsonErr := json.Unmarshal(cookieBytes, &cookies); jsonErr == nil {
-			if setErr := page.SetCookies(cookies); setErr == nil {
-				fmt.Fprintf(os.Stderr, "  Session cookies restored for %s\n", platform)
-				_ = page.Reload()
-				time.Sleep(5 * time.Second)
-			}
-		}
-	}
-
-	return browser, page, nil
-}
-
 // ---------------------------------------------------------------------------
 // executeAction — the real execution pipeline
 // ---------------------------------------------------------------------------
@@ -592,48 +529,37 @@ func executeAction(
 		logger = logger.Level(zerolog.WarnLevel)
 	}
 
-	// Try Chrome extension first, fall back to Rod.
+	// Chrome extension only — no Rod/Chromium fallback.
 	var pageIface browserpkg.PageInterface
-	var rodBrowser *rod.Browser
 	extTabID := -1
 
 	extLogger := logger.With().Str("component", "extension").Logger()
 	extBridge := setupExtensionBridge(extLogger, 15*time.Second)
 
-	if extBridge.IsConnected() {
-		platformURLs := map[string]string{
-			"gemini":    "https://gemini.google.com/app",
-			"instagram": "https://www.instagram.com",
-			"linkedin":  "https://www.linkedin.com",
-			"x":         "https://x.com",
-			"tiktok":    "https://www.tiktok.com",
-		}
-		startURL := platformURLs[strings.ToLower(act.TargetPlatform)]
-		if startURL == "" {
-			startURL = "about:blank"
-		}
-		tabID, tabErr := extBridge.CreateTab(startURL)
-		if tabErr == nil {
-			pageIface = extBridge.NewPage(tabID)
-			extTabID = tabID
-		} else {
-			logger.Warn().Err(tabErr).Msg("extension tab creation failed, falling back to Rod")
-		}
+	if !extBridge.IsConnected() {
+		markActionFailed(db, act.ID)
+		return fmt.Errorf("Chrome extension not connected — no browser is launched as a fallback; connect the extension and try again")
 	}
 
-	if pageIface == nil {
-		// Fallback to Rod.
-		browser, page, err := launchBrowserPage(cfg, db, act.TargetPlatform)
-		if err != nil {
-			markActionFailed(db, act.ID)
-			return fmt.Errorf("launching browser: %w", err)
-		}
-		rodBrowser = browser
-		pageIface = browserpkg.NewRodPage(page)
+	platformURLs := map[string]string{
+		"gemini":    "https://gemini.google.com/app",
+		"instagram": "https://www.instagram.com",
+		"linkedin":  "https://www.linkedin.com",
+		"x":         "https://x.com",
+		"tiktok":    "https://www.tiktok.com",
 	}
-	if rodBrowser != nil {
-		defer rodBrowser.Close()
+	startURL := platformURLs[strings.ToLower(act.TargetPlatform)]
+	if startURL == "" {
+		startURL = "about:blank"
 	}
+	tabID, tabErr := extBridge.CreateTab(startURL)
+	if tabErr != nil {
+		markActionFailed(db, act.ID)
+		return fmt.Errorf("creating extension tab: %w", tabErr)
+	}
+	pageIface = extBridge.NewPage(tabID)
+	extTabID = tabID
+
 	if extTabID >= 0 {
 		defer func() {
 			if err := extBridge.CloseTab(extTabID); err != nil {

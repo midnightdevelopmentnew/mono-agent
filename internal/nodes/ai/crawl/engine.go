@@ -12,9 +12,6 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
 )
 
 // ---------------------------------------------------------------------------
@@ -150,24 +147,10 @@ func FetchPage(ctx context.Context, pageURL string, opts FetchOptions) (FetchRes
 	}
 
 	switch opts.RenderMode {
-	case "static":
+	case "static", "auto":
 		return fetchStatic(ctx, pageURL, opts)
 	case "browser":
-		return fetchBrowser(ctx, pageURL, opts)
-	case "auto":
-		res, err := fetchStatic(ctx, pageURL, opts)
-		if err != nil {
-			return FetchResult{}, err
-		}
-		// If visible text is short, retry with browser.
-		if visibleTextLen(res.HTML) < 200 {
-			bRes, bErr := fetchBrowser(ctx, pageURL, opts)
-			if bErr != nil {
-				return FetchResult{}, bErr
-			}
-			return bRes, nil
-		}
-		return res, nil
+		return FetchResult{}, fmt.Errorf("render_mode %q is disabled — no browser is ever launched to fetch pages; use render_mode=static", opts.RenderMode)
 	default:
 		return FetchResult{}, fmt.Errorf("unknown render mode: %s", opts.RenderMode)
 	}
@@ -206,76 +189,6 @@ func fetchStatic(ctx context.Context, pageURL string, opts FetchOptions) (FetchR
 		Mode:     "static",
 		Duration: time.Since(start),
 	}, nil
-}
-
-func fetchBrowser(ctx context.Context, pageURL string, opts FetchOptions) (FetchResult, error) {
-	start := time.Now()
-
-	path, found := launcher.LookPath()
-	if !found {
-		return FetchResult{}, fmt.Errorf("chrome not found")
-	}
-
-	l := launcher.New().Bin(path).Headless(true)
-	u := l.MustLaunch()
-	browser := rod.New().ControlURL(u)
-	if err := browser.Connect(); err != nil {
-		l.Kill()
-		l.Cleanup()
-		return FetchResult{}, fmt.Errorf("connect browser: %w", err)
-	}
-	defer browser.MustClose()
-
-	page, err := browser.Page(proto.TargetCreateTarget{URL: "about:blank"})
-	if err != nil {
-		return FetchResult{}, fmt.Errorf("create page: %w", err)
-	}
-
-	// Navigate with context timeout.
-	navCtx, navCancel := context.WithTimeout(ctx, opts.Timeout)
-	defer navCancel()
-	page = page.Context(navCtx)
-
-	if err := page.Navigate(pageURL); err != nil {
-		return FetchResult{}, fmt.Errorf("navigate: %w", err)
-	}
-	if err := page.WaitStable(500 * time.Millisecond); err != nil {
-		return FetchResult{}, fmt.Errorf("wait stable: %w", err)
-	}
-
-	if opts.WaitSelector != "" {
-		if _, err := page.Element(opts.WaitSelector); err != nil {
-			return FetchResult{}, fmt.Errorf("wait selector %q: %w", opts.WaitSelector, err)
-		}
-	}
-
-	html, err := page.HTML()
-	if err != nil {
-		return FetchResult{}, fmt.Errorf("get html: %w", err)
-	}
-
-	info, err := page.Info()
-	if err != nil {
-		return FetchResult{}, fmt.Errorf("page info: %w", err)
-	}
-
-	return FetchResult{
-		HTML:     html,
-		FinalURL: info.URL,
-		Mode:     "browser",
-		Duration: time.Since(start),
-	}, nil
-}
-
-// visibleTextLen returns the approximate visible text length from raw HTML.
-func visibleTextLen(html string) int {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return 0
-	}
-	doc.Find("script, style, noscript, svg, iframe").Remove()
-	text := strings.TrimSpace(doc.Find("body").Text())
-	return len(text)
 }
 
 // ---------------------------------------------------------------------------

@@ -13,10 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/go-rod/rod"
 	browserpkg "monoagent/internal/browser"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
 	"monoagent/internal/action"
 	cfgpkg "monoagent/internal/config"
 	"monoagent/internal/connections"
@@ -30,7 +27,6 @@ import (
 	"monoagent/internal/noderegistry"
 	"monoagent/internal/nodes"
 	peoplenodes "monoagent/internal/nodes/people"
-	"monoagent/internal/secrets"
 	"monoagent/internal/workflow"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -142,82 +138,6 @@ func resolveCredentialData(ctx context.Context, store *connections.Store, creden
 	return conn.Data, nil
 }
 
-// cliSessionProvider launches a headed browser and restores session cookies from the DB.
-type cliSessionProvider struct {
-	db        *sql.DB
-	profileID string
-	browser   *rod.Browser
-}
-
-func (sp *cliSessionProvider) GetPage(ctx context.Context, platform string, username string) (browserpkg.PageInterface, error) {
-	if sp.browser == nil {
-		// Launch browser with anti-detection flags. Session cookies are restored
-		// from the monoagentcli DB after navigating to the platform domain.
-		l := launcher.New().
-			Headless(false).
-			Set("disable-blink-features", "AutomationControlled")
-
-		launchURL, err := l.Launch()
-		if err != nil {
-			return nil, fmt.Errorf("launch browser: %w", err)
-		}
-		sp.browser = rod.New().ControlURL(launchURL)
-		if err := sp.browser.Connect(); err != nil {
-			return nil, fmt.Errorf("connect browser: %w", err)
-		}
-	}
-
-	// Navigate to the platform domain first, then restore cookies, then reload.
-	// This ensures cookies are set on the correct domain context.
-	platformDomains := map[string]string{
-		"gemini":      "https://gemini.google.com/app",
-		"instagram":   "https://www.instagram.com",
-		"linkedin":    "https://www.linkedin.com",
-		"x":           "https://x.com",
-		"tiktok":      "https://www.tiktok.com",
-		"hackernews":  "https://news.ycombinator.com",
-		"producthunt": "https://www.producthunt.com",
-	}
-	startURL := "about:blank"
-	if domain, ok := platformDomains[strings.ToLower(platform)]; ok {
-		startURL = domain
-	}
-
-	page, err := sp.browser.Page(proto.TargetCreateTarget{URL: startURL})
-	if err != nil {
-		return nil, fmt.Errorf("create page: %w", err)
-	}
-	// Wait for page to partially load (don't use WaitLoad — SPAs may never fully fire it).
-	time.Sleep(5 * time.Second)
-
-	// Restore cookies from DB and reload.
-	if sp.db != nil {
-		var cookiesJSON string
-		qErr := sp.db.QueryRow(
-			"SELECT cookies_json FROM crawler_sessions WHERE platform = ? AND profile_id = ? ORDER BY expiry DESC LIMIT 1",
-			strings.ToLower(platform), sp.profileID,
-		).Scan(&cookiesJSON)
-		if qErr == nil && cookiesJSON != "" {
-			var cookies []*proto.NetworkCookieParam
-			cookieBytes, _ := secrets.DecryptBlob(context.Background(), sp.db, cookiesJSON)
-			if jsonErr := json.Unmarshal(cookieBytes, &cookies); jsonErr == nil {
-				if setErr := page.SetCookies(cookies); setErr == nil {
-					fmt.Fprintf(os.Stderr, "  Session cookies restored for %s (%d cookies)\n", platform, len(cookies))
-					_ = page.Reload()
-					time.Sleep(5 * time.Second)
-				}
-			}
-		}
-	}
-	return browserpkg.NewRodPage(page), nil
-}
-
-func (sp *cliSessionProvider) Close() {
-	if sp.browser != nil {
-		sp.browser.Close()
-	}
-}
-
 const extensionServerAddr = "http://127.0.0.1:9222"
 
 // setupExtensionBridge returns a browser.ExtensionBridge for talking to the
@@ -225,8 +145,8 @@ const extensionServerAddr = "http://127.0.0.1:9222"
 // daemon) already owns the extension connection, it relays through that
 // process's server instead of starting a second one — starting a second
 // server would just fail to bind the fixed extension port and silently
-// degrade to the Rod/Chromium fallback even though a perfectly good
-// extension connection already exists elsewhere.
+// leave IsConnected() reporting false, since there is no Rod/Chromium
+// fallback to degrade to.
 func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration) browserpkg.ExtensionBridge {
 	if extension.Probe(extensionServerAddr) {
 		fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (shared with another monoagentcli process)")
@@ -240,7 +160,7 @@ func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration
 	if extServer.IsConnected() {
 		fmt.Fprintln(os.Stderr, "  ✓ Chrome extension connected -- using your browser")
 	} else {
-		fmt.Fprintln(os.Stderr, "  Chrome extension not connected -- using Chromium with cookie restore")
+		fmt.Fprintln(os.Stderr, "  Chrome extension not connected -- no browser will be launched as a fallback")
 	}
 	return &extension.ServerBridge{Server: extServer}
 }
@@ -556,10 +476,8 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 
 			// Set up browser session provider, bot registry, and config manager for social/browser nodes.
 			if isBrowserNodeType(nodeType) {
-				sp := &cliSessionProvider{db: rawDB, profileID: cfg.ProfileID}
-
-				// Use the Chrome extension first, sharing another local
-				// process's connection when one already exists.
+				// Chrome extension only — no Rod/Chromium fallback, sharing
+				// another local process's connection when one already exists.
 				extLogger := zerolog.New(os.Stderr).With().Timestamp().Str("component", "extension").Logger()
 				if !cfg.Verbose {
 					extLogger = extLogger.Level(zerolog.WarnLevel)
@@ -567,9 +485,8 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				extBridge := setupExtensionBridge(extLogger, 30*time.Second)
 
 				hybridProvider := &browserpkg.HybridSessionProvider{
-					ExtBridge:   extBridge,
-					RodProvider: sp,
-					Logger:      extLogger,
+					ExtBridge: extBridge,
+					Logger:    extLogger,
 				}
 				defer hybridProvider.Close()
 				nodes.SetGlobalSessionProvider(hybridProvider)
