@@ -25,6 +25,7 @@ func newPeopleMessagesCmd(cfg *globalConfig) *cobra.Command {
 	cmd.AddCommand(
 		newPeopleMessagesAddCmd(cfg),
 		newPeopleMessagesListCmd(cfg),
+		newPeopleMessagesShowCmd(cfg),
 		newPeopleMessagesImportCmd(cfg),
 		newPeopleMessagesAllCmd(cfg),
 		newPeopleMessagesComposeCmd(cfg),
@@ -72,7 +73,7 @@ func newPeopleMessagesAllCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"ID", "From", "Source", "Direction", "Subject", "Sent At"})
+			table.SetHeader([]string{"ID", "From", "Source", "Direction", "Subject", "Files", "Sent At"})
 			table.SetBorder(false)
 			table.SetAutoWrapText(false)
 
@@ -89,13 +90,18 @@ func newPeopleMessagesAllCmd(cfg *globalConfig) *cobra.Command {
 				if !m.SentAt.IsZero() {
 					sentAt = m.SentAt.Format("2006-01-02 15:04:05")
 				}
+				files := ""
+				if n := len(parseMessageMetadata(m.Metadata).Attachments); n > 0 {
+					files = fmt.Sprintf("%d", n)
+				}
 				table.Append([]string{
 					shortID, truncateStr(from, 24), m.Source, m.Direction,
-					truncateStr(m.Subject, 40), sentAt,
+					truncateStr(m.Subject, 40), files, sentAt,
 				})
 			}
 			table.Render()
 			fmt.Fprintf(os.Stderr, "\nTotal: %d message(s)\n", len(messages))
+			fmt.Fprintf(os.Stderr, "Full text, source details, and attachment paths: monoagentcli people messages show <id>\n")
 			return nil
 		},
 	}
@@ -175,6 +181,145 @@ func newPeopleMessagesAddCmd(cfg *globalConfig) *cobra.Command {
 	return cmd
 }
 
+// messageMetadata is the decoded person_messages.metadata blob: where the
+// message came from and which files arrived with it.
+type messageMetadata struct {
+	Source struct {
+		Source     string `json:"source"`
+		Via        string `json:"via"`
+		Account    string `json:"account"`
+		Folder     string `json:"folder"`
+		ExternalID string `json:"external_id"`
+		WebLink    string `json:"web_link"`
+		FetchedAt  string `json:"fetched_at"`
+	} `json:"_source"`
+	Attachments []struct {
+		Filename    string `json:"filename"`
+		Path        string `json:"path"`
+		ContentType string `json:"content_type"`
+		SizeBytes   int64  `json:"size_bytes"`
+		Note        string `json:"note"`
+		Error       string `json:"error"`
+	} `json:"attachments"`
+	AttachmentError string `json:"attachment_error"`
+}
+
+// parseMessageMetadata decodes a message's metadata blob. Messages stored
+// before provenance was recorded (or by a source that writes its own shape)
+// simply yield empty fields rather than an error.
+func parseMessageMetadata(raw string) messageMetadata {
+	var md messageMetadata
+	if raw == "" {
+		return md
+	}
+	_ = json.Unmarshal([]byte(raw), &md)
+	return md
+}
+
+// newPeopleMessagesShowCmd prints one message in full, together with its
+// provenance and the on-disk path of every attachment — everything a reader
+// (human or agent) needs to judge the message and open what came with it.
+func newPeopleMessagesShowCmd(cfg *globalConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <message-id>",
+		Short: "Show one message in full, with its source and attachment file paths",
+		Long: "Print a single message: subject, sender, body, where it came from (system, account, " +
+			"folder, link to the original) and the local path of every attachment.\n\n" +
+			"Attachment paths are real files — read them directly to see what was attached.",
+		Args: cobra.ExactArgs(1),
+		Example: `  monoagentcli people messages show 3f2a91c0
+  monoagentcli --json people messages show 3f2a91c0`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+
+			if err := assertMessageInProfile(db.DB, args[0], cfg.ProfileID); err != nil {
+				return err
+			}
+			msg, err := db.GetPersonMessage(args[0])
+			if err != nil {
+				return fmt.Errorf("loading message: %w", err)
+			}
+			if msg == nil {
+				return fmt.Errorf("message %s not found", args[0])
+			}
+
+			if cfg.JSONOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(msg)
+			}
+
+			md := parseMessageMetadata(msg.Metadata)
+			sentAt := ""
+			if !msg.SentAt.IsZero() {
+				sentAt = msg.SentAt.Format("2006-01-02 15:04:05")
+			}
+
+			fmt.Printf("Subject:   %s\n", msg.Subject)
+			fmt.Printf("From:      %s\n", msg.Sender)
+			fmt.Printf("Direction: %s\n", msg.Direction)
+			if sentAt != "" {
+				fmt.Printf("Sent:      %s\n", sentAt)
+			}
+
+			// Provenance — always shown, so a reader is never left guessing
+			// which system a message came from or how it got here.
+			fmt.Printf("\nSOURCE\n")
+			src := md.Source.Source
+			if src == "" {
+				src = msg.Source
+			}
+			fmt.Printf("  system:      %s\n", src)
+			if md.Source.Via != "" {
+				fmt.Printf("  synced via:  %s\n", md.Source.Via)
+			}
+			if md.Source.Account != "" {
+				fmt.Printf("  account:     %s\n", md.Source.Account)
+			}
+			if md.Source.Folder != "" {
+				fmt.Printf("  folder:      %s\n", md.Source.Folder)
+			}
+			externalID := md.Source.ExternalID
+			if externalID == "" {
+				externalID = msg.ExternalID
+			}
+			if externalID != "" {
+				fmt.Printf("  id there:    %s\n", externalID)
+			}
+			if md.Source.WebLink != "" {
+				fmt.Printf("  open it:     %s\n", md.Source.WebLink)
+			}
+			if md.Source.FetchedAt != "" {
+				fmt.Printf("  synced at:   %s\n", md.Source.FetchedAt)
+			}
+
+			if len(md.Attachments) > 0 {
+				fmt.Printf("\nATTACHMENTS (%d) — read these paths directly\n", len(md.Attachments))
+				for _, a := range md.Attachments {
+					switch {
+					case a.Path != "":
+						fmt.Printf("  %s  (%s, %d bytes)\n      %s\n", a.Filename, a.ContentType, a.SizeBytes, a.Path)
+					case a.Error != "":
+						fmt.Printf("  %s  — not downloaded: %s\n", a.Filename, a.Error)
+					default:
+						fmt.Printf("  %s  — %s\n", a.Filename, a.Note)
+					}
+				}
+			}
+			if md.AttachmentError != "" {
+				fmt.Printf("\nAttachments could not be fetched: %s\n", md.AttachmentError)
+			}
+
+			fmt.Printf("\nBODY\n%s\n", msg.Body)
+			return nil
+		},
+	}
+}
+
 func newPeopleMessagesListCmd(cfg *globalConfig) *cobra.Command {
 	var (
 		source string
@@ -211,7 +356,7 @@ func newPeopleMessagesListCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			table := tablewriter.NewWriter(os.Stdout)
-			table.SetHeader([]string{"ID", "Source", "Direction", "Sender", "Subject", "Sent At"})
+			table.SetHeader([]string{"ID", "Source", "Direction", "Sender", "Subject", "Files", "Sent At"})
 			table.SetBorder(false)
 			table.SetAutoWrapText(false)
 
@@ -224,13 +369,18 @@ func newPeopleMessagesListCmd(cfg *globalConfig) *cobra.Command {
 				if !m.SentAt.IsZero() {
 					sentAt = m.SentAt.Format("2006-01-02 15:04:05")
 				}
+				files := ""
+				if n := len(parseMessageMetadata(m.Metadata).Attachments); n > 0 {
+					files = fmt.Sprintf("%d", n)
+				}
 				table.Append([]string{
 					shortID, m.Source, m.Direction,
-					truncateStr(m.Sender, 20), truncateStr(m.Subject, 30), sentAt,
+					truncateStr(m.Sender, 20), truncateStr(m.Subject, 30), files, sentAt,
 				})
 			}
 			table.Render()
 			fmt.Fprintf(os.Stderr, "\nTotal: %d message(s)\n", len(messages))
+			fmt.Fprintf(os.Stderr, "Full text, source details, and attachment paths: monoagentcli people messages show <id>\n")
 			return nil
 		},
 	}

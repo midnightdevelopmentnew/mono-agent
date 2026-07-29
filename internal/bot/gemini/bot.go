@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"net/url"
@@ -18,7 +19,13 @@ import (
 )
 
 // GeminiBot implements botpkg.BotAdapter for Google Gemini.
-type GeminiBot struct{}
+type GeminiBot struct {
+	// downloadedImages holds the content hashes of images this bot has already
+	// downloaded. Image extraction reads every image in the open conversation,
+	// so in a continued session (several prompts in one chat) each extraction
+	// would otherwise re-download and re-vault every earlier turn's image.
+	downloadedImages map[string]bool
+}
 
 func init() {
 	botpkg.PlatformRegistry["GEMINI"] = func() botpkg.BotAdapter {
@@ -1060,6 +1067,20 @@ func (b *GeminiBot) methodUploadImage(_ context.Context, args ...interface{}) (i
 	return nil, fmt.Errorf("upload_image: could not find file input after opening upload menu")
 }
 
+// alreadyDownloaded reports whether these exact image bytes were downloaded
+// earlier by this bot, recording them if not.
+func (b *GeminiBot) alreadyDownloaded(data []byte) bool {
+	key := fmt.Sprintf("%x", sha256.Sum256(data))
+	if b.downloadedImages[key] {
+		return true
+	}
+	if b.downloadedImages == nil {
+		b.downloadedImages = make(map[string]bool)
+	}
+	b.downloadedImages[key] = true
+	return false
+}
+
 // methodExtractAndDownloadImages combines image extraction + download in one step.
 // Uses the content script FetchImageBase64 on extension path, Eval on Rod path.
 func (b *GeminiBot) methodExtractAndDownloadImages(ctx context.Context, args ...interface{}) (interface{}, error) {
@@ -1099,6 +1120,9 @@ func (b *GeminiBot) methodExtractAndDownloadImages(ctx context.Context, args ...
 				continue
 			}
 			if len(decoded) < 100 {
+				continue
+			}
+			if b.alreadyDownloaded(decoded) {
 				continue
 			}
 			filename := fmt.Sprintf("gemini_%d_%d.png", timestamp, i)

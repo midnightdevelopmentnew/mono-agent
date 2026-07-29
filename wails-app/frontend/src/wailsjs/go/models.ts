@@ -1310,6 +1310,7 @@ export namespace workflow {
 	    id: string;
 	    name: string;
 	    description: string;
+	    inputs: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Template(source);
@@ -1320,6 +1321,7 @@ export namespace workflow {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.description = source["description"];
+	        this.inputs = source["inputs"];
 	    }
 	}
 

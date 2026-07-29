@@ -155,9 +155,17 @@ func NewWorkflowEngine(db *sql.DB, scheduler SchedulerInterface, registry *NodeT
 func (e *WorkflowEngine) Start(ctx context.Context) error {
 	e.ctx, e.cancel = context.WithCancel(ctx)
 
-	// 1. Start webhook server.
+	// 1. Start webhook server. The webhook port is a single fixed port shared by
+	// every monoagent process, so a second engine (a CLI run started while the
+	// daemon or the app is up) can never bind it. That must not stop the engine:
+	// webhook deliveries are already being served by whoever owns the port, and
+	// everything else — manual runs, schedules, node execution — is unaffected.
 	if err := e.webhookServer.Start(); err != nil {
-		return fmt.Errorf("engine: start webhook server: %w", err)
+		if !isAddrInUse(err) {
+			return fmt.Errorf("engine: start webhook server: %w", err)
+		}
+		e.logger.Warn().Err(err).
+			Msg("engine: webhook port already in use by another monoagent process — this engine will not serve webhooks, everything else runs normally")
 	}
 
 	// 2. Start queue workers.

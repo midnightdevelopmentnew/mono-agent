@@ -33,6 +33,18 @@ func newRootCmd() *cobra.Command {
 		Short: "Multi-platform social media automation agent",
 		Long: `Mono Agent — automate keyword search, profile discovery, bulk messaging, content publishing, and more across Instagram, LinkedIn, X, TikTok, Telegram, and Email.
 
+START HERE — what can this already do?
+
+  monoagentcli workflow search [query]      Everything runnable: bundled
+                                            templates + saved workflows, each
+                                            with the command that runs it
+  monoagentcli workflow templates show <id> Inputs, nodes, and exact run command
+  monoagentcli ref templates                Guide to the bundled templates
+
+All state (workflows, logins, generated images) lives in ~/.monoagent/, so every
+command works from any directory — there is nothing to set up per project. Add
+--json to the discovery commands above for machine-readable output.
+
 AI agents: run 'monoagentcli ref' for built-in, offline documentation
 covering every command and workflow node type in depth — including
 'monoagentcli ref connections' for the profile/OAuth/credential model

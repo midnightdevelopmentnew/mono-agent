@@ -27,3 +27,19 @@ func TestGeminiSendMessageUnsupported(t *testing.T) {
 		t.Error("SendMessage should return an error (unsupported)")
 	}
 }
+
+func TestAlreadyDownloaded(t *testing.T) {
+	b := &GeminiBot{}
+	imgA := []byte("first image bytes")
+	imgB := []byte("second image bytes")
+
+	if b.alreadyDownloaded(imgA) {
+		t.Fatal("first sighting of an image reported as already downloaded")
+	}
+	if !b.alreadyDownloaded(imgA) {
+		t.Error("re-extracting the same image was not detected as a duplicate")
+	}
+	if b.alreadyDownloaded(imgB) {
+		t.Error("a different image was reported as a duplicate")
+	}
+}

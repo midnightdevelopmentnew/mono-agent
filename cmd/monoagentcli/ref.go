@@ -6,6 +6,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"monoagent/internal/workflow"
+
 	"github.com/spf13/cobra"
 )
 
@@ -691,6 +693,17 @@ distinct read from inbox and must be set up as its own node if you want both
 (see the people.sync_outlook_message entry and the bundled
 "outlook_email_sync" workflow template for the two-branch pattern).
 
+ATTACHMENTS: list_messages and get_message download every attachment on each
+message by default and write it to ~/.monoagent/attachments/<message>/<file>.
+Each item gains "attachments" — one entry per file with filename, content_type,
+size_bytes and "path" (the local file, readable directly). Set
+"download_attachments": false to skip the extra Graph requests and disk writes.
+
+PROVENANCE: every fetched message also carries a "_source" block — source,
+via, folder, external_id, web_link (opens the original in Outlook) and
+fetched_at — so a downstream reader can always say where the message came
+from. people.sync_outlook_message persists it alongside the message.
+
 Finding a specific email: don't page through max_results blindly. Use
 "search" (full-text over subject/body/sender, or field-scoped like
 "from:someone@x.com" or "subject:invoice") or "from_address" (exact sender
@@ -847,6 +860,35 @@ Setup (one-time): run  monoagentcli login gemini  and log in with your Google ac
 		Inputs:  "item with prompt (plus optional session_id, mode, referenceImagePath)",
 		Outputs: "session_id, response_text (text mode) | session_id, images, image_count (image mode)",
 		Notes:   "Save the session_id from each run and pass it back as input to maintain conversation context across multiple CLI calls or workflow executions.",
+	},
+	{
+		Type:     "gemini.chat_session_many",
+		Category: "gemini",
+		Short:    "Send a LIST of prompts to one Gemini session, in order",
+		Description: `NO API KEY REQUIRED. Same as chat_session, but takes an array of prompts and
+sends them one after another inside a single chat, so every answer/image shares
+the same context — characters, style and look stay consistent across the batch.
+
+The number of prompts is not fixed: the node loops over however many the array
+holds. Prefer this over chaining N chat_session nodes.
+
+In image mode each generated image is downloaded and registered in the image
+vault as it is produced.
+
+Setup (one-time): run  monoagentcli login gemini  and log in with your Google account.`,
+		Config: `{
+  "prompts": ["a wizard in a blue robe", "the same wizard riding a red dragon"],
+  "mode":    "image"
+}
+
+// When the array comes from trigger data, wrap it in the json function so it
+// stays an array rather than being stringified:
+//   "prompts": "{{ json $json.prompts }}"
+
+// Full options: prompts, session_id, mode, maxWaitSeconds, downloadDir`,
+		Inputs:  "item with prompts array (plus optional session_id, mode)",
+		Outputs: "session_id, and the last iteration's response_text / images (every image is vaulted as it is generated)",
+		Notes:   "This is what the bundled 'gemimgmany' template uses: monoagentcli workflow templates run gemimgmany --input '{\"prompts\":[...]}'",
 	},
 	{
 		Type:     "gemini.generate_image",
@@ -1364,8 +1406,12 @@ workflow's profile (monoagentcli profile list to find the ID).`,
 
 // Outbound (sent mail) — recipient(s) become the person
 { "source": "outlook", "direction": "outbound", "profile_id": "680bc228-81c9-40e6-aedc-52b6fdb261e0" }`,
-		Inputs:  "items from service.outlook_mail's list_messages output (id, subject, from, toRecipients, body/bodyPreview, receivedDateTime)",
+		Inputs:  "items from service.outlook_mail's list_messages output (id, subject, from, toRecipients, body/bodyPreview, receivedDateTime, plus its _source and attachments)",
 		Outputs: "one item per synced person/message: {person_id, email, message_id}",
+		Notes: "Stores each message's provenance (_source: system, account, folder, id there, web link, " +
+			"synced at) and its attachment records (filename + local path) in person_messages.metadata. " +
+			"Read them back with `monoagentcli people messages show <message-id>` — attachment paths are " +
+			"real files you can open.",
 	},
 }
 
@@ -1478,9 +1524,16 @@ var cliDocs = []cmdDoc{
   export <list-id>                  Export list to file
   remove <id>                       Remove a person
   messages add <person-id>          Record a single message/interaction
-  messages list <person-id>         List a person's messages
+  messages list <person-id>         List a person's messages (Files column = attachment count)
+  messages show <message-id>        Full text + where it came from + attachment file paths
   messages import <person-id>       Bulk-import messages from a JSON file
   messages all                      Unified communications feed across everyone
+
+Reading a synced message: 'messages show' prints the body, a SOURCE block
+(which system, which account, which folder, its id there, a link to the
+original, when it synced) and the local path of every attachment. Those paths
+are ordinary files — open them to see what was attached. Synced attachments
+live under ~/.monoagent/attachments/<message>/.
   messages compose <person-id>      Send/draft an email to a person (recorded on their history)
   messages drafts                   List draft messages awaiting confirmation
   messages send-draft <msg-id>      Send a previously-created draft
@@ -1489,6 +1542,7 @@ var cliDocs = []cmdDoc{
 			"monoagentcli people list",
 			"monoagentcli people import leads.csv",
 			"monoagentcli people messages all --source outlook --limit 50",
+			"monoagentcli people messages show <message-id>   # body + source + attachment paths",
 			`monoagentcli people messages compose <person-id> --connection outlook --subject "Hi" --body "..." --draft`,
 			"monoagentcli people messages drafts --json",
 			"monoagentcli people messages send-draft <message-id>",
@@ -1577,11 +1631,24 @@ var cliDocs = []cmdDoc{
   connect <wf-id>             Connect two nodes (--from, --to)
   disconnect <wf-id> <conn>   Remove a connection
   migrate                     One-time migration helper for legacy workflow formats
+  search [query]              Find anything runnable — templates AND saved
+                              workflows — with the command to run each (--json)
   templates list              List bundled, ready-to-use workflow templates
-  templates use <id>          Instantiate a template as a new, editable workflow`,
+  templates show <id>         A template's inputs, nodes, and exact run command
+  templates use <id>          Instantiate a template as a new, editable workflow
+  templates run <id>          Run a template once as a throwaway workflow (--input, --keep)
+
+'templates run' is the way to run a template ad hoc from anywhere: it needs no
+saved workflow, no activation step, and each invocation gets its own fresh copy
+— so the same template can run several times side by side (e.g. several image
+generations at once) without the runs interfering.`,
 		Examples: []string{
-			"monoagentcli workflow templates list",
+			"monoagentcli workflow search image        # what can this already do?",
+			"monoagentcli --json workflow search       # same, machine-readable",
+			"monoagentcli workflow templates show gemimgmany",
 			"monoagentcli workflow templates use outlook_email_sync",
+			`monoagentcli workflow templates run gemimg --input '{"prompt":"a red bicycle"}'`,
+			`monoagentcli workflow templates run gemimgmany --input '{"prompts":["a wizard","the same wizard on a dragon","the same wizard in a library"]}'`,
 			"monoagentcli workflow list",
 			"monoagentcli workflow run german-news-persian-instagram-v1 --verbose",
 			"monoagentcli workflow get my-workflow",
@@ -1698,6 +1765,7 @@ func newRefCmd() *cobra.Command {
 		Long: `Browse comprehensive offline documentation for monoagentcli.
 
 Subcommands:
+  templates             Bundled ready-to-run workflows and how to run them
   commands              All CLI commands with flags and examples
   nodes                 All node types grouped by category
   node <type>           Detailed docs for a specific node type
@@ -1711,6 +1779,7 @@ Subcommands:
 			fmt.Println()
 			fmt.Println("Subcommands:")
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+			fmt.Fprintln(w, "  templates\tBundled ready-to-run workflows and how to run them")
 			fmt.Fprintln(w, "  commands\tAll CLI commands with flags and examples")
 			fmt.Fprintln(w, "  nodes\tAll node types grouped by category")
 			fmt.Fprintln(w, "  node <type>\tDetailed docs for a specific node type")
@@ -1721,6 +1790,7 @@ Subcommands:
 			fmt.Fprintln(w, "  crawling\tHow to scrape/automate new platforms with Claude Code")
 			w.Flush()
 			fmt.Println()
+			fmt.Println("Example:  monoagentcli ref templates")
 			fmt.Println("Example:  monoagentcli ref crawling")
 			fmt.Println("Example:  monoagentcli ref connections")
 			fmt.Println("Example:  monoagentcli ref node gemini.generate_text")
@@ -1729,6 +1799,7 @@ Subcommands:
 	}
 
 	root.AddCommand(
+		refTemplatesCmd(),
 		refCommandsCmd(),
 		refNodesCmd(),
 		refNodeCmd(),
@@ -1873,7 +1944,8 @@ func refWorkflowCmd() *cobra.Command {
 
 BEFORE HAND-BUILDING ONE — CHECK FOR A BUNDLED TEMPLATE FIRST
   monoagentcli workflow templates list
-  monoagentcli workflow templates use <id>
+  monoagentcli workflow templates run <id> --input '{...}'   # one-off, nothing saved
+  monoagentcli workflow templates use <id>                   # save an editable copy
 
 Instantiates a ready-made, pre-wired workflow (fresh node/connection IDs,
 correct config shape) for the active profile in one command — starts
@@ -2185,6 +2257,83 @@ Full guide:  monoagentcli ref crawling
   Extension port conflict
     → only one monoagentcli process at a time (CLI and Wails share port 9222)
 
+`)
+		},
+	}
+}
+
+// refTemplatesCmd documents the bundled templates. The per-template section is
+// generated from the templates themselves, so it can never drift from what is
+// actually bundled in this binary.
+func refTemplatesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "templates",
+		Short: "Bundled workflow templates — what ships ready to run, and how to run it",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Print(`
+╔══════════════════════════════════════════════════════════════╗
+║           monoagentcli — bundled workflow templates                ║
+╚══════════════════════════════════════════════════════════════╝
+
+A template is a ready-made, pre-wired workflow shipped inside this binary.
+Running one needs no setup, no saved workflow, and no activation step.
+
+DISCOVERY (start here — works from any directory)
+  monoagentcli workflow search [query]        templates + saved workflows
+  monoagentcli workflow templates list        just the bundled templates
+  monoagentcli workflow templates show <id>   inputs, nodes, exact run command
+  Add --json to any of these for machine-readable output.
+
+RUN ONE
+  monoagentcli workflow templates run <id> --input '<json object>'
+
+  The run is a throwaway: the template is instantiated with fresh IDs, executed,
+  and deleted. Nothing is saved. --keep leaves the copy behind for editing.
+
+  Each run is an independent copy, so SEVERAL RUNS CAN PROCEED AT ONCE — launch
+  them in parallel when you want multiple independent results.
+
+  --input keys are the trigger data. They appear in node configs as
+  {{ $json.<key> }}; 'templates show' lists them under INPUT KEYS.
+
+SAVE AN EDITABLE COPY INSTEAD
+  monoagentcli workflow templates use <id>    then: workflow node set / activate
+
+WHAT IS BUNDLED IN THIS BINARY
+`)
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "  ID\tINPUT KEYS\tNAME")
+			for _, t := range workflow.ListTemplates() {
+				fmt.Fprintf(w, "  %s\t%s\t%s\n", t.ID, inputKeyList(t.Inputs), t.Name)
+			}
+			w.Flush()
+
+			fmt.Print(`
+IMAGE GENERATION (no API key — drives the user's logged-in Gemini session)
+  One image:
+    monoagentcli workflow templates run gemimg --input '{"prompt":"a red bicycle"}'
+
+  Several images that must match each other (same character/style/scene), any
+  number of prompts, generated in ONE continued chat so context carries over:
+    monoagentcli workflow templates run gemimgmany --input '{"prompts":[
+      "a wizard in a blue robe casting a fire spell",
+      "the same wizard riding a red dragon"]}'
+
+  Unrelated images? Run gemimg several times in parallel instead.
+  Output lands in ~/.monoagent/vault/img-NNN.png (also ~/.monoagent/downloads/).
+  Needs a one-time: monoagentcli login gemini
+
+EXPECTED NOISE, NOT FAILURES
+  "webhook port already in use by another monoagent process" — another monoagent
+  process (daemon or app) owns the shared port; it serves webhooks, this run does
+  everything else normally.
+  "Reusing existing extension connection" — the browser is shared with that
+  process. This is the healthy path.
+
+NO TEMPLATE FITS?
+  monoagentcli ref nodes          every node type available
+  monoagentcli ref workflow       how to build a workflow by hand
+  monoagentcli ref crawling       automate a site with no built-in node
 `)
 		},
 	}

@@ -2,6 +2,7 @@ package peoplenodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -65,6 +66,18 @@ func (n *SyncOutlookMessageNode) Execute(
 			}
 		}
 
+		// Provenance travels with the item from the node that fetched it, so
+		// the answer to "where did this come from?" is recorded rather than
+		// reconstructed. Fall back to a minimal block for items produced by an
+		// older node version or hand-built input.
+		provenance, _ := data["_source"].(map[string]interface{})
+		if provenance == nil {
+			provenance = map[string]interface{}{"source": source}
+		}
+		if _, ok := provenance["external_id"]; !ok {
+			provenance["external_id"] = messageID
+		}
+
 		var counterparts []map[string]interface{}
 		var fromAddr string
 		if direction == "outbound" {
@@ -86,6 +99,39 @@ func (n *SyncOutlookMessageNode) Execute(
 			if ea, ok := fromObj["emailAddress"].(map[string]interface{}); ok {
 				counterparts = append(counterparts, ea)
 			}
+		}
+
+		// The synced mailbox — the account this message was read from. On a
+		// sent-mail sync that is the sender; on an inbox sync it is whoever the
+		// mail was addressed to.
+		if _, ok := provenance["account"]; !ok {
+			account := fromAddr
+			if direction != "outbound" {
+				if toRecipients, _ := data["toRecipients"].([]interface{}); len(toRecipients) > 0 {
+					if rm, ok := toRecipients[0].(map[string]interface{}); ok {
+						if ea, ok := rm["emailAddress"].(map[string]interface{}); ok {
+							account, _ = ea["address"].(string)
+						}
+					}
+				}
+			}
+			if account != "" {
+				provenance["account"] = account
+			}
+		}
+
+		metadata := map[string]interface{}{"_source": provenance}
+		if atts, ok := data["attachments"].([]interface{}); ok && len(atts) > 0 {
+			metadata["attachments"] = atts
+		} else if atts, ok := data["attachments"].([]map[string]interface{}); ok && len(atts) > 0 {
+			metadata["attachments"] = atts
+		}
+		if attErr, ok := data["attachment_error"].(string); ok && attErr != "" {
+			metadata["attachment_error"] = attErr
+		}
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			return nil, fmt.Errorf("people.sync_outlook_message: encode metadata: %w", err)
 		}
 
 		for _, ea := range counterparts {
@@ -126,6 +172,7 @@ func (n *SyncOutlookMessageNode) Execute(
 				Sender:     sender,
 				Subject:    subject,
 				Body:       body,
+				Metadata:   string(metadataJSON),
 				SentAt:     sentAt,
 			}
 			if err := db.UpsertPersonMessage(msg, profileID); err != nil {

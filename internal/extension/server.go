@@ -131,13 +131,21 @@ func (s *Server) Start(ctx context.Context) error {
 	return err
 }
 
-// StartAsync starts the server in a background goroutine.
-func (s *Server) StartAsync(ctx context.Context) {
+// StartAsync starts the server in a background goroutine. The returned channel
+// receives the Start error (most commonly "address already in use" when another
+// process — the daemon, the GUI, or a second CLI invocation — already owns the
+// extension port) so callers can fall back to relaying through that process
+// instead of waiting on a server that never came up.
+func (s *Server) StartAsync(ctx context.Context) <-chan error {
+	errCh := make(chan error, 1)
 	go func() {
 		if err := s.Start(ctx); err != nil {
 			s.logger.Error().Err(err).Msg("extension server error")
+			errCh <- err
 		}
+		close(errCh)
 	}()
+	return errCh
 }
 
 // WaitForConnection blocks until the Chrome extension connects or the timeout

@@ -1,0 +1,222 @@
+{
+  "actionType": "chat_session_many",
+  "platform": "GEMINI",
+  "version": "1.0.0",
+  "description": "Send a list of prompts to ONE Gemini session, one after another, so characters/style stay consistent across every answer. Resumes an existing session via session_id, or starts a new one. Any number of prompts — the loop length is the length of the prompts array.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "prompts", "type": "array", "description": "Prompts to send in order, within a single chat session" }
+    ],
+    "optional": [
+      { "name": "session_id", "type": "string", "description": "Existing session ID to continue (omit to start new chat)" },
+      { "name": "mode", "type": "string", "default": "text", "description": "Response mode: 'text' or 'image'" },
+      { "name": "maxWaitSeconds", "type": "number", "default": 90, "min": 10, "max": 300, "description": "Max seconds to wait for each response" },
+      { "name": "downloadDir", "type": "string", "description": "Directory to save downloaded images (image mode only)" }
+    ]
+  },
+  "outputs": {
+    "success": ["session_id", "response_text", "images", "image_count"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate",
+      "type": "navigate",
+      "url": "https://gemini.google.com/app",
+      "timeout": 15
+    },
+    {
+      "id": "wait_page_load",
+      "type": "wait",
+      "duration": "4",
+      "timeout": 8,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "resume_session",
+      "type": "call_bot_method",
+      "methodName": "navigate_to_session",
+      "args": ["{{session_id}}"],
+      "variable_name": "sessionNav",
+      "timeout": 15,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "capture_initial_session_id",
+      "type": "call_bot_method",
+      "methodName": "get_session_id",
+      "variable_name": "sessionData",
+      "timeout": 5,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "t1_find_input",
+      "type": "call_bot_method",
+      "methodName": "find_prompt_input",
+      "variable_name": "promptInput",
+      "timeout": 15,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_t1_input",
+      "type": "condition",
+      "condition": { "variable": "promptInput", "operator": "not_exists" },
+      "then": ["t2_find_input", "check_t2_input"]
+    },
+    {
+      "id": "t2_find_input",
+      "type": "find_element",
+      "selector": "div.ql-editor[contenteditable='true']",
+      "alternatives": ["[role='textbox'][aria-label*='prompt' i]", "rich-textarea .ql-editor"],
+      "variable_name": "promptInput",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_t2_input",
+      "type": "condition",
+      "condition": { "variable": "promptInput", "operator": "not_exists" },
+      "then": ["t3_find_input"]
+    },
+    {
+      "id": "t3_find_input",
+      "type": "find_element",
+      "configKey": "GEMINI_CHAT_SESSION.prompt_input",
+      "variable_name": "promptInput",
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "t1_type_prompt",
+      "type": "call_bot_method",
+      "methodName": "type_prompt",
+      "args": ["{{item}}"],
+      "variable_name": "typeResult",
+      "timeout": 15,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_t1_type",
+      "type": "condition",
+      "condition": { "variable": "typeResult", "operator": "not_exists" },
+      "then": ["t2_type_prompt"]
+    },
+    {
+      "id": "t2_type_prompt",
+      "type": "type_text",
+      "target": "{{promptInput}}",
+      "text": "{{item}}",
+      "humanize": true,
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "t1_click_send",
+      "type": "call_bot_method",
+      "methodName": "click_send",
+      "variable_name": "sendResult",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_t1_send",
+      "type": "condition",
+      "condition": { "variable": "sendResult", "operator": "not_exists" },
+      "then": ["t2_click_send", "check_t2_send"]
+    },
+    {
+      "id": "t2_click_send",
+      "type": "find_element",
+      "selector": "button.send-button",
+      "alternatives": ["button[aria-label='Send message']", "button[aria-label*='Send' i]"],
+      "action": "click",
+      "variable_name": "sendResult",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_t2_send",
+      "type": "condition",
+      "condition": { "variable": "sendResult", "operator": "not_exists" },
+      "then": ["t3_click_send"]
+    },
+    {
+      "id": "t3_click_send",
+      "type": "find_element",
+      "configKey": "GEMINI_CHAT_SESSION.send_button",
+      "action": "click",
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_for_response",
+      "type": "call_bot_method",
+      "methodName": "wait_for_any_response",
+      "args": ["{{mode or text}}", "{{maxWaitSeconds or 90}}"],
+      "variable_name": "responseReady",
+      "timeout": 300,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_response",
+      "type": "call_bot_method",
+      "methodName": "extract_response_by_mode",
+      "args": ["{{mode or text}}", "{{downloadDir}}"],
+      "variable_name": "extractResult",
+      "timeout": 30,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "capture_final_session_id",
+      "type": "call_bot_method",
+      "methodName": "get_session_id",
+      "variable_name": "sessionData",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "reset_send_result",
+      "type": "set_variable",
+      "variable": "sendResult",
+      "value": null,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "reset_type_result",
+      "type": "set_variable",
+      "variable": "typeResult",
+      "value": null,
+      "onError": { "action": "skip" }
+    }
+  ],
+  "loops": [
+    {
+      "id": "prompts_loop",
+      "iterator": "prompts",
+      "indexVar": "promptIndex",
+      "steps": [
+        "t1_find_input",
+        "check_t1_input",
+        "t1_type_prompt",
+        "check_t1_type",
+        "t1_click_send",
+        "check_t1_send",
+        "wait_for_response",
+        "extract_response",
+        "capture_final_session_id",
+        "reset_send_result",
+        "reset_type_result"
+      ]
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 1,
+    "retryDelay": 3000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

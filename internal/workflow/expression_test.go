@@ -282,3 +282,25 @@ func TestExpressionResolveItem(t *testing.T) {
 		t.Errorf("count: got %v, want 7", resolved.JSON["count"])
 	}
 }
+
+// The gemimgmany template passes a whole array from the trigger into a node
+// config ("prompts": "{{ json $json.prompts }}"). Plain {{ $json.prompts }}
+// would render Go's fmt form ("[a b]"), which is not parseable, so the node
+// would receive a string instead of a list.
+func TestExpressionResolveConfig_ArrayStaysArray(t *testing.T) {
+	engine := NewExpressionEngine()
+	ctx := ExpressionContext{
+		JSON: map[string]interface{}{"prompts": []interface{}{"a wizard", "the same wizard on a dragon"}},
+	}
+	got, err := engine.ResolveConfig(map[string]interface{}{"prompts": `{{ json $json.prompts }}`}, ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	prompts, ok := got["prompts"].([]interface{})
+	if !ok {
+		t.Fatalf("prompts resolved to %T (%v), want []interface{}", got["prompts"], got["prompts"])
+	}
+	if len(prompts) != 2 || prompts[0] != "a wizard" {
+		t.Errorf("got %v, want the two original prompts", prompts)
+	}
+}

@@ -7,12 +7,14 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -69,6 +71,18 @@ func (s *WebhookServer) Start() error {
 		}
 	}()
 	return nil
+}
+
+// isAddrInUse reports whether err is a "port already taken" listen failure.
+// syscall.EADDRINUSE covers unix; Windows reports WSAEADDRINUSE, which does not
+// compare equal to it, so its message is matched as well.
+func isAddrInUse(err error) bool {
+	if errors.Is(err, syscall.EADDRINUSE) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "address already in use") ||
+		strings.Contains(msg, "only one usage of each socket address")
 }
 
 // Stop gracefully shuts down the server with a 5-second timeout.

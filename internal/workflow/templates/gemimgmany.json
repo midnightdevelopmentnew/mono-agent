@@ -1,6 +1,6 @@
 {
   "name": "Gemini — Multi-Image Consistent Session",
-  "description": "Manually trigger with an array of prompts; generates one image per prompt in a SINGLE continued Gemini chat session (via session_id chaining) so characters/style/look stay consistent across images, saving each to the image vault (sequential img-NNN ids). Ships with 4 prompt slots — duplicate the last node (bump the number, update session_id/prompt references) to add more. Run with: workflow run <id> --input '{\"prompts\":[\"a wizard in a blue robe casting a fire spell\",\"the same wizard riding a red dragon\",\"the same wizard reading in a library\",\"the same wizard dueling a dark knight\"]}'. Requires `monoagentcli login gemini` once beforehand.",
+  "description": "Manually trigger with an array of prompts; generates one image per prompt in a SINGLE continued Gemini chat session so characters/style/look stay consistent, saving each to the image vault (sequential img-NNN ids). Any number of prompts — the run length follows the array. Run with: workflow templates run gemimgmany --input '{\"prompts\":[\"a wizard in a blue robe casting a fire spell\",\"the same wizard riding a red dragon\"]}'. Requires `monoagentcli login gemini` once beforehand.",
   "version": 1,
   "is_active": false,
   "nodes": [
@@ -13,80 +13,23 @@
       "config": {}
     },
     {
-      "id": "gen_image_1",
-      "type": "gemini.chat_session",
-      "name": "Generate Image 1",
+      "id": "gen_images",
+      "type": "gemini.chat_session_many",
+      "name": "Generate Images",
       "position": { "x": 320, "y": 0 },
       "disabled": false,
       "config": {
-        "prompt": "{{ index $node[\"Manual Trigger\"].json.prompts 0 }}",
-        "mode": "image"
-      }
-    },
-    {
-      "id": "gen_image_2",
-      "type": "gemini.chat_session",
-      "name": "Generate Image 2",
-      "position": { "x": 640, "y": 0 },
-      "disabled": false,
-      "config": {
-        "session_id": "{{ $node[\"Generate Image 1\"].json.session_id }}",
-        "prompt": "{{ index $node[\"Manual Trigger\"].json.prompts 1 }}",
-        "mode": "image"
-      }
-    },
-    {
-      "id": "gen_image_3",
-      "type": "gemini.chat_session",
-      "name": "Generate Image 3",
-      "position": { "x": 960, "y": 0 },
-      "disabled": false,
-      "config": {
-        "session_id": "{{ $node[\"Generate Image 2\"].json.session_id }}",
-        "prompt": "{{ index $node[\"Manual Trigger\"].json.prompts 2 }}",
-        "mode": "image"
-      }
-    },
-    {
-      "id": "gen_image_4",
-      "type": "gemini.chat_session",
-      "name": "Generate Image 4",
-      "position": { "x": 1280, "y": 0 },
-      "disabled": false,
-      "config": {
-        "session_id": "{{ $node[\"Generate Image 3\"].json.session_id }}",
-        "prompt": "{{ index $node[\"Manual Trigger\"].json.prompts 3 }}",
+        "prompts": "{{ json $json.prompts }}",
         "mode": "image"
       }
     }
   ],
   "connections": [
     {
-      "id": "trigger-to-gen1",
+      "id": "trigger-to-gen",
       "source": "trigger",
       "source_handle": "main",
-      "target": "gen_image_1",
-      "target_handle": "main"
-    },
-    {
-      "id": "gen1-to-gen2",
-      "source": "gen_image_1",
-      "source_handle": "main",
-      "target": "gen_image_2",
-      "target_handle": "main"
-    },
-    {
-      "id": "gen2-to-gen3",
-      "source": "gen_image_2",
-      "source_handle": "main",
-      "target": "gen_image_3",
-      "target_handle": "main"
-    },
-    {
-      "id": "gen3-to-gen4",
-      "source": "gen_image_3",
-      "source_handle": "main",
-      "target": "gen_image_4",
+      "target": "gen_images",
       "target_handle": "main"
     }
   ]

@@ -140,6 +140,23 @@ func resolveCredentialData(ctx context.Context, store *connections.Store, creden
 
 const extensionServerAddr = "http://127.0.0.1:9222"
 
+// waitForRelay polls addr until a monoagent relay answers its health endpoint,
+// returning a bridge through it, or nil if none appears within timeout. The
+// wait covers the gap between another process binding the port and its HTTP
+// server actually serving.
+func waitForRelay(addr string, timeout time.Duration) browserpkg.ExtensionBridge {
+	deadline := time.Now().Add(timeout)
+	for {
+		if extension.Probe(addr) {
+			return &extension.RemoteBridge{Sender: extension.NewRemoteSender(addr)}
+		}
+		if time.Now().After(deadline) {
+			return nil
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 // setupExtensionBridge returns a browser.ExtensionBridge for talking to the
 // Chrome extension. If another local monoagentcli process (typically the
 // daemon) already owns the extension connection, it relays through that
@@ -154,8 +171,29 @@ func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration
 	}
 
 	extServer := extension.NewServer("127.0.0.1:9222", logger)
-	extServer.StartAsync(context.Background())
-	_ = extServer.WaitForConnection(waitForConnection)
+	errCh := extServer.StartAsync(context.Background())
+
+	// The probe above and the bind below are not atomic: another process can
+	// claim the port in between (two runs started together, or the daemon/GUI
+	// coming up). Losing that race is normal and recoverable — re-probe and
+	// relay through the winner instead of reporting the port as unusable.
+	connCh := make(chan struct{})
+	go func() {
+		_ = extServer.WaitForConnection(waitForConnection)
+		close(connCh)
+	}()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			if remote := waitForRelay(extensionServerAddr, 5*time.Second); remote != nil {
+				fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (another process owns the extension port)")
+				return remote
+			}
+			fmt.Fprintf(os.Stderr, "  Extension port 9222 is held by a process that is not a monoagent relay (%v)\n", err)
+			fmt.Fprintln(os.Stderr, "  Free it (e.g. a Chrome started with --remote-debugging-port=9222) and retry.")
+		}
+	case <-connCh:
+	}
 
 	if extServer.IsConnected() {
 		fmt.Fprintln(os.Stderr, "  ✓ Chrome extension connected -- using your browser")

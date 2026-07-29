@@ -129,6 +129,7 @@ func newWorkflowCmd(cfg *globalConfig) *cobra.Command {
 		newWorkflowDisconnectCmd(cfg),
 		newWorkflowMigrateCmd(cfg),
 		newWorkflowTemplatesCmd(cfg),
+		newWorkflowSearchCmd(cfg),
 	)
 
 	return cmd
@@ -142,8 +143,252 @@ func newWorkflowTemplatesCmd(cfg *globalConfig) *cobra.Command {
 		Use:   "templates",
 		Short: "Browse and instantiate bundled ready-to-use workflow templates",
 	}
-	cmd.AddCommand(newWorkflowTemplatesListCmd(cfg), newWorkflowTemplatesUseCmd(cfg))
+	cmd.AddCommand(
+		newWorkflowTemplatesListCmd(cfg),
+		newWorkflowTemplatesShowCmd(cfg),
+		newWorkflowTemplatesUseCmd(cfg),
+		newWorkflowTemplatesRunCmd(cfg),
+	)
 	return cmd
+}
+
+// newWorkflowSearchCmd searches bundled templates AND the user's saved
+// workflows in one place. This is the "what can this thing already do for me?"
+// entry point — an agent that knows nothing but the binary name can run it,
+// find something relevant, and get the exact command to run it.
+func newWorkflowSearchCmd(cfg *globalConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "search [query]",
+		Short: "Search bundled templates and saved workflows by name, description, or node type",
+		Long: "Search everything runnable — bundled templates and the workflows saved for this profile — " +
+			"by name, description, or the node types involved. Omit the query to list everything.\n\n" +
+			"Each hit comes with the command that runs it.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			query := ""
+			if len(args) == 1 {
+				query = strings.ToLower(args[0])
+			}
+			matches := func(fields ...string) bool {
+				if query == "" {
+					return true
+				}
+				for _, f := range fields {
+					if strings.Contains(strings.ToLower(f), query) {
+						return true
+					}
+				}
+				return false
+			}
+
+			type hit struct {
+				Source  string   `json:"source"` // "template" or "workflow"
+				ID      string   `json:"id"`
+				Name    string   `json:"name"`
+				Inputs  []string `json:"inputs,omitempty"`
+				Active  bool     `json:"active,omitempty"`
+				Command string   `json:"command"`
+			}
+			var hits []hit
+
+			for _, t := range workflow.ListTemplates() {
+				if !matches(t.ID, t.Name, t.Description) {
+					continue
+				}
+				runCmd := "monoagentcli workflow templates run " + t.ID
+				if ex := exampleInputJSON(t.Inputs); ex != "" {
+					runCmd += " --input '" + ex + "'"
+				}
+				hits = append(hits, hit{Source: "template", ID: t.ID, Name: t.Name, Inputs: t.Inputs, Command: runCmd})
+			}
+
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("open database: %w", err)
+			}
+			defer db.Close()
+
+			ctx := context.Background()
+			store := newHybridStore(db)
+			saved, err := store.ListWorkflows(ctx, cfg.ProfileID)
+			if err != nil {
+				return fmt.Errorf("list workflows: %w", err)
+			}
+			for _, wf := range saved {
+				nodeTypes := make([]string, 0, len(wf.Nodes))
+				for _, n := range wf.Nodes {
+					nodeTypes = append(nodeTypes, n.Type)
+				}
+				if !matches(append(nodeTypes, wf.ID, wf.Name, wf.Description)...) {
+					continue
+				}
+				hits = append(hits, hit{
+					Source:  "workflow",
+					ID:      wf.ID,
+					Name:    wf.Name,
+					Active:  wf.IsActive,
+					Command: "monoagentcli workflow run " + wf.ID,
+				})
+			}
+
+			if cfg.JSONOutput {
+				if hits == nil {
+					hits = []hit{}
+				}
+				return json.NewEncoder(os.Stdout).Encode(hits)
+			}
+
+			if len(hits) == 0 {
+				fmt.Fprintf(os.Stdout, "Nothing matches %q.\n", query)
+				fmt.Fprintln(os.Stdout, "Try `monoagentcli workflow search` with no query, or `monoagentcli ref templates`.")
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "SOURCE\tNAME\tRUN WITH")
+			for _, h := range hits {
+				fmt.Fprintf(w, "%s\t%s\t%s\n", h.Source, h.Name, h.Command)
+			}
+			return w.Flush()
+		},
+	}
+}
+
+// instantiateTemplate turns a bundled template into a concrete, unsaved
+// Workflow owned by profileID. Node IDs in the template are stable,
+// human-readable placeholders (e.g. "trigger") shared across every
+// instantiation, so they are remapped to fresh UUIDs — that is what lets the
+// same template be instantiated (and run) many times concurrently without the
+// copies colliding.
+func instantiateTemplate(tmplFile workflow.WorkflowFile, profileID string) workflow.Workflow {
+	idMap := make(map[string]string, len(tmplFile.Nodes))
+	for _, n := range tmplFile.Nodes {
+		idMap[n.ID] = uuid.New().String()
+	}
+
+	now := time.Now().UTC()
+	wf := workflow.Workflow{
+		ID:          uuid.New().String(),
+		Name:        tmplFile.Name,
+		Description: tmplFile.Description,
+		IsActive:    false,
+		Version:     1,
+		ProfileID:   profileID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	for _, fn := range tmplFile.Nodes {
+		config := fn.Config
+		if config == nil {
+			config = map[string]interface{}{}
+		}
+		// people.sync_outlook_message scopes synced people/messages by
+		// its own "profile_id" config field, independent of the
+		// workflow's ProfileID — default it to this profile so the
+		// template works correctly out of the box for non-default profiles.
+		if fn.Type == "people.sync_outlook_message" {
+			config["profile_id"] = profileID
+		}
+		wf.Nodes = append(wf.Nodes, workflow.WorkflowNode{
+			ID:         idMap[fn.ID],
+			WorkflowID: wf.ID,
+			Type:       fn.Type,
+			Name:       fn.Name,
+			PositionX:  fn.Position.X,
+			PositionY:  fn.Position.Y,
+			Disabled:   fn.Disabled,
+			Config:     config,
+		})
+	}
+	for _, fe := range tmplFile.Connections {
+		wf.Connections = append(wf.Connections, workflow.WorkflowConnection{
+			ID:           uuid.New().String(),
+			WorkflowID:   wf.ID,
+			SourceNodeID: idMap[fe.Source],
+			SourceHandle: fe.SourceHandle,
+			TargetNodeID: idMap[fe.Target],
+			TargetHandle: fe.TargetHandle,
+		})
+	}
+	return wf
+}
+
+// inputKeyList renders a template's trigger-data keys for table output.
+func inputKeyList(inputs []string) string {
+	if len(inputs) == 0 {
+		return "(none)"
+	}
+	return strings.Join(inputs, ",")
+}
+
+// exampleInputJSON builds a copy-pasteable --input value for a template, so an
+// agent can run it without reading the node configs first.
+func exampleInputJSON(inputs []string) string {
+	if len(inputs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(inputs))
+	for _, key := range inputs {
+		// Plural keys are arrays in every bundled template (prompts, urls, …).
+		if strings.HasSuffix(key, "s") {
+			parts = append(parts, fmt.Sprintf("%q:[\"...\",\"...\"]", key))
+		} else {
+			parts = append(parts, fmt.Sprintf("%q:\"...\"", key))
+		}
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// newWorkflowTemplatesShowCmd prints everything needed to run one template.
+func newWorkflowTemplatesShowCmd(cfg *globalConfig) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <template-id>",
+		Short: "Show a template's description, inputs, nodes, and the exact command to run it",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tmplFile, ok := workflow.GetTemplate(args[0])
+			if !ok {
+				return fmt.Errorf("unknown template %q. Run `monoagentcli workflow templates list` to see available IDs", args[0])
+			}
+			var meta workflow.Template
+			for _, t := range workflow.ListTemplates() {
+				if t.ID == args[0] {
+					meta = t
+					break
+				}
+			}
+
+			if cfg.JSONOutput {
+				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"id":          meta.ID,
+					"name":        tmplFile.Name,
+					"description": tmplFile.Description,
+					"inputs":      meta.Inputs,
+					"definition":  tmplFile,
+				})
+			}
+
+			fmt.Fprintf(os.Stdout, "%s  (%s)\n\n%s\n\n", tmplFile.Name, args[0], tmplFile.Description)
+			fmt.Fprintf(os.Stdout, "INPUT KEYS: %s\n\n", inputKeyList(meta.Inputs))
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "NODE\tTYPE")
+			for _, n := range tmplFile.Nodes {
+				fmt.Fprintf(w, "%s\t%s\n", n.Name, n.Type)
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(os.Stdout, "\nRun it:\n  monoagentcli workflow templates run %s", args[0])
+			if ex := exampleInputJSON(meta.Inputs); ex != "" {
+				fmt.Fprintf(os.Stdout, " --input '%s'", ex)
+			}
+			fmt.Fprintln(os.Stdout)
+			fmt.Fprintf(os.Stdout, "\nSave an editable copy instead:\n  monoagentcli workflow templates use %s\n", args[0])
+			fmt.Fprintln(os.Stdout, "\nNode config details:  monoagentcli ref node <type>")
+			return nil
+		},
+	}
 }
 
 func newWorkflowTemplatesListCmd(cfg *globalConfig) *cobra.Command {
@@ -156,11 +401,16 @@ func newWorkflowTemplatesListCmd(cfg *globalConfig) *cobra.Command {
 				return json.NewEncoder(os.Stdout).Encode(templates)
 			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tDESCRIPTION")
+			fmt.Fprintln(w, "ID\tINPUT KEYS\tNAME\tDESCRIPTION")
 			for _, t := range templates {
-				fmt.Fprintf(w, "%s\t%s\t%s\n", t.ID, t.Name, t.Description)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.ID, inputKeyList(t.Inputs), t.Name, t.Description)
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "\nRun one:     monoagentcli workflow templates run <id> --input '{\"<key>\":\"...\"}'")
+			fmt.Fprintln(os.Stdout, "Inspect one: monoagentcli workflow templates show <id>")
+			return nil
 		},
 	}
 	return cmd
@@ -187,58 +437,7 @@ func newWorkflowTemplatesUseCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.Close()
 
-			// Node IDs in the template are stable, human-readable placeholders
-			// (e.g. "trigger") shared across every instantiation, so remap them
-			// to fresh UUIDs here rather than colliding across workflows.
-			idMap := make(map[string]string, len(tmplFile.Nodes))
-			for _, n := range tmplFile.Nodes {
-				idMap[n.ID] = uuid.New().String()
-			}
-
-			now := time.Now().UTC()
-			wf := workflow.Workflow{
-				ID:          uuid.New().String(),
-				Name:        tmplFile.Name,
-				Description: tmplFile.Description,
-				IsActive:    false,
-				Version:     1,
-				ProfileID:   cfg.ProfileID,
-				CreatedAt:   now,
-				UpdatedAt:   now,
-			}
-			for _, fn := range tmplFile.Nodes {
-				config := fn.Config
-				if config == nil {
-					config = map[string]interface{}{}
-				}
-				// people.sync_outlook_message scopes synced people/messages by
-				// its own "profile_id" config field, independent of the
-				// workflow's ProfileID — default it to this profile so the
-				// template works correctly out of the box for non-default profiles.
-				if fn.Type == "people.sync_outlook_message" {
-					config["profile_id"] = cfg.ProfileID
-				}
-				wf.Nodes = append(wf.Nodes, workflow.WorkflowNode{
-					ID:         idMap[fn.ID],
-					WorkflowID: wf.ID,
-					Type:       fn.Type,
-					Name:       fn.Name,
-					PositionX:  fn.Position.X,
-					PositionY:  fn.Position.Y,
-					Disabled:   fn.Disabled,
-					Config:     config,
-				})
-			}
-			for _, fe := range tmplFile.Connections {
-				wf.Connections = append(wf.Connections, workflow.WorkflowConnection{
-					ID:           uuid.New().String(),
-					WorkflowID:   wf.ID,
-					SourceNodeID: idMap[fe.Source],
-					SourceHandle: fe.SourceHandle,
-					TargetNodeID: idMap[fe.Target],
-					TargetHandle: fe.TargetHandle,
-				})
-			}
+			wf := instantiateTemplate(tmplFile, cfg.ProfileID)
 
 			store := newHybridStore(db)
 			ctx := context.Background()
@@ -346,6 +545,120 @@ func newWorkflowGetCmd(cfg *globalConfig) *cobra.Command {
 	}
 }
 
+// waitForExecution polls until the execution leaves RUNNING/QUEUED, printing
+// its final status, or returns an error once timeout elapses.
+func waitForExecution(ctx context.Context, engine *workflow.WorkflowEngine, executionID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			exec, err := engine.GetExecution(ctx, executionID)
+			if err != nil {
+				return fmt.Errorf("poll execution: %w", err)
+			}
+			switch exec.Status {
+			case "RUNNING", "QUEUED":
+				if time.Now().After(deadline) {
+					return fmt.Errorf("timed out waiting for execution %s (still %s)", executionID, exec.Status)
+				}
+				// keep polling
+			default:
+				if exec.ErrorMessage != "" {
+					fmt.Fprintf(os.Stdout, "Status: %s\nError:  %s\n", exec.Status, exec.ErrorMessage)
+				} else {
+					fmt.Fprintf(os.Stdout, "Status: %s\n", exec.Status)
+				}
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// newWorkflowTemplatesRunCmd instantiates a bundled template into a throwaway
+// workflow, runs it once, and deletes it. Because each invocation gets its own
+// workflow (fresh IDs), the same template can be run many times side by side —
+// e.g. several image generations at once — without the runs interfering, and
+// without leaving saved workflows behind.
+func newWorkflowTemplatesRunCmd(cfg *globalConfig) *cobra.Command {
+	var inputJSON string
+	var keep bool
+
+	cmd := &cobra.Command{
+		Use:   "run <template-id>",
+		Short: "Run a bundled template once, without saving a workflow",
+		Long: "Instantiates a bundled template as a temporary workflow, triggers it, waits for it " +
+			"to finish, then deletes it. Safe to run several times concurrently — each run is a " +
+			"separate throwaway workflow. Use --keep to leave the instantiated workflow behind for editing.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			tmplFile, ok := workflow.GetTemplate(args[0])
+			if !ok {
+				return fmt.Errorf("unknown template %q. Run `monoagentcli workflow templates list` to see available IDs", args[0])
+			}
+
+			triggerData := map[string]interface{}{}
+			if inputJSON != "" {
+				if err := json.Unmarshal([]byte(inputJSON), &triggerData); err != nil {
+					return fmt.Errorf("invalid --input JSON (expected a JSON object): %w", err)
+				}
+			}
+
+			engine, closeBrowsers, err := buildEngine(cfg, false)
+			if err != nil {
+				return fmt.Errorf("build engine: %w", err)
+			}
+			defer closeBrowsers()
+
+			ctx := context.Background()
+			if err := engine.Start(ctx); err != nil {
+				return fmt.Errorf("start engine: %w", err)
+			}
+			defer engine.Stop() //nolint:errcheck
+
+			wf := instantiateTemplate(tmplFile, cfg.ProfileID)
+			for i := range wf.Nodes {
+				if err := wf.Nodes[i].MarshalConfig(); err != nil {
+					return fmt.Errorf("marshal node config: %w", err)
+				}
+			}
+			if err := engine.CreateWorkflow(ctx, &wf); err != nil {
+				return fmt.Errorf("create workflow from template: %w", err)
+			}
+			if !keep {
+				defer func() {
+					if err := engine.DeleteWorkflow(context.Background(), wf.ID); err != nil {
+						fmt.Fprintf(os.Stderr, "warning: could not delete temporary workflow %s: %v\n", wf.ID, err)
+					}
+				}()
+			}
+			if err := engine.ActivateWorkflow(ctx, wf.ID); err != nil {
+				return fmt.Errorf("activate workflow: %w", err)
+			}
+
+			executionID, err := engine.TriggerWorkflow(ctx, wf.ID, triggerData)
+			if err != nil {
+				return fmt.Errorf("trigger workflow: %w", err)
+			}
+			fmt.Fprintf(os.Stdout, "Running template %q (workflow %s, execution %s)\n", args[0], wf.ID, executionID)
+
+			runErr := waitForExecution(ctx, engine, executionID, 15*time.Minute)
+			if keep {
+				fmt.Fprintf(os.Stdout, "Kept workflow %s\n", wf.ID)
+			}
+			return runErr
+		},
+	}
+
+	cmd.Flags().StringVar(&inputJSON, "input", "", `Trigger data as a JSON object, e.g. --input '{"prompts":["a wizard","the same wizard on a dragon"]}'`)
+	cmd.Flags().BoolVar(&keep, "keep", false, "Keep the instantiated workflow instead of deleting it after the run")
+	return cmd
+}
+
 // newWorkflowRunCmd manually triggers a workflow and polls for completion.
 func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
 	var inputJSON string
@@ -382,38 +695,7 @@ func newWorkflowRunCmd(cfg *globalConfig) *cobra.Command {
 			}
 
 			fmt.Fprintf(os.Stdout, "Execution started: %s\n", executionID)
-
-			// Poll until the execution leaves RUNNING/QUEUED or times out.
-			deadline := time.Now().Add(15 * time.Minute)
-			ticker := time.NewTicker(500 * time.Millisecond)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ticker.C:
-					exec, err := engine.GetExecution(ctx, executionID)
-					if err != nil {
-						return fmt.Errorf("poll execution: %w", err)
-					}
-					switch exec.Status {
-					case "RUNNING", "QUEUED":
-						if time.Now().After(deadline) {
-							return fmt.Errorf("timed out waiting for execution %s (still %s)", executionID, exec.Status)
-						}
-						// keep polling
-					default:
-						errMsg := exec.ErrorMessage
-						if errMsg != "" {
-							fmt.Fprintf(os.Stdout, "Status: %s\nError:  %s\n", exec.Status, errMsg)
-						} else {
-							fmt.Fprintf(os.Stdout, "Status: %s\n", exec.Status)
-						}
-						return nil
-					}
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
+			return waitForExecution(ctx, engine, executionID, 15*time.Minute)
 		},
 	}
 

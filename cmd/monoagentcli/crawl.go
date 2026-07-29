@@ -96,7 +96,7 @@ For the full guide:  monoagent ref crawling`,
 			// Check whether the Claude skill is installed.
 			claudeDir := filepath.Join(home, ".claude")
 			skillInstalled := false
-			if _, err := os.Stat(filepath.Join(claudeDir, "skills", claudeSkillName)); err == nil {
+			if _, err := os.Stat(filepath.Join(claudeDir, "skills", claudeSkillNames[0])); err == nil {
 				skillInstalled = true
 			}
 
