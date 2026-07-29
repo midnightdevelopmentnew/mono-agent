@@ -15,8 +15,7 @@
         "MONOMIND_TOPOLOGY": "hierarchical-mesh",
         "MONOMIND_MAX_AGENTS": "15",
         "MONOMIND_MEMORY_BACKEND": "hybrid"
-      },
-      "autoStart": false
+      }
     }
   }
 }
