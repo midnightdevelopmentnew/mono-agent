@@ -35,6 +35,7 @@ wails-app/build/bin/
 wails-app/frontend/dist/
 wails-app/frontend/node_modules/
 wails-app/wails-app
+wails-app/monoagentcli
 
 # Node
 node_modules/
