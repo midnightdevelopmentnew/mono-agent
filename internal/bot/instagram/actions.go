@@ -12,6 +12,8 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
+
+	"monoagent/internal/browser"
 )
 
 // jsonUnmarshal wraps encoding/json.Unmarshal for use in helpers.
@@ -548,23 +550,26 @@ func (b *InstagramBot) InteractWithUserPosts(ctx context.Context, page *rod.Page
 // PublishContent handles the Instagram post creation flow: finds the "New post"
 // button, uploads media via the file input, advances through screens, types
 // a caption, optionally adds a location, and clicks Share.
-func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, mediaPath, caption, locationTag string) error {
+func (b *InstagramBot) PublishContent(ctx context.Context, page browser.PageInterface, mediaPath, caption, locationTag string) error {
 	if mediaPath == "" {
 		return fmt.Errorf("instagram: media path is required")
 	}
 
 	// Navigate to Instagram home to access the create button.
-	err := rod.Try(func() {
-		page.MustNavigate("https://www.instagram.com/").MustWaitLoad()
-	})
-	if err != nil {
+	if err := page.Navigate("https://www.instagram.com/"); err != nil {
 		return fmt.Errorf("instagram: failed to navigate to home: %w", err)
 	}
+	if err := page.WaitLoad(); err != nil {
+		return fmt.Errorf("instagram: failed to load home: %w", err)
+	}
 	time.Sleep(3 * time.Second)
-	b.dismissNotificationDialog(page)
+	dismissNotificationDialogGeneric(page)
 
-	// Step 1: Find and click the "New post" button.
-	createRes, err := page.Timeout(10 * time.Second).Eval(`() => {
+	// Step 1: Find and click the "New post" button. Mark it via JS, then look
+	// it up by the marker selector — if nothing was marked, Element() below
+	// simply fails to find it, so there's no need to inspect Eval's return
+	// value (which isn't uniformly typed across drivers).
+	_, _ = page.Timeout(10 * time.Second).Eval(`() => {
 		const prev = document.querySelector('[data-monoagent-create-btn]');
 		if (prev) prev.removeAttribute('data-monoagent-create-btn');
 
@@ -587,35 +592,25 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 
 		return 'not_found';
 	}`)
+
+	createBtn, err := page.Element("[data-monoagent-create-btn='true']", 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("instagram: failed to find create button: %w", err)
+		return fmt.Errorf("instagram: could not find 'New post' button: %w", err)
 	}
 
-	if createRes.Value.Str() != "marked" {
-		return fmt.Errorf("instagram: could not find 'New post' button")
-	}
-
-	createBtn, err := page.Timeout(5 * time.Second).Element("[data-monoagent-create-btn='true']")
-	if err != nil {
-		return fmt.Errorf("instagram: marked create button not found: %w", err)
-	}
-
-	if err := createBtn.Click(proto.InputMouseButtonLeft, 1); err != nil {
+	if err := createBtn.Click(); err != nil {
 		return fmt.Errorf("instagram: failed to click create button: %w", err)
 	}
 	time.Sleep(3 * time.Second)
 
 	// Step 1b: Click "Post" from the submenu (Instagram now shows Post/Story/Reel menu).
-	_ = rod.Try(func() {
-		postOption := page.Timeout(5 * time.Second).MustElementX(
-			"//span[text()='Post'] | //div[text()='Post']",
-		)
-		_ = postOption.Click(proto.InputMouseButtonLeft, 1)
+	if postOption, err := page.ElementX("//span[text()='Post'] | //div[text()='Post']", 5*time.Second); err == nil {
+		_ = postOption.Click()
 		time.Sleep(2 * time.Second)
-	})
+	}
 
 	// Step 2: Set the file input for media upload.
-	fileInput, err := page.Timeout(15 * time.Second).Element("input[type='file']")
+	fileInput, err := page.Element("input[type='file']", 15*time.Second)
 	if err != nil {
 		return fmt.Errorf("instagram: could not find file input: %w", err)
 	}
@@ -632,12 +627,8 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 			"//div[@role='button'][normalize-space(.)='Next']",
 		}
 		for _, xpath := range nextBtnXPaths {
-			var btn *rod.Element
-			tryErr := rod.Try(func() {
-				btn = page.Timeout(5 * time.Second).MustElementX(xpath)
-			})
-			if tryErr == nil && btn != nil {
-				_ = btn.Click(proto.InputMouseButtonLeft, 1)
+			if btn, err := page.ElementX(xpath, 5*time.Second); err == nil {
+				_ = btn.Click()
 				time.Sleep(2 * time.Second)
 				break
 			}
@@ -655,30 +646,20 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 			"textarea",
 		}
 
-		var captionInput *rod.Element
+		var captionInput browser.ElementHandle
 		for _, sel := range captionSelectors {
-			el, findErr := page.Timeout(5 * time.Second).Element(sel)
-			if findErr == nil && el != nil {
+			if el, findErr := page.Element(sel, 5*time.Second); findErr == nil && el != nil {
 				captionInput = el
 				break
 			}
 		}
 
 		if captionInput != nil {
-			if clickErr := captionInput.Click(proto.InputMouseButtonLeft, 1); clickErr == nil {
+			if clickErr := captionInput.Click(); clickErr == nil {
 				time.Sleep(500 * time.Millisecond)
-				// Use clipboard paste to handle unicode/emoji characters that Rod's keyboard can't type.
-				pasteErr := rod.Try(func() {
-					page.MustInsertText(caption)
-				})
-				if pasteErr != nil {
-					// Fallback: type char by char, skipping keys Rod doesn't know.
-					for _, ch := range caption {
-						_ = rod.Try(func() {
-							page.Keyboard.Type(input.Key(ch))
-						})
-						time.Sleep(30 * time.Millisecond)
-					}
+				// InsertText handles unicode/emoji; fall back to per-key typing.
+				if pasteErr := page.InsertText(caption); pasteErr != nil {
+					_ = page.KeyboardType([]rune(caption)...)
 				}
 				time.Sleep(1 * time.Second)
 			}
@@ -693,22 +674,15 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 			"input[placeholder*='Location' i]",
 		}
 		for _, sel := range locSelectors {
-			el, findErr := page.Timeout(3 * time.Second).Element(sel)
+			el, findErr := page.Element(sel, 3*time.Second)
 			if findErr == nil && el != nil {
-				if clickErr := el.Click(proto.InputMouseButtonLeft, 1); clickErr == nil {
+				if clickErr := el.Click(); clickErr == nil {
 					time.Sleep(500 * time.Millisecond)
-					for _, ch := range locationTag {
-						_ = page.Keyboard.Type(input.Key(ch))
-						time.Sleep(50 * time.Millisecond)
-					}
+					_ = page.KeyboardType([]rune(locationTag)...)
 					time.Sleep(2 * time.Second)
 					// Click first location suggestion.
-					var suggestion *rod.Element
-					tryErr := rod.Try(func() {
-						suggestion = page.Timeout(3*time.Second).MustElementX("//div[@role='listitem'][1]")
-					})
-					if tryErr == nil && suggestion != nil {
-						_ = suggestion.Click(proto.InputMouseButtonLeft, 1)
+					if suggestion, err := page.ElementX("//div[@role='listitem'][1]", 3*time.Second); err == nil {
+						_ = suggestion.Click()
 						time.Sleep(1 * time.Second)
 					}
 				}
@@ -724,12 +698,8 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 	}
 	shared := false
 	for _, xpath := range shareBtnXPaths {
-		var btn *rod.Element
-		tryErr := rod.Try(func() {
-			btn = page.Timeout(5 * time.Second).MustElementX(xpath)
-		})
-		if tryErr == nil && btn != nil {
-			if err := btn.Click(proto.InputMouseButtonLeft, 1); err == nil {
+		if btn, err := page.ElementX(xpath, 5*time.Second); err == nil {
+			if err := btn.Click(); err == nil {
 				shared = true
 				break
 			}
@@ -742,12 +712,30 @@ func (b *InstagramBot) PublishContent(ctx context.Context, page *rod.Page, media
 	time.Sleep(5 * time.Second)
 
 	// Clean up markers.
-	page.Eval(`() => {
+	_, _ = page.Eval(`() => {
 		const el = document.querySelector('[data-monoagent-create-btn]');
 		if (el) el.removeAttribute('data-monoagent-create-btn');
 	}`)
 
 	return nil
+}
+
+// dismissNotificationDialogGeneric is a driver-agnostic best-effort variant of
+// dismissNotificationDialog, for the browser.PageInterface-based publish path
+// (which may be backed by the Chrome extension bridge, not just native Rod).
+func dismissNotificationDialogGeneric(page browser.PageInterface) {
+	dismissXPaths := []string{
+		"//button[normalize-space(.)='Not Now']",
+		"//button[contains(., 'Not Now')]",
+		"//div[@role='button'][normalize-space(.)='Not Now']",
+	}
+	for _, xpath := range dismissXPaths {
+		if btn, err := page.ElementX(xpath, 2*time.Second); err == nil {
+			_ = btn.Click()
+			time.Sleep(1 * time.Second)
+			return
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

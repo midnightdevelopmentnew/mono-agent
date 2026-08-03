@@ -1293,7 +1293,6 @@ func (b *InstagramBot) GetMethodByName(name string) (func(ctx context.Context, a
 			if !ok {
 				return nil, fmt.Errorf("publish_content: first arg must be browser.PageInterface")
 			}
-			page := p.(*browser.RodPage).UnwrapRodPage()
 			mediaPath, ok := args[1].(string)
 			if !ok {
 				return nil, fmt.Errorf("publish_content: second arg must be string")
@@ -1308,7 +1307,7 @@ func (b *InstagramBot) GetMethodByName(name string) (func(ctx context.Context, a
 					locationTag = lt
 				}
 			}
-			err := b.PublishContent(ctx, page, mediaPath, caption, locationTag)
+			err := b.PublishContent(ctx, p, mediaPath, caption, locationTag)
 			if err != nil {
 				return nil, err
 			}

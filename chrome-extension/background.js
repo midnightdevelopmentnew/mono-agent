@@ -22,6 +22,11 @@ let keepAliveInterval = null;
 const KEEP_ALIVE_INTERVAL = 20000; // 20s ping to prevent WS idle timeout
 const DEFAULT_WS_URL = "ws://127.0.0.1:9222/monoagent";
 const COMMAND_TIMEOUT = 30000; // 30s default timeout for pending commands
+// content.js is given the same cmd.params.timeout to bound its own internal
+// polling (e.g. findElement's while-loop). Without headroom here, this outer
+// timeout races that internal one and can discard a real, on-time "not found"
+// response — surfacing a misleading "Content script timeout" instead.
+const CONTENT_SCRIPT_TIMEOUT_BUFFER = 5000;
 const KEEPALIVE_ALARM = "monoagent-keepalive";
 const ALARM_PERIOD_MINUTES = 0.4; // ~24 seconds (minimum safe value for MV3)
 
@@ -560,7 +565,7 @@ async function sendToContent(tabId, cmd) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Content script timeout for command ${cmd.type} on tab ${tabId}`));
-    }, cmd.params?.timeout || COMMAND_TIMEOUT);
+    }, (cmd.params?.timeout || COMMAND_TIMEOUT) + CONTENT_SCRIPT_TIMEOUT_BUFFER);
 
     chrome.tabs.sendMessage(tabId, cmd, (response) => {
       clearTimeout(timeout);
