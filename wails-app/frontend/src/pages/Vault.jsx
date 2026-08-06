@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Plus, Trash2, KeyRound, Download, Upload, Copy } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
-import KeyValueFields, { newRow, rowsToFields } from '../components/KeyValueFields.jsx'
+import KeyValueFields, { newRow, validateRows } from '../components/KeyValueFields.jsx'
 import VaultItemModal from '../components/VaultItemModal.jsx'
 
 const fmtDate = (s) => {
@@ -50,6 +50,12 @@ export default function Vault() {
   const [importPath, setImportPath] = useState(null)
   const [importPassphrase, setImportPassphrase] = useState('')
   const [importResult, setImportResult] = useState(null)
+  // Decoupled from `error`: shown only by the import passphrase modal and
+  // the import-complete modal, so an unrelated later failure (e.g. a
+  // delete) can never surface inside an import dialog, and an import
+  // failure never renders twice (once in the modal, once in the page
+  // banner behind it).
+  const [importError, setImportError] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -65,7 +71,11 @@ export default function Vault() {
   const handleAdd = async (e) => {
     e.preventDefault()
     setError(null)
-    const fields = rowsToFields(form.fields)
+    const { fields, error: rowsError } = validateRows(form.fields)
+    if (rowsError) {
+      setError(rowsError)
+      return
+    }
     if (Object.keys(fields).length === 0) {
       setError('At least one field is required.')
       return
@@ -104,6 +114,7 @@ export default function Vault() {
 
   const handleImportPick = async () => {
     setError(null)
+    setImportError(null)
     try {
       const path = await WailsApp.OpenVaultImportFilePicker()
       if (!path) return
@@ -116,7 +127,7 @@ export default function Vault() {
 
   const handleImportSubmit = async (e) => {
     e.preventDefault()
-    setError(null)
+    setImportError(null)
     try {
       const result = await WailsApp.ImportVaultAll(importPath, importPassphrase)
       setImportPath(null)
@@ -124,7 +135,7 @@ export default function Vault() {
       setImportResult(result)
       load()
     } catch (e) {
-      setError('Import failed: ' + e)
+      setImportError('Import failed: ' + e)
     }
   }
 
@@ -313,6 +324,11 @@ export default function Vault() {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
               Saved to {exportResult.path}. Save this now — it will not be shown again.
             </div>
+            {exportResult.skipped > 0 && (
+              <div style={{ background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.2)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fbbf24' }}>
+                Exported {exportResult.exported}, skipped {exportResult.skipped} that could not be decrypted.
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5, padding: '8px 10px', marginBottom: 14 }}>
               <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, color: '#00b4d8', wordBreak: 'break-all' }}>
                 {exportResult.passphrase}
@@ -342,9 +358,9 @@ export default function Vault() {
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <form onSubmit={handleImportSubmit} style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 380, maxWidth: '90%', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Import Vault</div>
-            {error && (
+            {importError && (
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
-                {error}
+                {importError}
               </div>
             )}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8' }}>{importPath}</div>
@@ -380,9 +396,9 @@ export default function Vault() {
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <div style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 340, maxWidth: '90%' }}>
             <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Import Complete</div>
-            {error && (
+            {importError && (
               <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
-                {error}
+                {importError}
               </div>
             )}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>

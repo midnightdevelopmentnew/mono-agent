@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import * as WailsApp from '../wailsjs/go/main/App'
-import KeyValueFields, { fieldsToRows, rowsToFields } from './KeyValueFields.jsx'
+import KeyValueFields, { fieldsToRows, validateRows } from './KeyValueFields.jsx'
 
 const inputStyle = {
   background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
@@ -40,7 +40,11 @@ export default function VaultItemModal({ entry, onClose, onSaved }) {
   const handleSave = async (e) => {
     e.preventDefault()
     setError(null)
-    const fields = rowsToFields(rows)
+    const { fields, error: rowsError } = validateRows(rows)
+    if (rowsError) {
+      setError(rowsError)
+      return
+    }
     if (Object.keys(fields).length === 0) {
       // Guards against a real gap: UpdateSecret always sends every current
       // field, so zero fields means zero --field flags on the CLI side,

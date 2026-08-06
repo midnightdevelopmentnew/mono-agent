@@ -23,6 +23,29 @@ export function rowsToFields(rows) {
   return fields
 }
 
+// validateRows checks raw rows for the two ways rowsToFields' last-one-wins
+// collapse can silently lose data: two rows sharing the same trimmed key
+// (only the last survives) and a row with a value but a blank/whitespace-
+// only key (dropped entirely). Since Vault updates are a full-replace of an
+// entry's fields, either case can permanently delete a credential with no
+// warning. Callers must run this over `rows` *before* calling rowsToFields
+// and bail out (showing `error`) rather than proceed when it's non-null.
+// On success, `fields` is the same map rowsToFields(rows) would produce, so
+// callers don't need to call it separately.
+export function validateRows(rows) {
+  const seen = new Set()
+  for (const row of rows) {
+    const key = row.key.trim()
+    if (!key) {
+      if (row.value) return { fields: null, error: 'Every field with a value needs a key.' }
+      continue
+    }
+    if (seen.has(key)) return { fields: null, error: `Duplicate field key "${key}".` }
+    seen.add(key)
+  }
+  return { fields: rowsToFields(rows), error: null }
+}
+
 const inputStyle = {
   flex: 1, background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
   padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11,
