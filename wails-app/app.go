@@ -22,6 +22,7 @@ import (
 	"monoagent/internal/ai"
 	aichat "monoagent/internal/ai/chat"
 	"monoagent/internal/connections"
+	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 	"monoagent/internal/workflow"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -97,6 +98,9 @@ func (a *App) startup(ctx context.Context) {
 	// plaintext row is ever reintroduced.
 	if _, _, err := connections.EncryptPlaintextConnections(ctx, db); err != nil {
 		runtime.LogErrorf(ctx, "connections migration error: %v", err)
+	}
+	if _, _, err := secrets.MigrateFieldsToKV(ctx, db); err != nil {
+		runtime.LogErrorf(ctx, "vault key-value migration error: %v", err)
 	}
 
 	// Ensure vault directory exists.

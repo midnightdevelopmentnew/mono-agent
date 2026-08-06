@@ -10,10 +10,12 @@ import (
 
 const secretRefPrefix = "@secret:"
 
-// Resolve turns "@secret:<name>" into the decrypted plaintext value stored
-// in the vault under profileID. Strings that don't carry the "@secret:"
+// Resolve turns a `@secret:<name>` reference into a decrypted value stored
+// in the vault under profileID. Strings that do not carry the `@secret:`
 // prefix are returned unchanged. Returns an error if the reference is
-// present but no matching entry is found.
+// present but no matching entry is found, and also if the entry holds
+// multiple fields with none of them keyed `secret` — see DecryptFields for
+// the field-picking rules.
 func Resolve(ctx context.Context, db *sql.DB, profileID, ref string) (string, error) {
 	if !strings.HasPrefix(ref, secretRefPrefix) {
 		return ref, nil
@@ -32,14 +34,22 @@ func Resolve(ctx context.Context, db *sql.DB, profileID, ref string) (string, er
 		}
 	}
 	if id == "" {
-		return ref, fmt.Errorf("secrets.Resolve: secret %q not found", name)
+		return ref, fmt.Errorf("secrets.Resolve: entry %q not found", name)
 	}
 
-	value, err := DecryptEntry(ctx, db, profileID, id)
+	fields, _, err := DecryptFields(ctx, db, profileID, id)
 	if err != nil {
 		return ref, fmt.Errorf("secrets.Resolve: %w", err)
 	}
-	return value, nil
+	if v, ok := fields["secret"]; ok {
+		return v, nil
+	}
+	if len(fields) == 1 {
+		for _, v := range fields {
+			return v, nil
+		}
+	}
+	return ref, fmt.Errorf("secrets.Resolve: entry %q holds multiple fields; a bare reference needs exactly one field, or one keyed \"secret\"", name)
 }
 
 // ResolveConfig walks a config map and replaces any string value that starts

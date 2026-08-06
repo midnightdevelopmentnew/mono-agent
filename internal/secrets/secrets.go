@@ -3,38 +3,54 @@ package secrets
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
 // Entry is the credential-free projection of a vault_secrets row — safe to
-// list, log, or serialize as --json output. It never carries the secret
-// value; only DecryptEntry does, and only when explicitly called.
+// list, log, or serialize as --json output. It never carries field names or
+// values; only DecryptFields does, and only when explicitly called.
 type Entry struct {
-	ID        string `json:"id"`
-	ProfileID string `json:"profile_id"`
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Username  string `json:"username,omitempty"`
-	URL       string `json:"url,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID         string `json:"id"`
+	ProfileID  string `json:"profile_id"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Username   string `json:"username,omitempty"`
+	URL        string `json:"url,omitempty"`
+	FieldCount int    `json:"field_count"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
-// Add creates a new vault_secrets entry, encrypting value (and notes, if
-// given) under the vault's DEK before storage.
-func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username, url, notes string) (string, error) {
+// Add creates a new vault_secrets entry, encrypting fields (as one
+// JSON-encoded blob) and notes, if given, under the vault's DEK before
+// storage. fields must contain at least one non-empty key.
+func Add(ctx context.Context, db *sql.DB, profileID, kind, name string, fields map[string]string, username, url, notes string) (string, error) {
 	if kind != "secret" && kind != "login" {
 		return "", fmt.Errorf("secrets.Add: invalid kind %q, must be \"secret\" or \"login\"", kind)
+	}
+	if len(fields) == 0 {
+		return "", fmt.Errorf("secrets.Add: at least one field is required")
+	}
+	for k := range fields {
+		if k == "" {
+			return "", fmt.Errorf("secrets.Add: field keys must not be empty")
+		}
 	}
 
 	dek, err := getOrCreateDEK(ctx, db)
 	if err != nil {
 		return "", fmt.Errorf("secrets.Add: %w", err)
 	}
-	ciphertext, nonce, err := Encrypt(dek, []byte(value))
+	fieldsJSON, err := json.Marshal(fields)
 	if err != nil {
-		return "", fmt.Errorf("secrets.Add: encrypting value: %w", err)
+		return "", fmt.Errorf("secrets.Add: marshaling fields: %w", err)
+	}
+	ciphertext, nonce, err := Encrypt(dek, fieldsJSON)
+	if err != nil {
+		return "", fmt.Errorf("secrets.Add: encrypting fields: %w", err)
 	}
 
 	var notesCiphertext, notesNonce []byte
@@ -46,13 +62,8 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username
 	}
 
 	// Take a dedicated connection and open an IMMEDIATE transaction so the
-	// write lock is acquired up front. database/sql's default BeginTx starts
-	// a DEFERRED (reader) transaction under SQLite, which lets two
-	// concurrent Adds both read the same MAX(seq) and race on the same
-	// id/seq; the loser's INSERT then fails on the primary key. BEGIN
-	// IMMEDIATE serializes seq allocation across connections/processes
-	// (waiting up to busy_timeout for a concurrent writer) — same pattern as
-	// vault.Register (internal/vault/vault.go).
+	// write lock is acquired up front — see vault.Register
+	// (internal/vault/vault.go) for why BEGIN IMMEDIATE is required here.
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return "", fmt.Errorf("secrets.Add: get conn: %w", err)
@@ -65,7 +76,6 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username
 	committed := false
 	defer func() {
 		if !committed {
-			// Use a fresh context so rollback still runs if ctx was cancelled.
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
@@ -78,9 +88,9 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	_, err = conn.ExecContext(ctx, `
-		INSERT INTO vault_secrets (id, seq, profile_id, kind, name, username, url, ciphertext, nonce, notes_ciphertext, notes_nonce, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, seq, profileID, kind, name, nullStr(username), nullStr(url), ciphertext, nonce, notesCiphertext, notesNonce, now, now,
+		INSERT INTO vault_secrets (id, seq, profile_id, kind, name, username, url, ciphertext, nonce, notes_ciphertext, notes_nonce, created_at, updated_at, kv, field_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+		id, seq, profileID, kind, name, nullStr(username), nullStr(url), ciphertext, nonce, notesCiphertext, notesNonce, now, now, len(fields),
 	)
 	if err != nil {
 		return "", fmt.Errorf("secrets.Add: insert: %w", err)
@@ -92,36 +102,130 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name, value, username
 	return id, nil
 }
 
-// DecryptEntry returns the plaintext secret value for id. This is the only
-// function in the package that returns plaintext, and it is called
-// exclusively by the CLI's `secret reveal --reveal` command and the Wails
-// RevealSecret method.
-func DecryptEntry(ctx context.Context, db *sql.DB, profileID, id string) (string, error) {
+// DecryptFields returns the decrypted field map and notes text for id, in
+// one DEK fetch. This and Update are the only functions in this package
+// that ever return or accept plaintext field values.
+func DecryptFields(ctx context.Context, db *sql.DB, profileID, id string) (map[string]string, string, error) {
 	dek, err := getOrCreateDEK(ctx, db)
 	if err != nil {
-		return "", fmt.Errorf("secrets.DecryptEntry: %w", err)
+		return nil, "", fmt.Errorf("secrets.DecryptFields: %w", err)
 	}
-	var ciphertext, nonce []byte
+	var ciphertext, nonce, notesCiphertext, notesNonce []byte
 	err = db.QueryRowContext(ctx,
-		`SELECT ciphertext, nonce FROM vault_secrets WHERE id = ? AND profile_id = ?`, id, profileID,
-	).Scan(&ciphertext, &nonce)
+		`SELECT ciphertext, nonce, notes_ciphertext, notes_nonce FROM vault_secrets WHERE id = ? AND profile_id = ?`, id, profileID,
+	).Scan(&ciphertext, &nonce, &notesCiphertext, &notesNonce)
 	if err == sql.ErrNoRows {
-		return "", fmt.Errorf("secrets.DecryptEntry: entry %q not found", id)
+		return nil, "", fmt.Errorf("secrets.DecryptFields: entry %q not found", id)
 	}
 	if err != nil {
-		return "", fmt.Errorf("secrets.DecryptEntry: %w", err)
+		return nil, "", fmt.Errorf("secrets.DecryptFields: %w", err)
 	}
-	plaintext, err := Decrypt(dek, ciphertext, nonce)
+
+	fieldsJSON, err := Decrypt(dek, ciphertext, nonce)
 	if err != nil {
-		return "", fmt.Errorf("secrets.DecryptEntry: %w", err)
+		return nil, "", fmt.Errorf("secrets.DecryptFields: %w", err)
 	}
-	return string(plaintext), nil
+	var fields map[string]string
+	if err := json.Unmarshal(fieldsJSON, &fields); err != nil {
+		return nil, "", fmt.Errorf("secrets.DecryptFields: decoding fields: %w", err)
+	}
+
+	var notes string
+	if len(notesCiphertext) > 0 {
+		notesPlain, err := Decrypt(dek, notesCiphertext, notesNonce)
+		if err != nil {
+			return nil, "", fmt.Errorf("secrets.DecryptFields: decrypting notes: %w", err)
+		}
+		notes = string(notesPlain)
+	}
+	return fields, notes, nil
+}
+
+// Update applies a partial update to entry id: a nil pointer leaves that
+// column untouched, a non-nil pointer sets it (including to ""). fields, if
+// non-nil, replaces the entire field map; nil leaves the fields blob
+// untouched. Re-encrypts whichever of fields/notes changed under the
+// vault's DEK, same as Add.
+func Update(ctx context.Context, db *sql.DB, profileID, id string, name, username, url, notes *string, fields map[string]string) error {
+	if name != nil && *name == "" {
+		return fmt.Errorf("secrets.Update: name must not be empty")
+	}
+	if fields != nil {
+		if len(fields) == 0 {
+			return fmt.Errorf("secrets.Update: at least one field is required")
+		}
+		for k := range fields {
+			if k == "" {
+				return fmt.Errorf("secrets.Update: field keys must not be empty")
+			}
+		}
+	}
+
+	var dek []byte
+	if notes != nil || fields != nil {
+		var err error
+		dek, err = getOrCreateDEK(ctx, db)
+		if err != nil {
+			return fmt.Errorf("secrets.Update: %w", err)
+		}
+	}
+
+	sets := []string{"updated_at = ?"}
+	args := []interface{}{time.Now().UTC().Format(time.RFC3339)}
+
+	if name != nil {
+		sets = append(sets, "name = ?")
+		args = append(args, *name)
+	}
+	if username != nil {
+		sets = append(sets, "username = ?")
+		args = append(args, nullStr(*username))
+	}
+	if url != nil {
+		sets = append(sets, "url = ?")
+		args = append(args, nullStr(*url))
+	}
+	if notes != nil {
+		var notesCiphertext, notesNonce []byte
+		if *notes != "" {
+			var err error
+			notesCiphertext, notesNonce, err = Encrypt(dek, []byte(*notes))
+			if err != nil {
+				return fmt.Errorf("secrets.Update: encrypting notes: %w", err)
+			}
+		}
+		sets = append(sets, "notes_ciphertext = ?", "notes_nonce = ?")
+		args = append(args, notesCiphertext, notesNonce)
+	}
+	if fields != nil {
+		fieldsJSON, err := json.Marshal(fields)
+		if err != nil {
+			return fmt.Errorf("secrets.Update: marshaling fields: %w", err)
+		}
+		ciphertext, nonce, err := Encrypt(dek, fieldsJSON)
+		if err != nil {
+			return fmt.Errorf("secrets.Update: encrypting fields: %w", err)
+		}
+		sets = append(sets, "ciphertext = ?", "nonce = ?", "field_count = ?")
+		args = append(args, ciphertext, nonce, len(fields))
+	}
+
+	args = append(args, id, profileID)
+	query := fmt.Sprintf(`UPDATE vault_secrets SET %s WHERE id = ? AND profile_id = ?`, strings.Join(sets, ", "))
+	res, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("secrets.Update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("secrets.Update: entry %q not found", id)
+	}
+	return nil
 }
 
 // List returns metadata for every entry under profileID — never decrypts.
 func List(ctx context.Context, db *sql.DB, profileID string) ([]Entry, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, profile_id, kind, name, COALESCE(username,''), COALESCE(url,''), created_at, updated_at
+		SELECT id, profile_id, kind, name, COALESCE(username,''), COALESCE(url,''), field_count, created_at, updated_at
 		FROM vault_secrets WHERE profile_id = ? ORDER BY seq DESC`, profileID)
 	if err != nil {
 		return nil, fmt.Errorf("secrets.List: %w", err)
@@ -131,7 +235,7 @@ func List(ctx context.Context, db *sql.DB, profileID string) ([]Entry, error) {
 	var out []Entry
 	for rows.Next() {
 		var e Entry
-		if err := rows.Scan(&e.ID, &e.ProfileID, &e.Kind, &e.Name, &e.Username, &e.URL, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.ProfileID, &e.Kind, &e.Name, &e.Username, &e.URL, &e.FieldCount, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("secrets.List: scan: %w", err)
 		}
 		out = append(out, e)

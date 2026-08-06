@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"monoagent/internal/connections"
+	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -139,6 +140,9 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	// block the CLI from starting.
 	if _, _, err := connections.EncryptPlaintextConnections(context.Background(), db.DB); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: connections migration: %v\n", err)
+	}
+	if _, _, err := secrets.MigrateFieldsToKV(context.Background(), db.DB); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: vault key-value migration: %v\n", err)
 	}
 	// Resolve active profile if not overridden on the command line.
 	if cfg.ProfileID == "" {
