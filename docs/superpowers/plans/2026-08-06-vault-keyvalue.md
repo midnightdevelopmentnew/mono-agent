@@ -1631,7 +1631,29 @@ git commit -m "feat(vault): encrypted export/import via argon2id key derivation"
 
 - [ ] **Step 1: Replace `TestSecretAddListGetReveal` in `secret_test.go`**
 
-The file's `newSecretCLITestDB`/`runSecretCmd` helpers, and every test not touched across this step and the next four (`TestSecretAdd_ReadsValueFromStdinWhenFlagOmitted`, `TestSecretAdd_RejectsInvalidKind`, `TestSecretReveal_RequiresConfirmationFlag`, `TestSecretEncryptConnections_MigratesPlaintextRow`, `TestSecretRm_DeletesEntry`), stay exactly as they are today. Replace only `TestSecretAddListGetReveal`:
+The file's `newSecretCLITestDB`/`runSecretCmd` helpers, and every test not touched across this step and the next four (`TestSecretAdd_ReadsValueFromStdinWhenFlagOmitted`, `TestSecretAdd_RejectsInvalidKind`, `TestSecretReveal_RequiresConfirmationFlag`, `TestSecretEncryptConnections_MigratesPlaintextRow`, `TestSecretRm_DeletesEntry`), stay exactly as they are today.
+
+`runSecretCmd` hardcodes `JSONOutput: true` (it's the pre-existing helper, unchanged) — every call through it gets JSON output regardless of what CLI args are passed, and it builds `newSecretCmd(cfg)` standalone rather than mounted under the real root command, so a *literal* `"--json"` string in the args list would fail with "unknown flag: --json" (`--json` is only registered as a persistent flag on the real root in `root.go`, which this standalone tree never inherits). Add a second helper right below it for tests that need to see the human-readable text-mode output instead:
+
+```go
+// runSecretCmdText is runSecretCmd's JSONOutput:false counterpart, for
+// tests that verify the reveal/update commands' human-readable text output
+// rather than their --json shape. Never pass a literal "--json" arg to
+// either helper — JSON-ness is controlled by which helper you call, not by
+// the args list.
+func runSecretCmdText(t *testing.T, dbPath string, args ...string) (string, error) {
+	t.Helper()
+	cfg := &globalConfig{DBPath: dbPath, JSONOutput: false}
+	cmd := newSecretCmd(cfg)
+	cmd.SetArgs(args)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := cmd.Execute()
+	return out.String(), err
+}
+```
+
+Then replace `TestSecretAddListGetReveal` — its reveal assertion now goes through `runSecretCmdText` to see the bare-value text format, not the JSON `runSecretCmd` would force:
 
 ```go
 func TestSecretAddListGetReveal(t *testing.T) {
@@ -1661,7 +1683,7 @@ func TestSecretAddListGetReveal(t *testing.T) {
 		t.Fatal("secret get must never return the plaintext value")
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "openai-key", "--reveal")
+	revealOut, err := runSecretCmdText(t, dbPath, "reveal", "openai-key", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
@@ -1684,7 +1706,7 @@ func TestSecretAdd_MultipleFields(t *testing.T) {
 		t.Fatalf("secret add: %v", err)
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal")
+	revealOut, err := runSecretCmdText(t, dbPath, "reveal", "svc-multi", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
@@ -1692,7 +1714,8 @@ func TestSecretAdd_MultipleFields(t *testing.T) {
 		t.Fatalf("expected key: value lines for a multi-field entry, got: %s", revealOut)
 	}
 
-	jsonOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal", "--json")
+	// runSecretCmd already forces JSONOutput:true — no literal "--json" arg needed or accepted.
+	jsonOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal --json: %v", err)
 	}
@@ -1740,7 +1763,7 @@ func TestSecretUpdate_ChangesOnlyGivenFlags(t *testing.T) {
 		t.Fatalf("expected username updated to bob, got: %s", listOut)
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-login", "--reveal")
+	revealOut, err := runSecretCmdText(t, dbPath, "reveal", "svc-login", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
@@ -1759,7 +1782,8 @@ func TestSecretUpdate_ReplacesFieldsWhenFieldFlagGiven(t *testing.T) {
 		t.Fatalf("secret update: %v", err)
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal", "--json")
+	// runSecretCmd already forces JSONOutput:true — no literal "--json" arg needed or accepted.
+	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
@@ -2065,10 +2089,17 @@ func newSecretGetCmd(cfg *globalConfig) *cobra.Command {
 		},
 	}
 }
+```
+
+Add this constant to the same file, right after `newSecretGetCmd` — it is what that command's `ref := workflowRefPrefix + e.Name` line above refers to (`workflowRefPrefix` duplicates `internal/secrets/resolve.go`'s own `secretRefPrefix` constant as a plain string here, since nothing else in the CLI needs it exported from that package):
+
+```go
+const workflowRefPrefix = "@secret:"
+```
 
 - [ ] **Step 10: Append the reveal command — stub**
 
-Add this next in the same file (position within the file does not matter to Go — this lands logically between `newSecretGetCmd` and the `workflowRefPrefix` constant below, which is fine). Its name stays `newRevealCmd` rather than following the `newSecret*Cmd` pattern the sibling constructors use — a deliberate, minor exception to keep this one identifier distinct from the others:
+Add this next in the same file, after the `workflowRefPrefix` constant above (position within the file does not matter to Go). Its name stays `newRevealCmd` rather than following the `newSecret*Cmd` pattern the sibling constructors use — a deliberate, minor exception to keep this one identifier distinct from the others:
 
 ```go
 func newRevealCmd(cfg *globalConfig) *cobra.Command {
@@ -2894,8 +2925,15 @@ func (a *App) ExportVaultAll() (*VaultExportResult, error) {
 	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "Export Vault",
 		DefaultFilename: "vault-export.json.enc",
+		// Single extension only: Wails' macOS dialog resolves each ";"-separated
+		// Pattern entry via UTType typeWithFilenameExtension:, which returns nil
+		// for a compound extension like "json.enc" (embedded dot) — and Wails
+		// inserts that nil into an NSMutableArray unguarded, crashing the app
+		// (NSInvalidArgumentException: object cannot be nil). "*.enc" alone still
+		// matches "vault-export.json.enc" since macOS resolves UTType from the
+		// final extension.
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Vault export", Pattern: "*.enc;*.json.enc"},
+			{DisplayName: "Vault export", Pattern: "*.enc"},
 		},
 	})
 	if err != nil {
@@ -2920,8 +2958,11 @@ func (a *App) ExportVaultAll() (*VaultExportResult, error) {
 func (a *App) OpenVaultImportFilePicker() string {
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Import Vault",
+		// Single extension only — see the matching comment on ExportVaultAll's
+		// SaveFileDialog Filters above; OpenFileDialog has the identical
+		// unguarded nil-UTType crash for compound extensions.
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Vault export", Pattern: "*.enc;*.json.enc"},
+			{DisplayName: "Vault export", Pattern: "*.enc"},
 		},
 	})
 	if err != nil {
@@ -3587,6 +3628,7 @@ Continue the same `return (...)` — this is the opening of the component's rend
 
       {editingEntry && (
         <VaultItemModal
+          key={editingEntry.name}
           entry={editingEntry}
           onClose={() => setEditingEntry(null)}
           onSaved={() => { setEditingEntry(null); load() }}
@@ -3637,6 +3679,11 @@ Continue the same `return (...)` — this is the opening of the component's rend
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <form onSubmit={handleImportSubmit} style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 380, maxWidth: '90%', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Import Vault</div>
+            {error && (
+              <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
+                {error}
+              </div>
+            )}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8' }}>{importPath}</div>
             <input
               type="password"
@@ -3670,6 +3717,11 @@ Continue the same `return (...)` — this is the opening of the component's rend
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <div style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 340, maxWidth: '90%' }}>
             <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Import Complete</div>
+            {error && (
+              <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
+                {error}
+              </div>
+            )}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>
               Imported {importResult.imported}, skipped {importResult.skipped} duplicate{importResult.skipped === 1 ? '' : 's'}.
             </div>
@@ -3732,27 +3784,31 @@ Expected: succeeds (repeat of Task 9 Step 6, confirming nothing regressed since)
 
 - [ ] **Step 3: Manual CLI smoke test**
 
-Run this sequence and confirm each line of output matches the comment above it:
+Run this sequence and confirm each line of output matches the comment above it. Every command below is scoped to a throwaway `--db-path` — none of it touches your real `~/.monoagent/monoagent.db` (the CLI's own default), so nothing here can duplicate, clutter, or otherwise affect your actual stored secrets/profiles. `--profile smoke-test` also needs that profile to exist first (`--profile` on a non-existent name errors rather than auto-creating one), hence the explicit `profile create` step below:
 
 ```bash
-bin/monoagentcli secret add --kind secret --name test-aws --field access_key_id=id-value-1 --field secret_access_key=key-value-2
+SMOKE_DIR=$(mktemp -d)
+SMOKE_DB="$SMOKE_DIR/smoke-test.db"
 
-bin/monoagentcli secret list
+bin/monoagentcli --db-path "$SMOKE_DB" secret add --kind secret --name test-aws --field access_key_id=id-value-1 --field secret_access_key=key-value-2
 
-bin/monoagentcli secret reveal test-aws --reveal
+bin/monoagentcli --db-path "$SMOKE_DB" secret list
 
-bin/monoagentcli secret reveal test-aws --reveal --json
+bin/monoagentcli --db-path "$SMOKE_DB" secret reveal test-aws --reveal
 
-bin/monoagentcli secret update test-aws --notes "rotated 2026-08-06"
-bin/monoagentcli secret reveal test-aws --reveal --json
+bin/monoagentcli --db-path "$SMOKE_DB" secret reveal test-aws --reveal --json
 
-bin/monoagentcli secret export --output /tmp/vault-smoke-test.json.enc
-bin/monoagentcli --profile smoke-test secret import /tmp/vault-smoke-test.json.enc
-bin/monoagentcli --profile smoke-test secret list
-bin/monoagentcli --profile smoke-test secret reveal test-aws --reveal
+bin/monoagentcli --db-path "$SMOKE_DB" secret update test-aws --notes "rotated 2026-08-06"
+bin/monoagentcli --db-path "$SMOKE_DB" secret reveal test-aws --reveal --json
 
-bin/monoagentcli secret rm test-aws
-rm /tmp/vault-smoke-test.json.enc
+bin/monoagentcli --db-path "$SMOKE_DB" secret export --output "$SMOKE_DIR/vault-smoke-test.json.enc"
+bin/monoagentcli --db-path "$SMOKE_DB" profile create smoke-test
+bin/monoagentcli --db-path "$SMOKE_DB" --profile smoke-test secret import "$SMOKE_DIR/vault-smoke-test.json.enc"
+bin/monoagentcli --db-path "$SMOKE_DB" --profile smoke-test secret list
+bin/monoagentcli --db-path "$SMOKE_DB" --profile smoke-test secret reveal test-aws --reveal
+
+bin/monoagentcli --db-path "$SMOKE_DB" secret rm test-aws
+rm -rf "$SMOKE_DIR"
 ```
 
 Expected, line by line: the `add` succeeds and prints a JSON id/name pair; `list` shows `test-aws` with `field_count: 2`; the first `reveal` prints two `key: value` lines (sorted); the `--json` reveal prints a `fields`/`notes` object; after `update --notes`, the fields are unchanged (still both keys) and the notes text is new; `export` writes the file and prints a passphrase to stderr plus a `path`/`passphrase` JSON pair to stdout; pasting that passphrase into the `import` prompt reports `imported: 1, skipped: 0`; the imported profile's `list`/`reveal` show the same entry and fields; `rm` deletes it. If any step's output does not match, stop and fix it before proceeding — this is the first point the whole CLI surface has been exercised end-to-end by a human rather than by `runSecretCmd` in-process.
@@ -3777,14 +3833,3 @@ If any of these deviate from the description, note exactly what happened (screen
 - [ ] **Step 5: Final commit (only if Steps 3-4 required fixes)**
 
 If manual verification in Steps 3-4 required any code changes, stage and commit them now with a message describing what was fixed. If no fixes were needed, this task has nothing further to commit — Tasks 1-9's commits already cover the full implementation.
-
-
-// workflowRefPrefix mirrors internal/secrets/resolve.go's own
-// secretRefPrefix constant byte-for-byte (that file's Resolve is what
-// actually interprets this prefix) — duplicated here as a plain string
-// rather than exported from the secrets package, since nothing else in the
-// CLI needs it.
-const workflowRefPrefix = "@secret:"
-```
-
----
