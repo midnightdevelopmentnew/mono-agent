@@ -278,6 +278,43 @@ func TestSecretAdd_RejectsValueAndFieldTogether(t *testing.T) {
 	}
 }
 
+func TestSecretAdd_RejectsDuplicateFieldKey(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	_, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "x", "--field", "a=1", "--field", "a=2")
+	if err == nil {
+		t.Fatal("expected error for a duplicate --field key")
+	}
+	if !strings.Contains(err.Error(), "duplicate field key") {
+		t.Fatalf("expected error to mention duplicate field key, got: %v", err)
+	}
+
+	listOut, err := runSecretCmd(t, dbPath, "list")
+	if err != nil {
+		t.Fatalf("secret list: %v", err)
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal([]byte(listOut), &entries); err != nil {
+		t.Fatalf("unmarshal list output: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no entry to be created when --field keys collide, got %d", len(entries))
+	}
+}
+
+func TestSecretUpdate_RejectsDuplicateFieldKey(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	if _, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "svc-multi", "--value", "v-old1"); err != nil {
+		t.Fatalf("secret add: %v", err)
+	}
+	_, err := runSecretCmd(t, dbPath, "update", "svc-multi", "--field", "a=1", "--field", "a=2")
+	if err == nil {
+		t.Fatal("expected error for a duplicate --field key")
+	}
+	if !strings.Contains(err.Error(), "duplicate field key") {
+		t.Fatalf("expected error to mention duplicate field key, got: %v", err)
+	}
+}
+
 func TestSecretUpdate_ChangesOnlyGivenFlags(t *testing.T) {
 	dbPath := newSecretCLITestDB(t)
 	if _, err := runSecretCmd(t, dbPath, "add", "--kind", "login", "--name", "svc-login", "--username", "alice", "--url", "https://example.test", "--value", "p-one1"); err != nil {

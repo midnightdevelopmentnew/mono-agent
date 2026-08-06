@@ -70,6 +70,9 @@ func parseFieldFlags(fieldFlags []string) (map[string]string, error) {
 		if k == "" {
 			return nil, fmt.Errorf("invalid --field %q: key must not be empty", f)
 		}
+		if _, exists := fields[k]; exists {
+			return nil, fmt.Errorf("duplicate field key %q", k)
+		}
 		fields[k] = v
 	}
 	return fields, nil
