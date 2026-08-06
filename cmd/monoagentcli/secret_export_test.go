@@ -22,12 +22,17 @@ func TestSecretExportImport_RoundTrip(t *testing.T) {
 	var exportResult struct {
 		Path       string `json:"path"`
 		Passphrase string `json:"passphrase"`
+		Exported   int    `json:"exported"`
+		Skipped    int    `json:"skipped"`
 	}
 	if err := json.Unmarshal([]byte(exportOut), &exportResult); err != nil {
 		t.Fatalf("unmarshal export output: %v", err)
 	}
 	if exportResult.Passphrase == "" {
 		t.Fatal("expected a non-empty generated passphrase")
+	}
+	if exportResult.Exported != 1 || exportResult.Skipped != 0 {
+		t.Fatalf("expected 1 exported, 0 skipped, got %+v", exportResult)
 	}
 	if _, err := os.Stat(exportPath); err != nil {
 		t.Fatalf("expected export file to exist: %v", err)

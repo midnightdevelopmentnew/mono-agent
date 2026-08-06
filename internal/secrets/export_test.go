@@ -64,9 +64,12 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	}
 
 	exportPW := "pw-correct1"
-	data, err := Export(ctx, db.DB, "default", exportPW)
+	data, exported, skipped, err := Export(ctx, db.DB, "default", exportPW)
 	if err != nil {
 		t.Fatalf("Export: %v", err)
+	}
+	if exported != 2 || skipped != 0 {
+		t.Fatalf("expected 2 exported, 0 skipped, got exported=%d skipped=%d", exported, skipped)
 	}
 	if len(data) == 0 {
 		t.Fatal("expected non-empty export data")
@@ -101,13 +104,60 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestExport_SkipsEntryThatFailsToDecrypt covers an unmigrated legacy row
+// (see insertLegacyRow in migrate_kv_test.go) sitting alongside normal
+// entries: its ciphertext decrypts fine as raw bytes but isn't valid JSON,
+// so DecryptFields fails on it specifically. Export must skip just that
+// entry — not abort the whole export — and report accurate exported/skipped
+// counts, with the bad entry excluded from the resulting payload.
+func TestExport_SkipsEntryThatFailsToDecrypt(t *testing.T) {
+	db := newExportTestDB(t)
+	ctx := context.Background()
+
+	if _, err := Add(ctx, db.DB, "default", "secret", "good-one", map[string]string{"secret": "v-good1"}, "", "", ""); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	insertLegacyRow(t, db, "sec-legacy", "secret", "legacy-broken", "not-json-plaintext")
+	if _, err := Add(ctx, db.DB, "default", "secret", "good-two", map[string]string{"secret": "v-good2"}, "", "", ""); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	data, exported, skipped, err := Export(ctx, db.DB, "default", "pw-correct1")
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if exported != 2 || skipped != 1 {
+		t.Fatalf("expected 2 exported, 1 skipped, got exported=%d skipped=%d", exported, skipped)
+	}
+
+	// The payload itself must only contain the two decryptable entries.
+	db2 := newExportTestDB(t)
+	imported, importSkipped, err := Import(context.Background(), db2.DB, "default", "pw-correct1", data)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if imported != 2 || importSkipped != 0 {
+		t.Fatalf("expected 2 imported into a fresh vault, 0 skipped, got imported=%d skipped=%d", imported, importSkipped)
+	}
+	entries, err := List(context.Background(), db2.DB, "default")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries after import, got %d", len(entries))
+	}
+	if findEntryID(entries, "legacy-broken") != "" {
+		t.Fatal("expected the undecryptable legacy entry to be excluded from the export")
+	}
+}
+
 func TestImport_WrongPassphraseFails(t *testing.T) {
 	db := newExportTestDB(t)
 	ctx := context.Background()
 	if _, err := Add(ctx, db.DB, "default", "secret", "e1", map[string]string{"secret": "v-one1"}, "", "", ""); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	data, err := Export(ctx, db.DB, "default", "pw-correct1")
+	data, _, _, err := Export(ctx, db.DB, "default", "pw-correct1")
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
@@ -124,7 +174,7 @@ func TestImport_SkipsDuplicateNames(t *testing.T) {
 	if _, err := Add(ctx, db.DB, "default", "secret", "shared", map[string]string{"secret": "v-one1"}, "", "", ""); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	data, err := Export(ctx, db.DB, "default", "pw-correct1")
+	data, _, _, err := Export(ctx, db.DB, "default", "pw-correct1")
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}

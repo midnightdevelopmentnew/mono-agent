@@ -41,7 +41,7 @@ func newSecretExportCmd(cfg *globalConfig) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("generating export passphrase: %w", err)
 			}
-			data, err := secrets.Export(cmd.Context(), db.DB, profileID, passphrase)
+			data, exported, skipped, err := secrets.Export(cmd.Context(), db.DB, profileID, passphrase)
 			if err != nil {
 				return fmt.Errorf("exporting vault: %w", err)
 			}
@@ -51,11 +51,12 @@ func newSecretExportCmd(cfg *globalConfig) *cobra.Command {
 
 			fmt.Fprintf(os.Stderr, "Vault exported to %s\n", path)
 			fmt.Fprintf(os.Stderr, "Passphrase (save this now, it will not be shown again): %s\n", passphrase)
+			fmt.Fprintf(os.Stderr, "Exported %d, skipped %d that could not be decrypted.\n", exported, skipped)
 
 			if cfg.JSONOutput {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				return enc.Encode(map[string]string{"path": path, "passphrase": passphrase})
+				return enc.Encode(map[string]interface{}{"path": path, "passphrase": passphrase, "exported": exported, "skipped": skipped})
 			}
 			return nil
 		},

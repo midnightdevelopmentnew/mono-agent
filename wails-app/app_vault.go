@@ -115,10 +115,14 @@ type VaultFieldsAndNotes struct {
 
 // VaultExportResult mirrors the CLI export command's --json output shape,
 // plus a GUI-only Cancelled flag set when the user dismisses the save
-// dialog.
+// dialog. Skipped counts entries that failed to decrypt (e.g. an
+// unmigrated legacy row) and were left out of the export — see
+// secrets.Export.
 type VaultExportResult struct {
 	Path       string `json:"path"`
 	Passphrase string `json:"passphrase"`
+	Exported   int    `json:"exported"`
+	Skipped    int    `json:"skipped"`
 	Cancelled  bool   `json:"cancelled,omitempty"`
 }
 

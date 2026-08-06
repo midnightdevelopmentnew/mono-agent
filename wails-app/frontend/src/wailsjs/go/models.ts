@@ -909,6 +909,8 @@ export namespace main {
 	export class VaultExportResult {
 	    path: string;
 	    passphrase: string;
+	    exported: number;
+	    skipped: number;
 	    cancelled?: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -919,6 +921,8 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.passphrase = source["passphrase"];
+	        this.exported = source["exported"];
+	        this.skipped = source["skipped"];
 	        this.cancelled = source["cancelled"];
 	    }
 	}

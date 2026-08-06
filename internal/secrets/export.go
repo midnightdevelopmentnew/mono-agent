@@ -86,11 +86,15 @@ func GenerateExportPassword() (string, error) {
 
 // Export builds the encrypted export payload for every entry under
 // profileID, protected by passphrase. Returns the JSON bytes to write to a
-// file (see exportEnvelope).
-func Export(ctx context.Context, db *sql.DB, profileID, passphrase string) ([]byte, error) {
+// file (see exportEnvelope), plus how many entries made it into the
+// payload. An entry that fails to decrypt (e.g. an unmigrated legacy row —
+// see MigrateFieldsToKV — or otherwise corrupted ciphertext) is logged to
+// stderr and skipped rather than aborting the whole export, mirroring
+// Import's and MigrateFieldsToKV's per-entry failure handling.
+func Export(ctx context.Context, db *sql.DB, profileID, passphrase string) (data []byte, exported, skipped int, err error) {
 	entries, err := List(ctx, db, profileID)
 	if err != nil {
-		return nil, fmt.Errorf("secrets.Export: listing entries: %w", err)
+		return nil, 0, 0, fmt.Errorf("secrets.Export: listing entries: %w", err)
 	}
 
 	payload := exportPayload{
@@ -98,30 +102,33 @@ func Export(ctx context.Context, db *sql.DB, profileID, passphrase string) ([]by
 		ProfileID:  profileID,
 	}
 	for _, e := range entries {
-		fields, notes, err := DecryptFields(ctx, db, profileID, e.ID)
-		if err != nil {
-			return nil, fmt.Errorf("secrets.Export: decrypting %q: %w", e.Name, err)
+		fields, notes, decErr := DecryptFields(ctx, db, profileID, e.ID)
+		if decErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: skipping export of %q: %v\n", e.Name, decErr)
+			skipped++
+			continue
 		}
 		payload.Entries = append(payload.Entries, exportEntry{
 			Kind: e.Kind, Name: e.Name, Username: e.Username, URL: e.URL,
 			Notes: notes, Fields: fields,
 			CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
 		})
+		exported++
 	}
 
 	plaintext, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("secrets.Export: marshaling payload: %w", err)
+		return nil, 0, 0, fmt.Errorf("secrets.Export: marshaling payload: %w", err)
 	}
 
 	salt := make([]byte, exportSaltSize)
 	if _, err := rand.Read(salt); err != nil {
-		return nil, fmt.Errorf("secrets.Export: generating salt: %w", err)
+		return nil, 0, 0, fmt.Errorf("secrets.Export: generating salt: %w", err)
 	}
 	key := argon2.IDKey([]byte(passphrase), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
 	ciphertext, nonce, err := Encrypt(key, plaintext)
 	if err != nil {
-		return nil, fmt.Errorf("secrets.Export: encrypting: %w", err)
+		return nil, 0, 0, fmt.Errorf("secrets.Export: encrypting: %w", err)
 	}
 
 	envelope := exportEnvelope{
@@ -130,9 +137,9 @@ func Export(ctx context.Context, db *sql.DB, profileID, passphrase string) ([]by
 	}
 	out, err := json.MarshalIndent(envelope, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("secrets.Export: marshaling envelope: %w", err)
+		return nil, 0, 0, fmt.Errorf("secrets.Export: marshaling envelope: %w", err)
 	}
-	return out, nil
+	return out, exported, skipped, nil
 }
 
 // Import decrypts fileData (an exportEnvelope produced by Export) with
