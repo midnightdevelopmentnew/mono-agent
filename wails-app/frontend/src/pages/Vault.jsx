@@ -342,6 +342,11 @@ export default function Vault() {
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <form onSubmit={handleImportSubmit} style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 380, maxWidth: '90%', display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Import Vault</div>
+            {error && (
+              <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
+                {error}
+              </div>
+            )}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8' }}>{importPath}</div>
             <input
               type="password"
@@ -375,6 +380,11 @@ export default function Vault() {
         <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
           <div style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 340, maxWidth: '90%' }}>
             <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Import Complete</div>
+            {error && (
+              <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
+                {error}
+              </div>
+            )}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>
               Imported {importResult.imported}, skipped {importResult.skipped} duplicate{importResult.skipped === 1 ? '' : 's'}.
             </div>
