@@ -44,6 +44,22 @@ func runSecretCmd(t *testing.T, dbPath string, args ...string) (string, error) {
 	return out.String(), err
 }
 
+// runSecretCmdText is runSecretCmd's JSONOutput:false counterpart, for
+// tests that verify the reveal/update commands' human-readable text output
+// rather than their --json shape. Never pass a literal "--json" arg to
+// either helper — JSON-ness is controlled by which helper you call, not by
+// the args list.
+func runSecretCmdText(t *testing.T, dbPath string, args ...string) (string, error) {
+	t.Helper()
+	cfg := &globalConfig{DBPath: dbPath, JSONOutput: false}
+	cmd := newSecretCmd(cfg)
+	cmd.SetArgs(args)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := cmd.Execute()
+	return out.String(), err
+}
+
 func TestSecretAddListGetReveal(t *testing.T) {
 	dbPath := newSecretCLITestDB(t)
 
@@ -71,7 +87,7 @@ func TestSecretAddListGetReveal(t *testing.T) {
 		t.Fatal("secret get must never return the plaintext value")
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "openai-key", "--reveal")
+	revealOut, err := runSecretCmdText(t, dbPath, "reveal", "openai-key", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
@@ -229,7 +245,7 @@ func TestSecretAdd_MultipleFields(t *testing.T) {
 		t.Fatalf("secret add: %v", err)
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal")
+	revealOut, err := runSecretCmdText(t, dbPath, "reveal", "svc-multi", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
@@ -237,7 +253,8 @@ func TestSecretAdd_MultipleFields(t *testing.T) {
 		t.Fatalf("expected key: value lines for a multi-field entry, got: %s", revealOut)
 	}
 
-	jsonOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal", "--json")
+	// runSecretCmd already forces JSONOutput:true — no literal "--json" arg needed or accepted.
+	jsonOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal --json: %v", err)
 	}
@@ -279,7 +296,7 @@ func TestSecretUpdate_ChangesOnlyGivenFlags(t *testing.T) {
 		t.Fatalf("expected username updated to bob, got: %s", listOut)
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-login", "--reveal")
+	revealOut, err := runSecretCmdText(t, dbPath, "reveal", "svc-login", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
@@ -298,7 +315,8 @@ func TestSecretUpdate_ReplacesFieldsWhenFieldFlagGiven(t *testing.T) {
 		t.Fatalf("secret update: %v", err)
 	}
 
-	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal", "--json")
+	// runSecretCmd already forces JSONOutput:true — no literal "--json" arg needed or accepted.
+	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal")
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
