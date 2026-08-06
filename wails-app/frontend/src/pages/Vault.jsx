@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Eye, EyeOff, KeyRound } from 'lucide-react'
+import { Plus, Trash2, KeyRound, Download, Upload, Copy } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { confirm } from '../components/ConfirmDialog.jsx'
+import KeyValueFields, { newRow, rowsToFields } from '../components/KeyValueFields.jsx'
+import VaultItemModal from '../components/VaultItemModal.jsx'
 
 const fmtDate = (s) => {
   if (!s) return '—'
@@ -16,22 +18,38 @@ const KIND_COLORS = {
 }
 const kindBadge = (kind) => {
   const s = KIND_COLORS[kind] || { bg: '#1a2332', border: '#334', color: '#64748b' }
+  const label = kind === 'secret' ? 'keys' : kind
   return (
     <span style={{
       background: s.bg, border: `1px solid ${s.border}`, borderRadius: 3,
       padding: '1px 6px', fontFamily: 'var(--font-mono)', fontSize: 9, color: s.color,
-    }}>{kind}</span>
+    }}>{label}</span>
   )
 }
 
-const EMPTY_FORM = { kind: 'secret', name: '', value: '', username: '', url: '', notes: '' }
+const inputStyle = {
+  background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
+  padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11,
+}
+const headerBtnStyle = {
+  background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)',
+  borderRadius: 6, padding: '6px 12px', color: '#00b4d8',
+  fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
+  display: 'flex', alignItems: 'center', gap: 5,
+}
+
+const emptyForm = () => ({ kind: 'secret', name: '', fields: [newRow('secret', '')], username: '', url: '', notes: '' })
 
 export default function Vault() {
   const [entries, setEntries] = useState([])
-  const [revealed, setRevealed] = useState({})
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [form, setForm] = useState(emptyForm())
   const [error, setError] = useState(null)
+  const [editingEntry, setEditingEntry] = useState(null)
+  const [exportResult, setExportResult] = useState(null)
+  const [importPath, setImportPath] = useState(null)
+  const [importPassphrase, setImportPassphrase] = useState('')
+  const [importResult, setImportResult] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -47,9 +65,14 @@ export default function Vault() {
   const handleAdd = async (e) => {
     e.preventDefault()
     setError(null)
+    const fields = rowsToFields(form.fields)
+    if (Object.keys(fields).length === 0) {
+      setError('At least one field is required.')
+      return
+    }
     try {
-      await WailsApp.AddSecret(form.kind, form.name, form.value, form.username, form.url, form.notes)
-      setForm(EMPTY_FORM)
+      await WailsApp.AddSecret(form.kind, form.name, form.username, form.url, form.notes, fields)
+      setForm(emptyForm())
       setShowAdd(false)
       load()
     } catch (e) {
@@ -57,34 +80,56 @@ export default function Vault() {
     }
   }
 
-  const handleReveal = async (id) => {
-    if (revealed[id]) {
-      setRevealed(prev => { const next = { ...prev }; delete next[id]; return next })
-      return
-    }
-    try {
-      const value = await WailsApp.RevealSecret(id)
-      setRevealed(prev => ({ ...prev, [id]: value }))
-    } catch (e) {
-      setError('Reveal failed: ' + e)
-    }
-  }
-
-  const handleDelete = async (id) => {
+  const handleDelete = async (name) => {
     if (!(await confirm('Delete this vault entry? This cannot be undone.', { title: 'Delete Vault Entry', confirmLabel: 'Delete' }))) return
     setError(null)
     try {
-      await WailsApp.DeleteSecret(id)
-      setEntries(prev => prev.filter(e => e.id !== id))
-      setRevealed(prev => { const next = { ...prev }; delete next[id]; return next })
+      await WailsApp.DeleteSecret(name)
+      setEntries(prev => prev.filter(e => e.name !== name))
     } catch (e) {
       setError('Delete failed: ' + e)
     }
   }
 
+  const handleExport = async () => {
+    setError(null)
+    try {
+      const result = await WailsApp.ExportVaultAll()
+      if (result.cancelled) return
+      setExportResult(result)
+    } catch (e) {
+      setError('Export failed: ' + e)
+    }
+  }
+
+  const handleImportPick = async () => {
+    setError(null)
+    try {
+      const path = await WailsApp.OpenVaultImportFilePicker()
+      if (!path) return
+      setImportPath(path)
+      setImportPassphrase('')
+    } catch (e) {
+      setError('Import failed: ' + e)
+    }
+  }
+
+  const handleImportSubmit = async (e) => {
+    e.preventDefault()
+    setError(null)
+    try {
+      const result = await WailsApp.ImportVaultAll(importPath, importPassphrase)
+      setImportPath(null)
+      setImportPassphrase('')
+      setImportResult(result)
+      load()
+    } catch (e) {
+      setError('Import failed: ' + e)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header */}
       <div style={{
         padding: '14px 20px 10px', borderBottom: '1px solid #0d1a26',
         display: 'flex', alignItems: 'center', gap: 12,
@@ -96,27 +141,23 @@ export default function Vault() {
           </div>
         </div>
         <div style={{ flex: 1 }} />
-        <button
-          onClick={() => setShowAdd(true)}
-          style={{
-            background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)',
-            borderRadius: 6, padding: '6px 12px', color: '#00b4d8',
-            fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 5,
-          }}
-        >
-          <Plus size={12} /> Add Secret
+        <button onClick={handleImportPick} style={headerBtnStyle}>
+          <Upload size={12} /> Import
+        </button>
+        <button onClick={handleExport} style={headerBtnStyle}>
+          <Download size={12} /> Export All
+        </button>
+        <button onClick={() => setShowAdd(true)} style={headerBtnStyle}>
+          <Plus size={12} /> Add New Item
         </button>
       </div>
 
-      {/* Error */}
       {error && (
         <div style={{ margin: '8px 20px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11, color: '#fca5a5' }}>
           {error}
         </div>
       )}
 
-      {/* Add form */}
       {showAdd && (
         <form
           onSubmit={handleAdd}
@@ -130,12 +171,9 @@ export default function Vault() {
             <select
               value={form.kind}
               onChange={e => setForm({ ...form, kind: e.target.value })}
-              style={{
-                background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
-                padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11,
-              }}
+              style={{ ...inputStyle, flex: '0 0 auto' }}
             >
-              <option value="secret">Secret</option>
+              <option value="secret">Keys</option>
               <option value="login">Login</option>
             </select>
             <input
@@ -143,10 +181,7 @@ export default function Vault() {
               value={form.name}
               onChange={e => setForm({ ...form, name: e.target.value })}
               required
-              style={{
-                flex: 1, background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
-                padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11,
-              }}
+              style={{ ...inputStyle, flex: 1 }}
             />
           </div>
           {form.kind === 'login' && (
@@ -155,47 +190,28 @@ export default function Vault() {
                 placeholder="Username"
                 value={form.username}
                 onChange={e => setForm({ ...form, username: e.target.value })}
-                style={{
-                  flex: 1, background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
-                  padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11,
-                }}
+                style={{ ...inputStyle, flex: 1 }}
               />
               <input
                 placeholder="URL"
                 value={form.url}
                 onChange={e => setForm({ ...form, url: e.target.value })}
-                style={{
-                  flex: 1, background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
-                  padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11,
-                }}
+                style={{ ...inputStyle, flex: 1 }}
               />
             </div>
           )}
-          <input
-            type="password"
-            placeholder="Value"
-            value={form.value}
-            onChange={e => setForm({ ...form, value: e.target.value })}
-            required
-            style={{
-              background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
-              padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11,
-            }}
-          />
+          <KeyValueFields rows={form.fields} onChange={f => setForm({ ...form, fields: f })} />
           <textarea
             placeholder="Notes"
             value={form.notes}
             onChange={e => setForm({ ...form, notes: e.target.value })}
             rows={2}
-            style={{
-              background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5,
-              padding: '6px 8px', color: '#e2e8f0', fontFamily: 'var(--font-mono)', fontSize: 11, resize: 'vertical',
-            }}
+            style={{ ...inputStyle, resize: 'vertical' }}
           />
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button
               type="button"
-              onClick={() => { setShowAdd(false); setForm(EMPTY_FORM) }}
+              onClick={() => { setShowAdd(false); setForm(emptyForm()) }}
               style={{
                 background: 'none', border: '1px solid #1e3a4f', borderRadius: 5,
                 padding: '6px 12px', color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
@@ -217,7 +233,6 @@ export default function Vault() {
         </form>
       )}
 
-      {/* Column headers */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 0,
         padding: '5px 20px', borderBottom: '1px solid #0a1520',
@@ -227,12 +242,11 @@ export default function Vault() {
         <div style={{ flex: 1 }}>Name</div>
         <div style={{ width: 70 }}>Kind</div>
         <div style={{ width: 110 }}>Username</div>
-        <div style={{ width: 200 }}>Value</div>
+        <div style={{ width: 90 }}>Fields</div>
         <div style={{ width: 56 }}>Updated</div>
         <div style={{ width: 28 }} />
       </div>
 
-      {/* Rows */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {entries.length === 0 && (
           <div style={{
@@ -241,15 +255,16 @@ export default function Vault() {
           }}>
             <KeyRound size={32} style={{ opacity: 0.3 }} />
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              No vault entries yet — add a secret or login above
+              No vault entries yet — add a new item above
             </div>
           </div>
         )}
         {entries.map(entry => (
           <div
             key={entry.id}
+            onClick={() => setEditingEntry(entry)}
             style={{
-              display: 'flex', alignItems: 'center', gap: 0,
+              display: 'flex', alignItems: 'center', gap: 0, cursor: 'pointer',
               padding: '6px 20px', borderBottom: '1px solid #0a1520',
             }}
           >
@@ -260,31 +275,13 @@ export default function Vault() {
             <div style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }}>
               {entry.username || '—'}
             </div>
-            <div style={{ width: 200, display: 'flex', alignItems: 'center', gap: 6, paddingRight: 8 }}>
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-              }}>
-                {revealed[entry.id] ?? '••••••••'}
-              </span>
-              <button
-                onClick={() => handleReveal(entry.id)}
-                title={revealed[entry.id] ? 'Hide' : 'Reveal'}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: '#4b5563', padding: 4, borderRadius: 3, flexShrink: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-                onMouseEnter={e => e.currentTarget.style.color = '#00b4d8'}
-                onMouseLeave={e => e.currentTarget.style.color = '#4b5563'}
-              >
-                {revealed[entry.id] ? <EyeOff size={13} /> : <Eye size={13} />}
-              </button>
+            <div style={{ width: 90, fontFamily: 'var(--font-mono)', fontSize: 11, color: '#e2e8f0' }}>
+              {entry.field_count} {entry.field_count === 1 ? 'key' : 'keys'}
             </div>
             <div style={{ width: 56, fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569' }}>{fmtDate(entry.updated_at)}</div>
             <div style={{ width: 28 }}>
               <button
-                onClick={() => handleDelete(entry.id)}
+                onClick={(e) => { e.stopPropagation(); handleDelete(entry.name) }}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
                   color: '#4b5563', padding: 4, borderRadius: 3,
@@ -299,6 +296,99 @@ export default function Vault() {
           </div>
         ))}
       </div>
+
+      {editingEntry && (
+        <VaultItemModal
+          key={editingEntry.name}
+          entry={editingEntry}
+          onClose={() => setEditingEntry(null)}
+          onSaved={() => { setEditingEntry(null); load() }}
+        />
+      )}
+
+      {exportResult && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
+          <div style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 420, maxWidth: '90%' }}>
+            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Vault Exported</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
+              Saved to {exportResult.path}. Save this now — it will not be shown again.
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: '#060b11', border: '1px solid #1e3a4f', borderRadius: 5, padding: '8px 10px', marginBottom: 14 }}>
+              <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, color: '#00b4d8', wordBreak: 'break-all' }}>
+                {exportResult.passphrase}
+              </span>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(exportResult.passphrase)}
+                title="Copy"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4b5563', padding: 4, display: 'flex' }}
+              >
+                <Copy size={13} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setExportResult(null)}
+                style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 5, padding: '6px 12px', color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importPath && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
+          <form onSubmit={handleImportSubmit} style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 380, maxWidth: '90%', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600 }}>Import Vault</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#94a3b8' }}>{importPath}</div>
+            <input
+              type="password"
+              placeholder="Export passphrase"
+              value={importPassphrase}
+              onChange={e => setImportPassphrase(e.target.value)}
+              required
+              autoFocus
+              style={inputStyle}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => { setImportPath(null); setImportPassphrase('') }}
+                style={{ background: 'none', border: '1px solid #1e3a4f', borderRadius: 5, padding: '6px 12px', color: '#94a3b8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 5, padding: '6px 12px', color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
+              >
+                Import
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {importResult && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
+          <div style={{ background: '#0d1520', border: '1px solid #1e3a4f', borderRadius: 10, padding: 20, width: 340, maxWidth: '90%' }}>
+            <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Import Complete</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>
+              Imported {importResult.imported}, skipped {importResult.skipped} duplicate{importResult.skipped === 1 ? '' : 's'}.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setImportResult(null)}
+                style={{ background: 'rgba(0,180,216,0.1)', border: '1px solid rgba(0,180,216,0.3)', borderRadius: 5, padding: '6px 12px', color: '#00b4d8', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
