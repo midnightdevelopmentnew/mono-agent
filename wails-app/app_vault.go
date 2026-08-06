@@ -221,8 +221,15 @@ func (a *App) ExportVaultAll() (*VaultExportResult, error) {
 	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "Export Vault",
 		DefaultFilename: "vault-export.json.enc",
+		// Single extension only: Wails' macOS dialog resolves each ";"-separated
+		// Pattern entry via UTType typeWithFilenameExtension:, which returns nil
+		// for a compound extension like "json.enc" (embedded dot) — and Wails
+		// inserts that nil into an NSMutableArray unguarded, crashing the app
+		// (NSInvalidArgumentException: object cannot be nil). "*.enc" alone still
+		// matches "vault-export.json.enc" since macOS resolves UTType from the
+		// final extension.
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Vault export", Pattern: "*.enc;*.json.enc"},
+			{DisplayName: "Vault export", Pattern: "*.enc"},
 		},
 	})
 	if err != nil {
@@ -243,8 +250,11 @@ func (a *App) ExportVaultAll() (*VaultExportResult, error) {
 func (a *App) OpenVaultImportFilePicker() string {
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Import Vault",
+		// Single extension only — see the matching comment on ExportVaultAll's
+		// SaveFileDialog Filters above; OpenFileDialog has the identical
+		// unguarded nil-UTType crash for compound extensions.
 		Filters: []runtime.FileFilter{
-			{DisplayName: "Vault export", Pattern: "*.enc;*.json.enc"},
+			{DisplayName: "Vault export", Pattern: "*.enc"},
 		},
 	})
 	if err != nil {
