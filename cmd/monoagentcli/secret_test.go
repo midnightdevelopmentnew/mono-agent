@@ -47,7 +47,7 @@ func runSecretCmd(t *testing.T, dbPath string, args ...string) (string, error) {
 func TestSecretAddListGetReveal(t *testing.T) {
 	dbPath := newSecretCLITestDB(t)
 
-	addOut, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "openai-key", "--value", "sk-test123")
+	addOut, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "openai-key", "--value", "v-test1")
 	if err != nil {
 		t.Fatalf("secret add: %v (%s)", err, addOut)
 	}
@@ -59,7 +59,7 @@ func TestSecretAddListGetReveal(t *testing.T) {
 	if !strings.Contains(listOut, "openai-key") {
 		t.Fatalf("expected list output to contain entry name, got: %s", listOut)
 	}
-	if strings.Contains(listOut, "sk-test123") {
+	if strings.Contains(listOut, "v-test1") {
 		t.Fatal("secret list must never contain the plaintext value")
 	}
 
@@ -67,7 +67,7 @@ func TestSecretAddListGetReveal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secret get: %v", err)
 	}
-	if strings.Contains(getOut, "sk-test123") {
+	if strings.Contains(getOut, "v-test1") {
 		t.Fatal("secret get must never return the plaintext value")
 	}
 
@@ -75,8 +75,8 @@ func TestSecretAddListGetReveal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secret reveal: %v", err)
 	}
-	if !strings.Contains(revealOut, "sk-test123") {
-		t.Fatalf("expected reveal output to contain plaintext, got: %s", revealOut)
+	if strings.TrimSpace(revealOut) != "v-test1" {
+		t.Fatalf("expected reveal of a single-field entry to print the bare value, got: %q", revealOut)
 	}
 }
 
@@ -218,5 +218,128 @@ func TestSecretRm_DeletesEntry(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("expected 0 entries after rm, got %d", len(entries))
+	}
+}
+
+func TestSecretAdd_MultipleFields(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+
+	if _, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "svc-multi",
+		"--field", "field_a=fa-one1", "--field", "field_b=fb-one1"); err != nil {
+		t.Fatalf("secret add: %v", err)
+	}
+
+	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal")
+	if err != nil {
+		t.Fatalf("secret reveal: %v", err)
+	}
+	if !strings.Contains(revealOut, "field_a: fa-one1") || !strings.Contains(revealOut, "field_b: fb-one1") {
+		t.Fatalf("expected key: value lines for a multi-field entry, got: %s", revealOut)
+	}
+
+	jsonOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal", "--json")
+	if err != nil {
+		t.Fatalf("secret reveal --json: %v", err)
+	}
+	var parsed struct {
+		Fields map[string]string `json:"fields"`
+		Notes  string            `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &parsed); err != nil {
+		t.Fatalf("unmarshal reveal --json output: %v", err)
+	}
+	if parsed.Fields["field_a"] != "fa-one1" || parsed.Fields["field_b"] != "fb-one1" {
+		t.Fatalf("unexpected fields in --json output: %+v", parsed.Fields)
+	}
+}
+
+func TestSecretAdd_RejectsValueAndFieldTogether(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	_, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "x", "--value", "v-one1", "--field", "k=v")
+	if err == nil {
+		t.Fatal("expected error when both --value and --field are given")
+	}
+}
+
+func TestSecretUpdate_ChangesOnlyGivenFlags(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	if _, err := runSecretCmd(t, dbPath, "add", "--kind", "login", "--name", "svc-login", "--username", "alice", "--url", "https://example.test", "--value", "p-one1"); err != nil {
+		t.Fatalf("secret add: %v", err)
+	}
+
+	if _, err := runSecretCmd(t, dbPath, "update", "svc-login", "--username", "bob"); err != nil {
+		t.Fatalf("secret update: %v", err)
+	}
+
+	listOut, err := runSecretCmd(t, dbPath, "list")
+	if err != nil {
+		t.Fatalf("secret list: %v", err)
+	}
+	if !strings.Contains(listOut, "\"username\": \"bob\"") {
+		t.Fatalf("expected username updated to bob, got: %s", listOut)
+	}
+
+	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-login", "--reveal")
+	if err != nil {
+		t.Fatalf("secret reveal: %v", err)
+	}
+	if strings.TrimSpace(revealOut) != "p-one1" {
+		t.Fatalf("expected fields unchanged by an update that only touched --username, got: %q", revealOut)
+	}
+}
+
+func TestSecretUpdate_ReplacesFieldsWhenFieldFlagGiven(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	if _, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "svc-multi", "--value", "v-old1"); err != nil {
+		t.Fatalf("secret add: %v", err)
+	}
+
+	if _, err := runSecretCmd(t, dbPath, "update", "svc-multi", "--field", "field_a=fa-one1", "--field", "field_b=fb-one1"); err != nil {
+		t.Fatalf("secret update: %v", err)
+	}
+
+	revealOut, err := runSecretCmd(t, dbPath, "reveal", "svc-multi", "--reveal", "--json")
+	if err != nil {
+		t.Fatalf("secret reveal: %v", err)
+	}
+	var parsed struct {
+		Fields map[string]string `json:"fields"`
+	}
+	if err := json.Unmarshal([]byte(revealOut), &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(parsed.Fields) != 2 || parsed.Fields["field_a"] != "fa-one1" {
+		t.Fatalf("expected fields fully replaced, got: %+v", parsed.Fields)
+	}
+	if _, stillThere := parsed.Fields["secret"]; stillThere {
+		t.Fatalf("expected old \"secret\" field gone, got: %+v", parsed.Fields)
+	}
+}
+
+func TestSecretUpdate_UnknownNameErrors(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	_, err := runSecretCmd(t, dbPath, "update", "does-not-exist", "--username", "x")
+	if err == nil {
+		t.Fatal("expected error updating an unknown entry name")
+	}
+}
+
+func TestSecretRm_RespectsJSONOutput(t *testing.T) {
+	dbPath := newSecretCLITestDB(t)
+	if _, err := runSecretCmd(t, dbPath, "add", "--kind", "secret", "--name", "temp", "--value", "v-one1"); err != nil {
+		t.Fatalf("secret add: %v", err)
+	}
+	out, err := runSecretCmd(t, dbPath, "rm", "temp")
+	if err != nil {
+		t.Fatalf("secret rm: %v", err)
+	}
+	var parsed struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("expected JSON output from rm (runSecretCmd always sets JSONOutput:true), got %q: %v", out, err)
+	}
+	if parsed.Name != "temp" {
+		t.Fatalf("expected name %q in rm output, got %+v", "temp", parsed)
 	}
 }
