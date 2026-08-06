@@ -114,6 +114,10 @@ export function ExportData() {
   return window['go']['main']['App']['ExportData']();
 }
 
+export function ExportVaultAll() {
+  return window['go']['main']['App']['ExportVaultAll']();
+}
+
 export function GetAIChatHistory(arg1) {
   return window['go']['main']['App']['GetAIChatHistory'](arg1);
 }
@@ -246,6 +250,10 @@ export function GetRunLogs(arg1) {
   return window['go']['main']['App']['GetRunLogs'](arg1);
 }
 
+export function GetSecretFields(arg1) {
+  return window['go']['main']['App']['GetSecretFields'](arg1);
+}
+
 export function GetSessions() {
   return window['go']['main']['App']['GetSessions']();
 }
@@ -288,6 +296,10 @@ export function GetWorkflowExecutions(arg1, arg2) {
 
 export function GetWorkflowNodeTypes() {
   return window['go']['main']['App']['GetWorkflowNodeTypes']();
+}
+
+export function ImportVaultAll(arg1, arg2) {
+  return window['go']['main']['App']['ImportVaultAll'](arg1, arg2);
 }
 
 export function IsDBConnected() {
@@ -342,6 +354,10 @@ export function OpenVaultFilePicker() {
   return window['go']['main']['App']['OpenVaultFilePicker']();
 }
 
+export function OpenVaultImportFilePicker() {
+  return window['go']['main']['App']['OpenVaultImportFilePicker']();
+}
+
 export function RejectDraftPersonMessage(arg1) {
   return window['go']['main']['App']['RejectDraftPersonMessage'](arg1);
 }
@@ -356,10 +372,6 @@ export function RemoveConnection(arg1) {
 
 export function RemovePersonTag(arg1, arg2) {
   return window['go']['main']['App']['RemovePersonTag'](arg1, arg2);
-}
-
-export function RevealSecret(arg1) {
-  return window['go']['main']['App']['RevealSecret'](arg1);
 }
 
 export function RunNode(arg1) {
@@ -440,6 +452,10 @@ export function UpdateActionParams(arg1, arg2) {
 
 export function UpdateActionState(arg1, arg2) {
   return window['go']['main']['App']['UpdateActionState'](arg1, arg2);
+}
+
+export function UpdateSecret(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['UpdateSecret'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function UpdateVaultImageLabel(arg1, arg2) {

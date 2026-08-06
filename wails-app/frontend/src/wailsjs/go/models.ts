@@ -878,6 +878,78 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class VaultEntry {
+	    id: string;
+	    profile_id: string;
+	    kind: string;
+	    name: string;
+	    username?: string;
+	    url?: string;
+	    field_count: number;
+	    created_at: string;
+	    updated_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VaultEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.profile_id = source["profile_id"];
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	        this.username = source["username"];
+	        this.url = source["url"];
+	        this.field_count = source["field_count"];
+	        this.created_at = source["created_at"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
+	export class VaultExportResult {
+	    path: string;
+	    passphrase: string;
+	    cancelled?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new VaultExportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.passphrase = source["passphrase"];
+	        this.cancelled = source["cancelled"];
+	    }
+	}
+	export class VaultFieldsAndNotes {
+	    fields: Record<string, string>;
+	    notes: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VaultFieldsAndNotes(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fields = source["fields"];
+	        this.notes = source["notes"];
+	    }
+	}
+	export class VaultImportResult {
+	    imported: number;
+	    skipped: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new VaultImportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.imported = source["imported"];
+	        this.skipped = source["skipped"];
+	    }
+	}
 	export class VersionInfo {
 	    version: string;
 	    build_date: string;
@@ -988,37 +1060,6 @@ export namespace main {
 	        this.description = source["description"];
 	        this.is_active = source["is_active"];
 	        this.version = source["version"];
-	        this.created_at = source["created_at"];
-	        this.updated_at = source["updated_at"];
-	    }
-	}
-
-}
-
-export namespace secrets {
-	
-	export class Entry {
-	    id: string;
-	    profile_id: string;
-	    kind: string;
-	    name: string;
-	    username?: string;
-	    url?: string;
-	    created_at: string;
-	    updated_at: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new Entry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.profile_id = source["profile_id"];
-	        this.kind = source["kind"];
-	        this.name = source["name"];
-	        this.username = source["username"];
-	        this.url = source["url"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];
 	    }

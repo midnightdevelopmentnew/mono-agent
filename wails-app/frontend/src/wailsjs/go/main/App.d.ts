@@ -3,7 +3,6 @@
 import {storage} from '../models';
 import {main} from '../models';
 import {connections} from '../models';
-import {secrets} from '../models';
 import {workflow} from '../models';
 
 export function AddActionTarget(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -14,7 +13,7 @@ export function AddPersonStatus(arg1:string,arg2:string):Promise<storage.PersonS
 
 export function AddPersonTag(arg1:string,arg2:string,arg3:string):Promise<main.TagInfo>;
 
-export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<string>;
+export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:Record<string, string>):Promise<string>;
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -61,6 +60,8 @@ export function DeleteWorkflow(arg1:string):Promise<void>;
 export function ExecuteAction(arg1:string):Promise<void>;
 
 export function ExportData():Promise<main.ExportResult>;
+
+export function ExportVaultAll():Promise<main.VaultExportResult>;
 
 export function GetAIChatHistory(arg1:string):Promise<string>;
 
@@ -128,6 +129,8 @@ export function GetRecentExecutions(arg1:number):Promise<Array<main.WorkflowExec
 
 export function GetRunLogs(arg1:number):Promise<Array<main.LogEntry>>;
 
+export function GetSecretFields(arg1:string):Promise<main.VaultFieldsAndNotes>;
+
 export function GetSessions():Promise<Array<main.SessionInfo>>;
 
 export function GetSocialLists():Promise<Array<main.SocialListInfo>>;
@@ -150,6 +153,8 @@ export function GetWorkflowExecutions(arg1:string,arg2:number):Promise<Array<mai
 
 export function GetWorkflowNodeTypes():Promise<Record<string, any>>;
 
+export function ImportVaultAll(arg1:string,arg2:string):Promise<main.VaultImportResult>;
+
 export function IsDBConnected():Promise<boolean>;
 
 export function ListAIProviders():Promise<string>;
@@ -164,7 +169,7 @@ export function ListPlatformsJSON(arg1:string):Promise<string>;
 
 export function ListResources(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.ResourceListResult>;
 
-export function ListSecrets():Promise<Array<secrets.Entry>>;
+export function ListSecrets():Promise<Array<main.VaultEntry>>;
 
 export function ListWorkflowTemplates():Promise<Array<workflow.Template>>;
 
@@ -176,6 +181,8 @@ export function OpenURL(arg1:string):Promise<void>;
 
 export function OpenVaultFilePicker():Promise<string>;
 
+export function OpenVaultImportFilePicker():Promise<string>;
+
 export function RejectDraftPersonMessage(arg1:string):Promise<void>;
 
 export function RejectHIL(arg1:string):Promise<void>;
@@ -183,8 +190,6 @@ export function RejectHIL(arg1:string):Promise<void>;
 export function RemoveConnection(arg1:string):Promise<string>;
 
 export function RemovePersonTag(arg1:string,arg2:string):Promise<void>;
-
-export function RevealSecret(arg1:string):Promise<string>;
 
 export function RunNode(arg1:main.NodeRunRequest):Promise<main.NodeRunResult>;
 
@@ -225,5 +230,7 @@ export function TestSession(arg1:number):Promise<string>;
 export function UpdateActionParams(arg1:string,arg2:Record<string, any>):Promise<void>;
 
 export function UpdateActionState(arg1:string,arg2:string):Promise<void>;
+
+export function UpdateSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:Record<string, string>):Promise<void>;
 
 export function UpdateVaultImageLabel(arg1:string,arg2:string):Promise<void>;

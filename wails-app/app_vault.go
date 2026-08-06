@@ -3,14 +3,16 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"monoagent/internal/secrets"
 	"monoagent/internal/vault"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -85,30 +87,181 @@ func (a *App) GetVaultImage(id string) (map[string]interface{}, error) {
 
 // ── Secrets Vault ────────────────────────────────────────────────────────────
 
-func (a *App) ListSecrets() ([]secrets.Entry, error) {
-	entries, err := secrets.List(context.Background(), a.db, a.getActiveProfileID())
+// Every method below shells out to `monoagentcli secret ...` instead of
+// calling internal/secrets directly — the CLI is the single implementation
+// surface for vault operations. This file intentionally does not import
+// monoagent/internal/secrets.
+
+// VaultEntry mirrors `secret list --json`'s per-entry shape without
+// importing internal/secrets — the CLI's --json output is the contract,
+// not its Go types.
+type VaultEntry struct {
+	ID         string `json:"id"`
+	ProfileID  string `json:"profile_id"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Username   string `json:"username,omitempty"`
+	URL        string `json:"url,omitempty"`
+	FieldCount int    `json:"field_count"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+// VaultFieldsAndNotes mirrors the CLI reveal command's --json output shape.
+type VaultFieldsAndNotes struct {
+	Fields map[string]string `json:"fields"`
+	Notes  string            `json:"notes"`
+}
+
+// VaultExportResult mirrors the CLI export command's --json output shape,
+// plus a GUI-only Cancelled flag set when the user dismisses the save
+// dialog.
+type VaultExportResult struct {
+	Path       string `json:"path"`
+	Passphrase string `json:"passphrase"`
+	Cancelled  bool   `json:"cancelled,omitempty"`
+}
+
+// VaultImportResult mirrors the CLI import command's --json output shape.
+type VaultImportResult struct {
+	Imported int `json:"imported"`
+	Skipped  int `json:"skipped"`
+}
+
+// runVaultCLI runs `monoagentcli --profile <active> --json secret <args...>`,
+// optionally piping stdin, and JSON-unmarshals stdout into result (skipped
+// if result is nil). On a non-zero exit, the subprocess's stderr becomes
+// the returned error — mirrors ExportData's existing exec.ExitError
+// handling.
+func (a *App) runVaultCLI(stdin string, result interface{}, args ...string) error {
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
+		return err
+	}
+	fullArgs := append([]string{"--profile", a.getActiveProfileID(), "--json", "secret"}, args...)
+	cmd := exec.CommandContext(a.ctx, cliBin, fullArgs...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
+		}
+		return err
+	}
+	if result == nil {
+		return nil
+	}
+	if err := json.Unmarshal(out, result); err != nil {
+		return fmt.Errorf("unexpected vault command output: %w", err)
+	}
+	return nil
+}
+
+func (a *App) ListSecrets() ([]VaultEntry, error) {
+	var entries []VaultEntry
+	if err := a.runVaultCLI("", &entries, "list"); err != nil {
 		return nil, err
 	}
 	if entries == nil {
-		entries = []secrets.Entry{}
+		entries = []VaultEntry{}
 	}
 	return entries, nil
 }
 
-func (a *App) AddSecret(kind, name, value, username, url, notes string) (string, error) {
-	return secrets.Add(context.Background(), a.db, a.getActiveProfileID(), kind, name, value, username, url, notes)
+func (a *App) AddSecret(kind, name, username, url, notes string, fields map[string]string) (string, error) {
+	args := []string{"add", "--kind", kind, "--name", name}
+	if username != "" {
+		args = append(args, "--username", username)
+	}
+	if url != "" {
+		args = append(args, "--url", url)
+	}
+	if notes != "" {
+		args = append(args, "--notes", notes)
+	}
+	for k, v := range fields {
+		args = append(args, "--field", k+"="+v)
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := a.runVaultCLI("", &result, args...); err != nil {
+		return "", err
+	}
+	return result.ID, nil
 }
 
-// RevealSecret returns the plaintext value for id. This is the GUI's only
-// decrypt entrypoint, calling the identical secrets.DecryptEntry function
-// the CLI's `secret reveal --reveal` command calls.
-func (a *App) RevealSecret(id string) (string, error) {
-	return secrets.DecryptEntry(context.Background(), a.db, a.getActiveProfileID(), id)
+func (a *App) GetSecretFields(name string) (*VaultFieldsAndNotes, error) {
+	var result VaultFieldsAndNotes
+	if err := a.runVaultCLI("", &result, "reveal", name, "--reveal"); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
-func (a *App) DeleteSecret(id string) error {
-	return secrets.Delete(context.Background(), a.db, a.getActiveProfileID(), id)
+func (a *App) UpdateSecret(name, newName, username, url, notes string, fields map[string]string) error {
+	args := []string{"update", name, "--name", newName, "--username", username, "--url", url, "--notes", notes}
+	for k, v := range fields {
+		args = append(args, "--field", k+"="+v)
+	}
+	return a.runVaultCLI("", nil, args...)
+}
+
+func (a *App) DeleteSecret(name string) error {
+	return a.runVaultCLI("", nil, "rm", name)
+}
+
+// ExportVaultAll prompts for a save location, then exports the active
+// profile's vault there. The returned passphrase is shown exactly once by
+// the caller — it is never persisted.
+func (a *App) ExportVaultAll() (*VaultExportResult, error) {
+	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export Vault",
+		DefaultFilename: "vault-export.json.enc",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Vault export", Pattern: "*.enc;*.json.enc"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if dest == "" {
+		return &VaultExportResult{Cancelled: true}, nil
+	}
+	var result VaultExportResult
+	if err := a.runVaultCLI("", &result, "export", "--output", dest); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// OpenVaultImportFilePicker opens a native file picker for a vault export
+// file and returns the selected path (empty if cancelled).
+func (a *App) OpenVaultImportFilePicker() string {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Import Vault",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Vault export", Pattern: "*.enc;*.json.enc"},
+		},
+	})
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+// ImportVaultAll decrypts path with passphrase (piped to the CLI's stdin,
+// per the design spec — never a flag) and imports every entry into the
+// active profile.
+func (a *App) ImportVaultAll(path, passphrase string) (*VaultImportResult, error) {
+	var result VaultImportResult
+	if err := a.runVaultCLI(passphrase+"\n", &result, "import", path); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // GetVaultImageData reads a vault image from disk and returns it as a base64
