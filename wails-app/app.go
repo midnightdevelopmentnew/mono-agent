@@ -102,6 +102,9 @@ func (a *App) startup(ctx context.Context) {
 	if _, _, err := secrets.MigrateFieldsToKV(ctx, db); err != nil {
 		runtime.LogErrorf(ctx, "vault key-value migration error: %v", err)
 	}
+	if _, _, err := secrets.MigrateSessionsToVault(ctx, db); err != nil {
+		runtime.LogErrorf(ctx, "sessions migration error: %v", err)
+	}
 
 	// Ensure vault directory exists.
 	vaultDir := filepath.Join(os.Getenv("HOME"), ".monoagent", "vault")

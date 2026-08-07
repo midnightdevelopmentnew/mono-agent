@@ -144,6 +144,9 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	if _, _, err := secrets.MigrateFieldsToKV(context.Background(), db.DB); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: vault key-value migration: %v\n", err)
 	}
+	if _, _, err := secrets.MigrateSessionsToVault(context.Background(), db.DB); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: sessions migration: %v\n", err)
+	}
 	// Resolve active profile if not overridden on the command line.
 	if cfg.ProfileID == "" {
 		var id string
