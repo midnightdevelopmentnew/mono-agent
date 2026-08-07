@@ -101,6 +101,7 @@ func (s *AIStore) initTables() error {
 	// if the column already exists; that error is expected and ignored.
 	s.db.Exec(`ALTER TABLE ai_chat_messages ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE ai_providers ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default'`)
+	s.db.Exec(`ALTER TABLE ai_providers ADD COLUMN vault_ref TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 

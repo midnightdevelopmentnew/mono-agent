@@ -137,6 +137,10 @@ func (s *Store) EnsureTable(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, createConnectionsTable); err != nil {
 		return err
 	}
+	// Idempotent column add for pre-existing databases: SQLite errors on a
+	// duplicate column, which is expected and ignored here — same pattern
+	// ai.AIStore.initTables already uses for its own added-later columns.
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE connections ADD COLUMN vault_ref TEXT NOT NULL DEFAULT ''`)
 	_, err := s.db.ExecContext(ctx, createRefreshLocksTable)
 	return err
 }

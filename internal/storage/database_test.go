@@ -177,3 +177,36 @@ func TestApplyMigrations_CreatesVaultSecretsTables(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyMigrations_AddsCrawlerSessionsVaultRef(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "migrate-vault-ref.db")
+	db, err := NewDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabase: %v", err)
+	}
+	defer db.DB.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+	rows, err := db.DB.Query(`PRAGMA table_info(crawler_sessions)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info: %v", err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if name == "vault_ref" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected crawler_sessions to have a vault_ref column after migration")
+	}
+}
