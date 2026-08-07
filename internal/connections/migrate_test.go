@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// TestEncryptPlaintextConnections_NoOpWhenAlreadyEncrypted verifies the cheap
+// TestMigrateConnectionsToVault_NoOpWhenAlreadyMigrated verifies the cheap
 // COUNT check short-circuits the whole migration when every row already
-// carries the vaultenc:v1: prefix (e.g. because it was written through
-// Store.Save, which always encrypts).
-func TestEncryptPlaintextConnections_NoOpWhenAlreadyEncrypted(t *testing.T) {
+// carries the vaultenc:v1: prefix and has vault_ref set (e.g. because it
+// was written through Store.Save, which always encrypts and sets vault_ref).
+func TestMigrateConnectionsToVault_NoOpWhenAlreadyMigrated(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 	store := NewStore(db)
@@ -21,19 +21,28 @@ func TestEncryptPlaintextConnections_NoOpWhenAlreadyEncrypted(t *testing.T) {
 		t.Fatalf("seeding encrypted connection: %v", err)
 	}
 
-	migrated, total, err := EncryptPlaintextConnections(ctx, db)
+	// Verify that the saved connection has vault_ref set.
+	conn, err := store.Get(ctx, "conn-1")
 	if err != nil {
-		t.Fatalf("EncryptPlaintextConnections: %v", err)
+		t.Fatalf("Get conn-1: %v", err)
+	}
+	if conn.VaultRef == "" {
+		t.Fatal("expected vault_ref to be set after Save")
+	}
+
+	migrated, total, err := MigrateConnectionsToVault(ctx, db)
+	if err != nil {
+		t.Fatalf("MigrateConnectionsToVault: %v", err)
 	}
 	if migrated != 0 || total != 0 {
 		t.Fatalf("expected a no-op (0, 0), got migrated=%d total=%d", migrated, total)
 	}
 }
 
-// TestEncryptPlaintextConnections_MigratesPlaintextRows verifies rows
+// TestMigrateConnectionsToVault_MigratesLegacyPlaintextAndBackfillsVaultRef verifies rows
 // inserted with raw plaintext JSON (as connections created before the vault
-// feature shipped would have) get re-encrypted.
-func TestEncryptPlaintextConnections_MigratesPlaintextRows(t *testing.T) {
+// feature shipped would have) get re-encrypted and have vault_ref backfilled.
+func TestMigrateConnectionsToVault_MigratesLegacyPlaintextAndBackfillsVaultRef(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -47,16 +56,16 @@ func TestEncryptPlaintextConnections_MigratesPlaintextRows(t *testing.T) {
 		t.Fatalf("seeding plaintext connection: %v", err)
 	}
 
-	migrated, total, err := EncryptPlaintextConnections(ctx, db)
+	migrated, total, err := MigrateConnectionsToVault(ctx, db)
 	if err != nil {
-		t.Fatalf("EncryptPlaintextConnections: %v", err)
+		t.Fatalf("MigrateConnectionsToVault: %v", err)
 	}
 	if migrated != 1 || total != 1 {
 		t.Fatalf("expected migrated=1 total=1, got migrated=%d total=%d", migrated, total)
 	}
 
-	var rawData string
-	if err := db.QueryRow(`SELECT data FROM connections WHERE id = 'conn-1'`).Scan(&rawData); err != nil {
+	var rawData, vaultRef string
+	if err := db.QueryRow(`SELECT data, vault_ref FROM connections WHERE id = 'conn-1'`).Scan(&rawData, &vaultRef); err != nil {
 		t.Fatalf("reading migrated row: %v", err)
 	}
 	if strings.Contains(rawData, "plaintext-token") {
@@ -65,13 +74,16 @@ func TestEncryptPlaintextConnections_MigratesPlaintextRows(t *testing.T) {
 	if !strings.HasPrefix(rawData, "vaultenc:v1:") {
 		t.Fatalf("expected vaultenc-prefixed ciphertext, got: %s", rawData)
 	}
+	if vaultRef == "" {
+		t.Fatal("expected vault_ref to be backfilled after migration")
+	}
 }
 
-// TestEncryptPlaintextConnections_ContinuesPastPerRowFailure verifies that a
+// TestMigrateConnectionsToVault_ContinuesPastPerRowFailure verifies that a
 // Save failure on one row doesn't abort the rest of the batch. A trigger
 // simulates a row whose UPDATE (the path Save's INSERT...ON CONFLICT takes
 // for a pre-existing id) always fails.
-func TestEncryptPlaintextConnections_ContinuesPastPerRowFailure(t *testing.T) {
+func TestMigrateConnectionsToVault_ContinuesPastPerRowFailure(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -96,9 +108,9 @@ func TestEncryptPlaintextConnections_ContinuesPastPerRowFailure(t *testing.T) {
 		t.Fatalf("creating failure trigger: %v", err)
 	}
 
-	migrated, total, err := EncryptPlaintextConnections(ctx, db)
+	migrated, total, err := MigrateConnectionsToVault(ctx, db)
 	if err != nil {
-		t.Fatalf("EncryptPlaintextConnections should not abort on a per-row failure: %v", err)
+		t.Fatalf("MigrateConnectionsToVault should not abort on a per-row failure: %v", err)
 	}
 	if total != 2 {
 		t.Fatalf("expected total=2, got %d", total)
@@ -122,12 +134,12 @@ func TestEncryptPlaintextConnections_ContinuesPastPerRowFailure(t *testing.T) {
 	}
 }
 
-// TestEncryptPlaintextConnections_SkipsRowLockedByAnotherProcess verifies
+// TestMigrateConnectionsToVault_SkipsRowLockedByAnotherProcess verifies
 // that a connection whose refresh lock is already held (simulating a
 // concurrent RefreshToken in another process) is skipped by the migration
 // rather than blocked on or clobbered, and correctly reported as
 // not-migrated-this-pass so the next startup's pass can retry it.
-func TestEncryptPlaintextConnections_SkipsRowLockedByAnotherProcess(t *testing.T) {
+func TestMigrateConnectionsToVault_SkipsRowLockedByAnotherProcess(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 	store := NewStore(db)
@@ -153,9 +165,9 @@ func TestEncryptPlaintextConnections_SkipsRowLockedByAnotherProcess(t *testing.T
 	}
 	defer store.releaseRefreshLock(ctx, "locked-row")
 
-	migrated, total, err := EncryptPlaintextConnections(ctx, db)
+	migrated, total, err := MigrateConnectionsToVault(ctx, db)
 	if err != nil {
-		t.Fatalf("EncryptPlaintextConnections: %v", err)
+		t.Fatalf("MigrateConnectionsToVault: %v", err)
 	}
 	if total != 1 {
 		t.Fatalf("expected total=1, got %d", total)
@@ -173,14 +185,14 @@ func TestEncryptPlaintextConnections_SkipsRowLockedByAnotherProcess(t *testing.T
 	}
 }
 
-// TestEncryptPlaintextConnections_DoesNotOverwriteConcurrentRefresh exercises
+// TestMigrateConnectionsToVault_DoesNotOverwriteConcurrentRefresh exercises
 // the race the round-1 fix missed: the migration's pre-loop ListAll snapshot
 // goes stale if a concurrent RefreshToken (in another process, sharing this
 // DB) rotates the row's tokens after the snapshot but before the migration
 // reaches that row and acquires the (by-then-free) refresh lock. A migration
 // that re-saves the stale snapshot instead of re-reading fresh data would
 // silently clobber the freshly-rotated tokens with the old ones.
-func TestEncryptPlaintextConnections_DoesNotOverwriteConcurrentRefresh(t *testing.T) {
+func TestMigrateConnectionsToVault_DoesNotOverwriteConcurrentRefresh(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 	store := NewStore(db)
@@ -194,7 +206,7 @@ func TestEncryptPlaintextConnections_DoesNotOverwriteConcurrentRefresh(t *testin
 
 	// Simulate another process already mid-refresh: it holds the lock before
 	// the migration ever gets to this row, so the migration's ListAll
-	// snapshot (taken next, once EncryptPlaintextConnections starts) will
+	// snapshot (taken next, once MigrateConnectionsToVault starts) will
 	// capture "stale-token" — the pre-refresh data.
 	acquired, err := store.acquireRefreshLock(ctx, "conn-1")
 	if err != nil {
@@ -208,7 +220,7 @@ func TestEncryptPlaintextConnections_DoesNotOverwriteConcurrentRefresh(t *testin
 	var migrated, total int
 	var migErr error
 	go func() {
-		migrated, total, migErr = EncryptPlaintextConnections(ctx, db)
+		migrated, total, migErr = MigrateConnectionsToVault(ctx, db)
 		close(migDone)
 	}()
 
@@ -235,7 +247,7 @@ func TestEncryptPlaintextConnections_DoesNotOverwriteConcurrentRefresh(t *testin
 
 	<-migDone
 	if migErr != nil {
-		t.Fatalf("EncryptPlaintextConnections: %v", migErr)
+		t.Fatalf("MigrateConnectionsToVault: %v", migErr)
 	}
 	if total != 1 || migrated != 1 {
 		t.Fatalf("expected total=1 migrated=1, got total=%d migrated=%d", total, migrated)

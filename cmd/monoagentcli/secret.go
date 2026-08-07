@@ -418,7 +418,7 @@ func newSecretEncryptConnectionsCmd(cfg *globalConfig) *cobra.Command {
 			}
 			defer db.DB.Close()
 
-			migrated, total, err := connections.EncryptPlaintextConnections(cmd.Context(), db.DB)
+			migrated, total, err := connections.MigrateConnectionsToVault(cmd.Context(), db.DB)
 			if err != nil {
 				return fmt.Errorf("encrypting connections: %w", err)
 			}

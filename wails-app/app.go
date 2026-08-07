@@ -96,7 +96,7 @@ func (a *App) startup(ctx context.Context) {
 	// left over from before the secrets vault shipped. Cheap (a single COUNT
 	// query) once everything is already encrypted, and self-healing if a
 	// plaintext row is ever reintroduced.
-	if _, _, err := connections.EncryptPlaintextConnections(ctx, db); err != nil {
+	if _, _, err := connections.MigrateConnectionsToVault(ctx, db); err != nil {
 		runtime.LogErrorf(ctx, "connections migration error: %v", err)
 	}
 	if _, _, err := secrets.MigrateFieldsToKV(ctx, db); err != nil {
