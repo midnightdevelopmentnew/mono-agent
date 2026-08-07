@@ -6,8 +6,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/zalando/go-keyring"
+
 	"monoagent/internal/ai"
-	_ "modernc.org/sqlite"
+	"monoagent/internal/storage"
 )
 
 // --- mock AI client ---
@@ -29,25 +31,23 @@ func (m *mockAIClient) StreamComplete(ctx context.Context, req ai.CompletionRequ
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	keyring.MockInit()
+	db, err := storage.NewDatabase(t.TempDir() + "/chat-test.db")
 	if err != nil {
-		t.Fatalf("open in-memory sqlite: %v", err)
+		t.Fatalf("NewDatabase: %v", err)
 	}
-	if _, err := db.Exec(`CREATE TABLE workflows (
-		id TEXT PRIMARY KEY,
-		profile_id TEXT NOT NULL DEFAULT 'default'
-	)`); err != nil {
-		t.Fatalf("create workflows table: %v", err)
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	t.Cleanup(func() { db.DB.Close() })
+	return db.DB
 }
 
 // seedWorkflow registers a workflow row owned by the default profile, so
 // checkWorkflowOwnership (called by StreamChat/GetHistory/ClearHistory) allows it.
 func seedWorkflow(t *testing.T, db *sql.DB, workflowID string) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO workflows (id, profile_id) VALUES (?, 'default')`, workflowID); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflows (id, name, profile_id) VALUES (?, 'Test Workflow', 'default')`, workflowID); err != nil {
 		t.Fatalf("seed workflow %s: %v", workflowID, err)
 	}
 }
