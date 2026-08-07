@@ -144,6 +144,43 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+// TestDeleteProvider_RemovesLinkedVaultEntry is a regression test: deleting a
+// provider must also remove its linked vault_secrets row, mirroring
+// connections.Store.Delete — otherwise the vault is left with an orphaned
+// entry for a provider that no longer exists.
+func TestDeleteProvider_RemovesLinkedVaultEntry(t *testing.T) {
+	db := openTestDB(t)
+	store, err := NewAIStore(db)
+	if err != nil {
+		t.Fatalf("NewAIStore: %v", err)
+	}
+
+	p := AIProvider{ID: "p1", Name: "My OpenAI", ProviderID: "openai", Tier: "known", APIKey: "sk-abc"}
+	if err := store.SaveProvider(p); err != nil {
+		t.Fatalf("SaveProvider: %v", err)
+	}
+
+	got, err := store.GetProvider("p1", "default")
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if got.VaultRef == "" {
+		t.Fatal("expected a vault_ref to be set after SaveProvider")
+	}
+
+	if err := store.DeleteProvider("p1", "default"); err != nil {
+		t.Fatalf("DeleteProvider: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM vault_secrets WHERE id = ?`, got.VaultRef).Scan(&count); err != nil {
+		t.Fatalf("querying vault_secrets: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected linked vault entry %s to be removed after DeleteProvider, got count=%d", got.VaultRef, count)
+	}
+}
+
 // TestProviderProfileIsolation is a regression test: a provider saved under one
 // profile must not be visible, testable, or deletable from a different profile.
 func TestProviderProfileIsolation(t *testing.T) {

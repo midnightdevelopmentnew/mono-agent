@@ -499,3 +499,49 @@ func TestStoreSave_BrowserPlatformNeverGetsAVaultRef(t *testing.T) {
 		t.Fatalf("expected no vault entry for a browser-session platform, got %q", conn.VaultRef)
 	}
 }
+
+// TestListAll_SkipsConnectionWithDanglingVaultRef is a regression test: a
+// single connection whose vault_ref points at a missing vault_secrets row
+// (e.g. deleted out-of-band, or corrupted) must not blank the entire list —
+// only that row should be affected, not every other healthy connection.
+func TestListAll_SkipsConnectionWithDanglingVaultRef(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+
+	healthy := &Connection{Platform: "x", Method: "oauth", Label: "Healthy", Data: map[string]interface{}{"access_token": "good-token"}}
+	if err := store.Save(ctx, healthy); err != nil {
+		t.Fatalf("saving healthy connection: %v", err)
+	}
+
+	broken := &Connection{Platform: "x", Method: "oauth", Label: "Broken", Data: map[string]interface{}{"access_token": "broken-token"}}
+	if err := store.Save(ctx, broken); err != nil {
+		t.Fatalf("saving broken connection: %v", err)
+	}
+	if broken.VaultRef == "" {
+		t.Fatal("expected the broken connection to have a vault_ref")
+	}
+	// Simulate the linked vault entry being deleted out-of-band, leaving
+	// broken.VaultRef dangling.
+	if _, err := db.Exec(`DELETE FROM vault_secrets WHERE id = ?`, broken.VaultRef); err != nil {
+		t.Fatalf("deleting vault entry: %v", err)
+	}
+
+	conns, err := store.ListAll(ctx, "default")
+	if err != nil {
+		t.Fatalf("ListAll should not fail when one row has a dangling vault_ref: %v", err)
+	}
+
+	var foundHealthy bool
+	for _, c := range conns {
+		if c.ID == healthy.ID {
+			foundHealthy = true
+		}
+		if c.ID == broken.ID {
+			t.Fatalf("expected the connection with a dangling vault_ref to be omitted, but it was returned: %+v", c)
+		}
+	}
+	if !foundHealthy {
+		t.Fatal("expected the healthy connection to still be returned")
+	}
+}

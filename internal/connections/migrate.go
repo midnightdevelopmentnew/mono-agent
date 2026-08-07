@@ -13,7 +13,18 @@ import (
 // vault entry yet (pre-credential-unification rows, vault_ref still empty).
 // The "vaultenc:v1:" literal must match internal/secrets/blob.go's
 // blobPrefix constant.
-const needsMigrationQuery = `SELECT COUNT(*) FROM connections WHERE data NOT LIKE 'vaultenc:v1:%' OR COALESCE(vault_ref,'') = ''`
+//
+// The empty-vault_ref half of the OR excludes method='browser': a browser
+// connection (Instagram/LinkedIn/X/TikTok/HackerNews/Gemini) has no
+// secret-bearing Data fields to split into the vault (see
+// splitSecretFields/TestStoreSave_BrowserPlatformNeverGetsAVaultRef), so it
+// structurally never gets a vault_ref — without this exclusion the COUNT
+// stays permanently non-zero for any profile with one, and the full
+// enumerate-and-re-save loop below re-runs on every startup instead of
+// reaching a (0, 0) steady state. A legacy plaintext browser row (if one
+// ever existed) still matches via the first half of the OR and gets its
+// data column re-encrypted.
+const needsMigrationQuery = `SELECT COUNT(*) FROM connections WHERE data NOT LIKE 'vaultenc:v1:%' OR (COALESCE(vault_ref,'') = '' AND method != 'browser')`
 
 // MigrateConnectionsToVault re-encrypts any connections rows whose data
 // column isn't yet wrapped by the vault (see secrets.EncryptBlob), or

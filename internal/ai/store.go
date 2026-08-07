@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"monoagent/internal/secrets"
@@ -216,13 +217,27 @@ func (s *AIStore) ListProviders(profileID string) ([]AIProvider, error) {
 	return providers, rows.Err()
 }
 
-// DeleteProvider removes a provider by ID, scoped to profileID.
+// DeleteProvider removes a provider by ID, scoped to profileID, and its
+// linked vault entry (if any) — same credential, so both must go together.
+// Mirrors connections.Store.Delete's best-effort posture: a vault cleanup
+// failure is logged to stderr rather than returned, since the provider row
+// is already gone by that point.
 func (s *AIStore) DeleteProvider(id, profileID string) error {
 	if profileID == "" {
 		profileID = "default"
 	}
-	_, err := s.db.Exec(`DELETE FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID)
-	return err
+	var vaultRef string
+	_ = s.db.QueryRow(`SELECT COALESCE(vault_ref,'') FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID).Scan(&vaultRef)
+
+	if _, err := s.db.Exec(`DELETE FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID); err != nil {
+		return err
+	}
+	if vaultRef != "" {
+		if delErr := secrets.Delete(context.Background(), s.db, profileID, vaultRef); delErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: provider %s deleted but its vault entry %s could not be removed: %v\n", id, vaultRef, delErr)
+		}
+	}
+	return nil
 }
 
 // UpdateProviderStatus updates the status and last_tested fields for a provider, scoped to profileID.

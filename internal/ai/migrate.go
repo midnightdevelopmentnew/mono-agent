@@ -15,6 +15,15 @@ import (
 // shape: a cheap COUNT-first guard, per-row failures logged to stderr and
 // skipped rather than aborting the batch, idempotent.
 func MigrateProvidersToVault(ctx context.Context, db *sql.DB) (migrated, total int, err error) {
+	// NewAIStore runs initTables(), which creates ai_providers (and, on an
+	// upgraded pre-Task-1 DB, backfills its vault_ref column) if they don't
+	// already exist — required before the COUNT/SELECT below can run at all,
+	// on both a fresh DB and one predating this feature.
+	store, err := NewAIStore(db)
+	if err != nil {
+		return 0, 0, fmt.Errorf("ai.MigrateProvidersToVault: ensuring tables: %w", err)
+	}
+
 	var count int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_providers WHERE api_key != ''`).Scan(&count); err != nil {
 		return 0, 0, fmt.Errorf("ai.MigrateProvidersToVault: counting legacy rows: %w", err)
@@ -23,7 +32,6 @@ func MigrateProvidersToVault(ctx context.Context, db *sql.DB) (migrated, total i
 		return 0, 0, nil
 	}
 
-	store := &AIStore{db: db}
 	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(profile_id,'default') FROM ai_providers WHERE api_key != ''`)
 	if err != nil {
 		return 0, 0, fmt.Errorf("ai.MigrateProvidersToVault: listing legacy rows: %w", err)

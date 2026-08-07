@@ -39,6 +39,38 @@ func TestMigrateConnectionsToVault_NoOpWhenAlreadyMigrated(t *testing.T) {
 	}
 }
 
+// TestMigrateConnectionsToVault_BrowserConnectionReachesSteadyState verifies
+// that a MethodBrowser connection — which structurally never gets a
+// vault_ref (see TestStoreSave_BrowserPlatformNeverGetsAVaultRef) — doesn't
+// perpetually match needsMigrationQuery's vault_ref-emptiness check. Before
+// the fix, every run re-processed the row and returned migrated=1 forever
+// instead of settling to a true no-op.
+func TestMigrateConnectionsToVault_BrowserConnectionReachesSteadyState(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+
+	conn := &Connection{Platform: "instagram", Method: MethodBrowser, Label: "me", Data: map[string]interface{}{}}
+	if err := store.Save(ctx, conn); err != nil {
+		t.Fatalf("seeding browser connection: %v", err)
+	}
+	if conn.VaultRef != "" {
+		t.Fatalf("expected no vault entry for a browser-session platform, got %q", conn.VaultRef)
+	}
+
+	if _, _, err := MigrateConnectionsToVault(ctx, db); err != nil {
+		t.Fatalf("first MigrateConnectionsToVault: %v", err)
+	}
+
+	migrated, total, err := MigrateConnectionsToVault(ctx, db)
+	if err != nil {
+		t.Fatalf("second MigrateConnectionsToVault: %v", err)
+	}
+	if migrated != 0 || total != 0 {
+		t.Fatalf("expected the second run to reach a no-op steady state, got migrated=%d total=%d", migrated, total)
+	}
+}
+
 // TestMigrateConnectionsToVault_MigratesLegacyPlaintextAndBackfillsVaultRef verifies rows
 // inserted with raw plaintext JSON (as connections created before the vault
 // feature shipped would have) get re-encrypted and have vault_ref backfilled.

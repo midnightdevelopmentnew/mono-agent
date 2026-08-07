@@ -621,7 +621,12 @@ func mergeVaultFields(ctx context.Context, db *sql.DB, c *Connection) error {
 	return nil
 }
 
-// scanConnections reads all Connection rows from a *sql.Rows result set.
+// scanConnections reads all Connection rows from a *sql.Rows result set. A
+// per-row mergeVaultFields failure (e.g. a dangling vault_ref left by an
+// out-of-band delete or corruption) is logged and that row is omitted,
+// rather than aborting the whole scan — unlike scanConnection's single-row
+// path, which does return the error, since a caller looking up one specific
+// connection should see it fail clearly instead of silently disappearing.
 func scanConnections(ctx context.Context, db *sql.DB, rows *sql.Rows) ([]Connection, error) {
 	var out []Connection
 	for rows.Next() {
@@ -641,10 +646,11 @@ func scanConnections(ctx context.Context, db *sql.DB, rows *sql.Rows) ([]Connect
 		if err := json.Unmarshal(decoded, &c.Data); err != nil {
 			return nil, fmt.Errorf("scanConnections: unmarshal data: %w", err)
 		}
-		out = append(out, c)
-		if err := mergeVaultFields(ctx, db, &out[len(out)-1]); err != nil {
-			return nil, fmt.Errorf("scanConnections: %w", err)
+		if err := mergeVaultFields(ctx, db, &c); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: connection %s: could not resolve vault credentials, omitting from list: %v\n", c.ID, err)
+			continue
 		}
+		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("scanConnections: rows: %w", err)

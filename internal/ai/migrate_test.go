@@ -5,6 +5,23 @@ import (
 	"testing"
 )
 
+// TestMigrateProvidersToVault_NoOpOnFreshDBWithoutAIProvidersTable simulates
+// the very first-ever startup: nothing has called NewAIStore (or anything
+// else that runs initTables) yet, so ai_providers doesn't exist at all. The
+// migration must ensure the table (and its vault_ref column) exist itself
+// rather than erroring on a missing table.
+func TestMigrateProvidersToVault_NoOpOnFreshDBWithoutAIProvidersTable(t *testing.T) {
+	db := openTestDB(t)
+
+	migrated, total, err := MigrateProvidersToVault(context.Background(), db)
+	if err != nil {
+		t.Fatalf("MigrateProvidersToVault on a DB with no ai_providers table: %v", err)
+	}
+	if migrated != 0 || total != 0 {
+		t.Fatalf("expected a clean no-op (0, 0), got migrated=%d total=%d", migrated, total)
+	}
+}
+
 func TestMigrateProvidersToVault_NoOpWhenNoLegacyRows(t *testing.T) {
 	db := openTestDB(t)
 	if _, err := NewAIStore(db); err != nil {
