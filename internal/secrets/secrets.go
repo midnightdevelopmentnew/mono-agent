@@ -26,38 +26,49 @@ type Entry struct {
 
 // Add creates a new vault_secrets entry, encrypting fields (as one
 // JSON-encoded blob) and notes, if given, under the vault's DEK before
-// storage. fields must contain at least one non-empty key.
+// storage. fields must contain at least one non-empty key. kind must be
+// "secret" or "login" — this is the public entrypoint (CLI `secret add`,
+// GUI "Add New Item"), which must never let a human create a system-managed
+// entry by hand. System-managed kinds ("connection", "session",
+// "ai_provider") are created exclusively via PutSystemEntry, in system.go.
 func Add(ctx context.Context, db *sql.DB, profileID, kind, name string, fields map[string]string, username, url, notes string) (string, error) {
 	if kind != "secret" && kind != "login" {
 		return "", fmt.Errorf("secrets.Add: invalid kind %q, must be \"secret\" or \"login\"", kind)
 	}
+	return addEntry(ctx, db, profileID, kind, name, fields, username, url, notes)
+}
+
+// addEntry is Add's implementation without the public kind restriction —
+// shared by Add itself and by PutSystemEntry (system.go), which creates
+// entries of the three system-managed kinds.
+func addEntry(ctx context.Context, db *sql.DB, profileID, kind, name string, fields map[string]string, username, url, notes string) (string, error) {
 	if len(fields) == 0 {
-		return "", fmt.Errorf("secrets.Add: at least one field is required")
+		return "", fmt.Errorf("secrets.addEntry: at least one field is required")
 	}
 	for k := range fields {
 		if k == "" {
-			return "", fmt.Errorf("secrets.Add: field keys must not be empty")
+			return "", fmt.Errorf("secrets.addEntry: field keys must not be empty")
 		}
 	}
 
 	dek, err := getOrCreateDEK(ctx, db)
 	if err != nil {
-		return "", fmt.Errorf("secrets.Add: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: %w", err)
 	}
 	fieldsJSON, err := json.Marshal(fields)
 	if err != nil {
-		return "", fmt.Errorf("secrets.Add: marshaling fields: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: marshaling fields: %w", err)
 	}
 	ciphertext, nonce, err := Encrypt(dek, fieldsJSON)
 	if err != nil {
-		return "", fmt.Errorf("secrets.Add: encrypting fields: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: encrypting fields: %w", err)
 	}
 
 	var notesCiphertext, notesNonce []byte
 	if notes != "" {
 		notesCiphertext, notesNonce, err = Encrypt(dek, []byte(notes))
 		if err != nil {
-			return "", fmt.Errorf("secrets.Add: encrypting notes: %w", err)
+			return "", fmt.Errorf("secrets.addEntry: encrypting notes: %w", err)
 		}
 	}
 
@@ -66,12 +77,12 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name string, fields m
 	// (internal/vault/vault.go) for why BEGIN IMMEDIATE is required here.
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return "", fmt.Errorf("secrets.Add: get conn: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: get conn: %w", err)
 	}
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return "", fmt.Errorf("secrets.Add: begin tx: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: begin tx: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -82,7 +93,7 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name string, fields m
 
 	var seq int
 	if err := conn.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM vault_secrets`).Scan(&seq); err != nil {
-		return "", fmt.Errorf("secrets.Add: next seq: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: next seq: %w", err)
 	}
 	id := fmt.Sprintf("sec-%03d", seq)
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -93,10 +104,10 @@ func Add(ctx context.Context, db *sql.DB, profileID, kind, name string, fields m
 		id, seq, profileID, kind, name, nullStr(username), nullStr(url), ciphertext, nonce, notesCiphertext, notesNonce, now, now, len(fields),
 	)
 	if err != nil {
-		return "", fmt.Errorf("secrets.Add: insert: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: insert: %w", err)
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return "", fmt.Errorf("secrets.Add: commit: %w", err)
+		return "", fmt.Errorf("secrets.addEntry: commit: %w", err)
 	}
 	committed = true
 	return id, nil
