@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,7 +80,7 @@ func TestExportImport_RoundTrip(t *testing.T) {
 	}
 
 	db2 := newExportTestDB(t)
-	imported, skipped, err := Import(context.Background(), db2.DB, "default", exportPW, data)
+	imported, skipped, err := Import(context.Background(), db2.DB, "default", exportPW, data, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestExport_SkipsEntryThatFailsToDecrypt(t *testing.T) {
 
 	// The payload itself must only contain the two decryptable entries.
 	db2 := newExportTestDB(t)
-	imported, importSkipped, err := Import(context.Background(), db2.DB, "default", "pw-correct1", data)
+	imported, importSkipped, err := Import(context.Background(), db2.DB, "default", "pw-correct1", data, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -163,7 +164,7 @@ func TestImport_WrongPassphraseFails(t *testing.T) {
 	}
 
 	db2 := newExportTestDB(t)
-	if _, _, err := Import(ctx, db2.DB, "default", "pw-incorrect1", data); err == nil {
+	if _, _, err := Import(ctx, db2.DB, "default", "pw-incorrect1", data, nil, nil, nil); err == nil {
 		t.Fatal("expected import with an incorrect passphrase to fail")
 	}
 }
@@ -180,7 +181,7 @@ func TestImport_SkipsDuplicateNames(t *testing.T) {
 	}
 
 	// Import into the SAME vault — "shared" already exists there.
-	imported, skipped, err := Import(ctx, db.DB, "default", "pw-correct1", data)
+	imported, skipped, err := Import(ctx, db.DB, "default", "pw-correct1", data, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Import: %v", err)
 	}
@@ -191,7 +192,116 @@ func TestImport_SkipsDuplicateNames(t *testing.T) {
 
 func TestImport_RejectsUnrecognizedFormat(t *testing.T) {
 	db := newExportTestDB(t)
-	if _, _, err := Import(context.Background(), db.DB, "default", "any-passphrase", []byte(`{"format":"something-else","version":1}`)); err == nil {
+	if _, _, err := Import(context.Background(), db.DB, "default", "any-passphrase", []byte(`{"format":"something-else","version":1}`), nil, nil, nil); err == nil {
 		t.Fatal("expected error for an unrecognized export format, got nil")
+	}
+}
+
+func TestExportImport_SystemEntryRoundTripsWithMetaAndRematerializes(t *testing.T) {
+	db := newExportTestDB(t)
+	ctx := context.Background()
+
+	if _, err := db.DB.Exec(`CREATE TABLE connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating connections table: %v", err)
+	}
+
+	token := "PLACEHOLDER-one"
+	vaultID, err := PutSystemEntry(ctx, db.DB, "default", "connection", "", "GitHub — work",
+		map[string]string{"access_token": token}, "acct-1", "")
+	if err != nil {
+		t.Fatalf("PutSystemEntry: %v", err)
+	}
+	if _, err := db.DB.Exec(
+		`INSERT INTO connections (id, platform, method, label, account_id, profile_id, vault_ref) VALUES ('conn-1', 'github', 'oauth', 'work', 'acct-1', 'default', ?)`,
+		vaultID); err != nil {
+		t.Fatalf("seeding connections row: %v", err)
+	}
+
+	passphrase := "pw-123"
+	data, exported, skipped, err := Export(ctx, db.DB, "default", passphrase)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if exported != 1 || skipped != 0 {
+		t.Fatalf("expected exported=1 skipped=0, got exported=%d skipped=%d", exported, skipped)
+	}
+
+	// Simulate a fresh machine: a brand-new db with no connections row at all.
+	dst := newExportTestDB(t)
+	if _, err := dst.DB.Exec(`CREATE TABLE connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating destination connections table: %v", err)
+	}
+
+	var rematerializedMeta map[string]string
+	rematerializeConnection := func(ctx context.Context, db *sql.DB, profileID, vaultID, name string, meta map[string]string) error {
+		rematerializedMeta = meta
+		_, err := db.ExecContext(ctx,
+			`INSERT INTO connections (id, platform, method, label, account_id, profile_id, vault_ref) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			"conn-imported", meta["platform"], meta["method"], meta["label"], meta["account_id"], profileID, vaultID)
+		return err
+	}
+
+	imported, importSkipped, err := Import(ctx, dst.DB, "default", passphrase, data, rematerializeConnection, nil, nil)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if imported != 1 || importSkipped != 0 {
+		t.Fatalf("expected imported=1 skipped=0, got imported=%d skipped=%d", imported, importSkipped)
+	}
+	if rematerializedMeta["platform"] != "github" || rematerializedMeta["label"] != "work" || rematerializedMeta["account_id"] != "acct-1" {
+		t.Fatalf("unexpected rematerialize meta: %+v", rematerializedMeta)
+	}
+
+	var count int
+	if err := dst.DB.QueryRow(`SELECT COUNT(*) FROM connections WHERE id = 'conn-imported'`).Scan(&count); err != nil {
+		t.Fatalf("counting imported connections: %v", err)
+	}
+	if count != 1 {
+		t.Fatal("expected the connection row to be rematerialized on import")
+	}
+
+	entries, err := List(ctx, dst.DB, "default")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Kind != "connection" || entries[0].Name != "GitHub — work" {
+		t.Fatalf("unexpected imported vault entries: %+v", entries)
+	}
+}
+
+func TestImport_NilRematerializerSkipsGracefully(t *testing.T) {
+	db := newExportTestDB(t)
+	ctx := context.Background()
+
+	if _, err := db.DB.Exec(`CREATE TABLE connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating connections table: %v", err)
+	}
+	token := "PLACEHOLDER-a"
+	if _, err := PutSystemEntry(ctx, db.DB, "default", "connection", "", "GitHub", map[string]string{"access_token": token}, "", ""); err != nil {
+		t.Fatalf("PutSystemEntry: %v", err)
+	}
+	passphrase := "pw-123"
+	data, _, _, err := Export(ctx, db.DB, "default", passphrase)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	dst := newExportTestDB(t)
+	// nil rematerializeConnection: the vault entry still imports, no panic.
+	imported, _, err := Import(ctx, dst.DB, "default", passphrase, data, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if imported != 1 {
+		t.Fatalf("expected the vault entry to import even with a nil rematerializer, got imported=%d", imported)
 	}
 }
