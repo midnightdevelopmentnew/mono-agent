@@ -42,6 +42,28 @@ CREATE TABLE IF NOT EXISTS vault_keys (
 	if _, err := db.Exec(createVaultKeysTable); err != nil {
 		t.Fatalf("newManagerDB: create vault_keys: %v", err)
 	}
+	const createVaultSecretsTable = `
+CREATE TABLE IF NOT EXISTS vault_secrets (
+    id               TEXT PRIMARY KEY,
+    seq              INTEGER NOT NULL UNIQUE,
+    profile_id       TEXT NOT NULL DEFAULT 'default',
+    kind             TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    username         TEXT,
+    url              TEXT,
+    ciphertext       BLOB NOT NULL,
+    nonce            BLOB NOT NULL,
+    notes_ciphertext BLOB,
+    notes_nonce      BLOB,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    kv               INTEGER NOT NULL DEFAULT 0,
+    field_count      INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vault_secrets_profile_name ON vault_secrets(profile_id, name);`
+	if _, err := db.Exec(createVaultSecretsTable); err != nil {
+		t.Fatalf("newManagerDB: create vault_secrets: %v", err)
+	}
 	return mgr, db
 }
 

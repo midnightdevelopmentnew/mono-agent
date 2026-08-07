@@ -51,6 +51,28 @@ CREATE TABLE IF NOT EXISTS vault_keys (
 	if _, err := db.Exec(createVaultKeysTable); err != nil {
 		t.Fatalf("newTestDB: create vault_keys: %v", err)
 	}
+	const createVaultSecretsTable = `
+CREATE TABLE IF NOT EXISTS vault_secrets (
+    id               TEXT PRIMARY KEY,
+    seq              INTEGER NOT NULL UNIQUE,
+    profile_id       TEXT NOT NULL DEFAULT 'default',
+    kind             TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    username         TEXT,
+    url              TEXT,
+    ciphertext       BLOB NOT NULL,
+    nonce            BLOB NOT NULL,
+    notes_ciphertext BLOB,
+    notes_nonce      BLOB,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    kv               INTEGER NOT NULL DEFAULT 0,
+    field_count      INTEGER NOT NULL DEFAULT 1
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vault_secrets_profile_name ON vault_secrets(profile_id, name);`
+	if _, err := db.Exec(createVaultSecretsTable); err != nil {
+		t.Fatalf("newTestDB: create vault_secrets: %v", err)
+	}
 	return db
 }
 
@@ -382,5 +404,98 @@ func TestRefreshTokenSerializesAcrossStores(t *testing.T) {
 	lastAccess := fmt.Sprintf("access-%d", len(submitted))
 	if final.Data["access_token"] != lastAccess {
 		t.Fatalf("final access_token = %v, want %v (the last exchange's result, not clobbered by an earlier writer)", final.Data["access_token"], lastAccess)
+	}
+}
+
+func TestStoreSaveAndGet_OAuthTokensGoThroughVault(t *testing.T) {
+	db := newTestDB(t)
+	store := NewStore(db)
+	ctx := context.Background()
+
+	accessToken := "PLACEHOLDER-one"
+	refreshToken := "PLACEHOLDER-ref-one"
+	conn := &Connection{
+		Platform: "github",
+		Method:   MethodOAuth,
+		Label:    "Personal",
+		Data: map[string]interface{}{
+			"access_token":  accessToken,
+			"refresh_token": refreshToken,
+			"token_type":    "Bearer",
+		},
+	}
+	if err := store.Save(ctx, conn); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if conn.VaultRef == "" {
+		t.Fatal("expected Save to populate VaultRef for a connection with secret fields")
+	}
+
+	var rawData string
+	if err := db.QueryRow(`SELECT data FROM connections WHERE id = ?`, conn.ID).Scan(&rawData); err != nil {
+		t.Fatalf("reading raw data column: %v", err)
+	}
+	if strings.Contains(rawData, accessToken) || strings.Contains(rawData, refreshToken) {
+		t.Fatal("connections.data must not contain the raw tokens after Save")
+	}
+
+	got, err := store.Get(ctx, conn.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Data["access_token"] != accessToken || got.Data["refresh_token"] != refreshToken {
+		t.Fatalf("expected Get to merge vault fields back into Data, got %+v", got.Data)
+	}
+	if got.Data["token_type"] != "Bearer" {
+		t.Fatalf("expected non-secret token_type to still be present, got %+v", got.Data)
+	}
+	if got.VaultRef != conn.VaultRef {
+		t.Fatalf("expected VaultRef to round-trip, got %q want %q", got.VaultRef, conn.VaultRef)
+	}
+}
+
+func TestStoreSave_UpdatingConnectionReusesSameVaultEntry(t *testing.T) {
+	db := newTestDB(t)
+	store := NewStore(db)
+	ctx := context.Background()
+
+	firstToken := "PLACEHOLDER-one"
+	refreshToken := "PLACEHOLDER-ref-one"
+	conn := &Connection{Platform: "github", Method: MethodOAuth, Label: "Personal",
+		Data: map[string]interface{}{"access_token": firstToken, "refresh_token": refreshToken}}
+	if err := store.Save(ctx, conn); err != nil {
+		t.Fatalf("first Save: %v", err)
+	}
+	firstVaultRef := conn.VaultRef
+
+	secondToken := "PLACEHOLDER-two"
+	conn.Data["access_token"] = secondToken
+	if err := store.Save(ctx, conn); err != nil {
+		t.Fatalf("second Save: %v", err)
+	}
+	if conn.VaultRef != firstVaultRef {
+		t.Fatalf("expected the same vault entry to be reused, got %q want %q", conn.VaultRef, firstVaultRef)
+	}
+
+	got, err := store.Get(ctx, conn.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Data["access_token"] != secondToken {
+		t.Fatalf("expected updated token, got %+v", got.Data)
+	}
+}
+
+func TestStoreSave_BrowserPlatformNeverGetsAVaultRef(t *testing.T) {
+	db := newTestDB(t)
+	store := NewStore(db)
+	ctx := context.Background()
+
+	conn := &Connection{Platform: "instagram", Method: MethodBrowser, Label: "me", Data: map[string]interface{}{}}
+	if err := store.Save(ctx, conn); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if conn.VaultRef != "" {
+		t.Fatalf("expected no vault entry for a browser-session platform, got %q", conn.VaultRef)
 	}
 }
