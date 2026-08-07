@@ -46,7 +46,11 @@ type exportEnvelope struct {
 }
 
 // exportEntry is one vault entry inside the encrypted payload. id/seq are
-// deliberately omitted — Import always allocates fresh ones.
+// deliberately omitted — Import always allocates fresh ones. Meta carries
+// the non-secret columns of a system-managed entry's linked row
+// (connections/crawler_sessions/ai_providers) — see systemMetaColumns —
+// so Import can re-materialize that row on the destination machine, not
+// just the vault entry. Empty/omitted for "secret"/"login" kind entries.
 type exportEntry struct {
 	Kind      string            `json:"kind"`
 	Name      string            `json:"name"`
@@ -54,6 +58,7 @@ type exportEntry struct {
 	URL       string            `json:"url"`
 	Notes     string            `json:"notes"`
 	Fields    map[string]string `json:"fields"`
+	Meta      map[string]string `json:"meta,omitempty"`
 	CreatedAt string            `json:"created_at"`
 	UpdatedAt string            `json:"updated_at"`
 }
@@ -62,6 +67,50 @@ type exportPayload struct {
 	ExportedAt string        `json:"exported_at"`
 	ProfileID  string        `json:"profile_id"`
 	Entries    []exportEntry `json:"entries"`
+}
+
+// systemMetaColumns lists, per system kind, which non-secret columns of the
+// linked table to carry in an export's Meta — exactly what each kind's
+// RematerializeFunc (wired up in cmd/monoagentcli/secret_export.go) needs
+// to reconstruct that row on another machine.
+var systemMetaColumns = map[string][]string{
+	"connection":  {"platform", "method", "label", "account_id"},
+	"session":     {"platform", "username"},
+	"ai_provider": {"provider_id", "tier", "base_url", "default_model", "extra_headers"},
+}
+
+// systemMeta reads the non-secret metadata columns for a system-managed
+// entry's linked row, by raw SQL against the literal table name (see
+// systemTableForKind in system.go) — internal/secrets never imports
+// internal/connections/internal/ai, so it cannot ask those packages to do
+// this for it. Returns nil (not an error) if there is no linked row, which
+// simply means the exported entry carries no Meta.
+func systemMeta(ctx context.Context, db *sql.DB, kind, vaultID string) map[string]string {
+	table, ok := systemTableForKind[kind]
+	if !ok {
+		return nil
+	}
+	cols, ok := systemMetaColumns[kind]
+	if !ok {
+		return nil
+	}
+	q := fmt.Sprintf(`SELECT %s FROM %s WHERE vault_ref = ?`, strings.Join(cols, ", "), table)
+	row := db.QueryRowContext(ctx, q, vaultID)
+	vals := make([]interface{}, len(cols))
+	ptrs := make([]interface{}, len(cols))
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+	if err := row.Scan(ptrs...); err != nil {
+		return nil
+	}
+	meta := make(map[string]string, len(cols))
+	for i, c := range cols {
+		if s, ok := vals[i].(string); ok {
+			meta[c] = s
+		}
+	}
+	return meta
 }
 
 // GenerateExportPassword returns a fresh random passphrase for protecting
@@ -110,7 +159,7 @@ func Export(ctx context.Context, db *sql.DB, profileID, passphrase string) (data
 		}
 		payload.Entries = append(payload.Entries, exportEntry{
 			Kind: e.Kind, Name: e.Name, Username: e.Username, URL: e.URL,
-			Notes: notes, Fields: fields,
+			Notes: notes, Fields: fields, Meta: systemMeta(ctx, db, e.Kind, e.ID),
 			CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
 		})
 		exported++
@@ -142,11 +191,32 @@ func Export(ctx context.Context, db *sql.DB, profileID, passphrase string) (data
 	return out, exported, skipped, nil
 }
 
+// RematerializeFunc reconstructs the linked row for one system-managed
+// vault entry (kind "connection", "session", or "ai_provider") on the
+// importing machine — inserting a new connections/crawler_sessions/
+// ai_providers row (or upserting an existing one matched by natural key:
+// platform+label for connections, platform+username for sessions, provider
+// name for AI providers) with vault_ref set to vaultID. internal/secrets
+// cannot do this itself (it would need to import internal/connections/
+// internal/ai, which already import internal/secrets); the real
+// implementations are wired up by cmd/monoagentcli/secret_export.go, the
+// only real caller of Import, where all three packages are importable
+// together. A nil func simply skips rematerializing that kind — the vault
+// entry itself still imports.
+type RematerializeFunc func(ctx context.Context, db *sql.DB, profileID, vaultID, name string, meta map[string]string) error
+
 // Import decrypts fileData (an exportEnvelope produced by Export) with
 // passphrase and adds every entry to profileID, skipping any whose name
 // already exists there. A per-entry failure other than a name collision is
-// logged to stderr and skipped, not fatal to the batch.
-func Import(ctx context.Context, db *sql.DB, profileID, passphrase string, fileData []byte) (imported, skipped int, err error) {
+// logged to stderr and skipped, not fatal to the batch. For a
+// system-managed entry that imports successfully, the matching
+// rematerializeConnection/rematerializeSession/rematerializeProvider
+// callback is invoked to reconstruct its linked row too; a rematerialize
+// failure is logged and skipped like any other per-entry failure — the
+// vault entry itself is not rolled back.
+func Import(ctx context.Context, db *sql.DB, profileID, passphrase string, fileData []byte,
+	rematerializeConnection, rematerializeSession, rematerializeProvider RematerializeFunc,
+) (imported, skipped int, err error) {
 	var envelope exportEnvelope
 	if err := json.Unmarshal(fileData, &envelope); err != nil {
 		return 0, 0, fmt.Errorf("secrets.Import: not a valid vault export file: %w", err)
@@ -175,17 +245,30 @@ func Import(ctx context.Context, db *sql.DB, profileID, passphrase string, fileD
 		existingNames[e.Name] = true
 	}
 
+	rematerializers := map[string]RematerializeFunc{
+		"connection":  rematerializeConnection,
+		"session":     rematerializeSession,
+		"ai_provider": rematerializeProvider,
+	}
+
 	for _, entry := range payload.Entries {
 		if existingNames[entry.Name] {
 			skipped++
 			continue
 		}
-		if _, err := Add(ctx, db, profileID, entry.Kind, entry.Name, entry.Fields, entry.Username, entry.URL, entry.Notes); err != nil {
+		id, err := addEntry(ctx, db, profileID, entry.Kind, entry.Name, entry.Fields, entry.Username, entry.URL, entry.Notes)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: skipping import of %q: %v\n", entry.Name, err)
 			continue
 		}
 		existingNames[entry.Name] = true
 		imported++
+
+		if rematerialize := rematerializers[entry.Kind]; rematerialize != nil {
+			if err := rematerialize(ctx, db, profileID, id, entry.Name, entry.Meta); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: imported %q but failed to reconnect it: %v\n", entry.Name, err)
+			}
+		}
 	}
 	return imported, skipped, nil
 }

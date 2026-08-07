@@ -1,11 +1,21 @@
 package ai
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
+
+	"monoagent/internal/secrets"
 )
+
+// vaultCredentialFieldName is the vault field key SaveProvider/GetProvider
+// use to store/resolve a provider's credential — the AI-provider analogue
+// of the "cookies" field key crawler sessions use and the
+// "access_token"/etc. keys connections use.
+const vaultCredentialFieldName = "api_key"
 
 // AIProvider represents a user-configured AI provider instance.
 type AIProvider struct {
@@ -20,6 +30,7 @@ type AIProvider struct {
 	Status       string `json:"status"`        // "active" | "error" | "untested"
 	LastTested   string `json:"last_tested"`
 	ProfileID    string `json:"profile_id,omitempty"`
+	VaultRef     string `json:"vault_ref,omitempty"`
 	CreatedAt    string `json:"created_at"`
 }
 
@@ -101,6 +112,7 @@ func (s *AIStore) initTables() error {
 	// if the column already exists; that error is expected and ignored.
 	s.db.Exec(`ALTER TABLE ai_chat_messages ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE ai_providers ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default'`)
+	s.db.Exec(`ALTER TABLE ai_providers ADD COLUMN vault_ref TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 
@@ -109,14 +121,26 @@ func (s *AIStore) initTables() error {
 // the ON CONFLICT update clause so an existing provider cannot be re-assigned
 // to a different profile via an upsert.
 func (s *AIStore) SaveProvider(p AIProvider) error {
-	if p.CreatedAt == "" {
-		p.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	}
 	if p.ProfileID == "" {
 		p.ProfileID = "default"
 	}
-	const q = `INSERT INTO ai_providers (id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+	providedCredential := p.APIKey
+	if providedCredential != "" {
+		vaultFields := make(map[string]string)
+		vaultFields[vaultCredentialFieldName] = providedCredential
+		vaultRef, err := secrets.PutSystemEntry(context.Background(), s.db, p.ProfileID, "ai_provider", p.VaultRef, p.Name, vaultFields, "", "")
+		if err != nil {
+			return fmt.Errorf("saving provider credential to vault: %w", err)
+		}
+		p.VaultRef = vaultRef
+	}
+
+	if p.CreatedAt == "" {
+		p.CreatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	const q = `INSERT INTO ai_providers (id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, vault_ref, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name,
 			provider_id=excluded.provider_id,
@@ -127,11 +151,12 @@ func (s *AIStore) SaveProvider(p AIProvider) error {
 			extra_headers=excluded.extra_headers,
 			status=excluded.status,
 			last_tested=excluded.last_tested,
+			vault_ref=excluded.vault_ref,
 			created_at=excluded.created_at`
 	_, err := s.db.Exec(q,
-		p.ID, p.Name, p.ProviderID, p.Tier, p.APIKey,
+		p.ID, p.Name, p.ProviderID, p.Tier, "",
 		p.BaseURL, p.DefaultModel, p.ExtraHeaders,
-		p.Status, p.LastTested, p.ProfileID, p.CreatedAt,
+		p.Status, p.LastTested, p.ProfileID, p.VaultRef, p.CreatedAt,
 	)
 	return err
 }
@@ -141,17 +166,26 @@ func (s *AIStore) GetProvider(id, profileID string) (AIProvider, error) {
 	if profileID == "" {
 		profileID = "default"
 	}
-	const q = `SELECT id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, created_at
+	const q = `SELECT id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, COALESCE(vault_ref,''), created_at
 		FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`
 	var p AIProvider
 	err := s.db.QueryRow(q, id, profileID).Scan(
 		&p.ID, &p.Name, &p.ProviderID, &p.Tier, &p.APIKey,
 		&p.BaseURL, &p.DefaultModel, &p.ExtraHeaders,
-		&p.Status, &p.LastTested, &p.ProfileID, &p.CreatedAt,
+		&p.Status, &p.LastTested, &p.ProfileID, &p.VaultRef, &p.CreatedAt,
 	)
 	if err != nil {
 		return AIProvider{}, err
 	}
+	if p.VaultRef == "" {
+		return p, nil
+	}
+	vaultFields, _, resolveErr := secrets.DecryptFields(context.Background(), s.db, profileID, p.VaultRef)
+	if resolveErr != nil {
+		return AIProvider{}, fmt.Errorf("resolving provider credential from vault: %w", resolveErr)
+	}
+	cred := vaultFields[vaultCredentialFieldName]
+	p.APIKey = cred
 	return p, nil
 }
 
@@ -160,7 +194,7 @@ func (s *AIStore) ListProviders(profileID string) ([]AIProvider, error) {
 	if profileID == "" {
 		profileID = "default"
 	}
-	const q = `SELECT id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, created_at
+	const q = `SELECT id, name, provider_id, tier, base_url, default_model, extra_headers, status, last_tested, profile_id, COALESCE(vault_ref,''), created_at
 		FROM ai_providers WHERE COALESCE(profile_id,'default') = ? ORDER BY created_at DESC`
 	rows, err := s.db.Query(q, profileID)
 	if err != nil {
@@ -172,9 +206,9 @@ func (s *AIStore) ListProviders(profileID string) ([]AIProvider, error) {
 	for rows.Next() {
 		var p AIProvider
 		if err := rows.Scan(
-			&p.ID, &p.Name, &p.ProviderID, &p.Tier, &p.APIKey,
+			&p.ID, &p.Name, &p.ProviderID, &p.Tier,
 			&p.BaseURL, &p.DefaultModel, &p.ExtraHeaders,
-			&p.Status, &p.LastTested, &p.ProfileID, &p.CreatedAt,
+			&p.Status, &p.LastTested, &p.ProfileID, &p.VaultRef, &p.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -183,13 +217,27 @@ func (s *AIStore) ListProviders(profileID string) ([]AIProvider, error) {
 	return providers, rows.Err()
 }
 
-// DeleteProvider removes a provider by ID, scoped to profileID.
+// DeleteProvider removes a provider by ID, scoped to profileID, and its
+// linked vault entry (if any) — same credential, so both must go together.
+// Mirrors connections.Store.Delete's best-effort posture: a vault cleanup
+// failure is logged to stderr rather than returned, since the provider row
+// is already gone by that point.
 func (s *AIStore) DeleteProvider(id, profileID string) error {
 	if profileID == "" {
 		profileID = "default"
 	}
-	_, err := s.db.Exec(`DELETE FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID)
-	return err
+	var vaultRef string
+	_ = s.db.QueryRow(`SELECT COALESCE(vault_ref,'') FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID).Scan(&vaultRef)
+
+	if _, err := s.db.Exec(`DELETE FROM ai_providers WHERE id = ? AND COALESCE(profile_id,'default') = ?`, id, profileID); err != nil {
+		return err
+	}
+	if vaultRef != "" {
+		if delErr := secrets.Delete(context.Background(), s.db, profileID, vaultRef); delErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: provider %s deleted but its vault entry %s could not be removed: %v\n", id, vaultRef, delErr)
+		}
+	}
+	return nil
 }
 
 // UpdateProviderStatus updates the status and last_tested fields for a provider, scoped to profileID.

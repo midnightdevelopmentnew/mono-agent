@@ -180,10 +180,10 @@ func (a *App) TestConnection(id string) string {
 	// Fallback: check crawler_sessions (browser sessions for social platforms).
 	// The UI passes integer session IDs for social platforms.
 	if a.db != nil {
-		var platform, cookiesJSON, expiry string
+		var platform, vaultRef, expiry string
 		err := a.db.QueryRow(
-			`SELECT platform, cookies_json, expiry FROM crawler_sessions WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID(),
-		).Scan(&platform, &cookiesJSON, &expiry)
+			`SELECT platform, COALESCE(vault_ref,''), expiry FROM crawler_sessions WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID(),
+		).Scan(&platform, &vaultRef, &expiry)
 		if err == nil {
 			// Check expiry
 			if exp, pErr := time.Parse("2006-01-02 15:04:05", expiry); pErr == nil {
@@ -196,7 +196,7 @@ func (a *App) TestConnection(id string) string {
 				}
 			}
 			// Check cookies present
-			if cookiesJSON == "" || cookiesJSON == "[]" || cookiesJSON == "null" {
+			if vaultRef == "" {
 				return "error: no session cookies stored — please log in again"
 			}
 			return "ok"

@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/zalando/go-keyring"
+
+	"monoagent/internal/storage"
 )
 
 // TestProviderJSONOmitsAPIKey is a regression test: serializing an AIProvider
@@ -36,12 +38,16 @@ func TestProviderJSONOmitsAPIKey(t *testing.T) {
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	keyring.MockInit()
+	db, err := storage.NewDatabase(t.TempDir() + "/ai-test.db")
 	if err != nil {
-		t.Fatalf("open in-memory sqlite: %v", err)
+		t.Fatalf("NewDatabase: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatalf("ApplyMigrations: %v", err)
+	}
+	t.Cleanup(func() { db.DB.Close() })
+	return db.DB
 }
 
 func TestStoreInitTables(t *testing.T) {
@@ -138,6 +144,43 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+// TestDeleteProvider_RemovesLinkedVaultEntry is a regression test: deleting a
+// provider must also remove its linked vault_secrets row, mirroring
+// connections.Store.Delete — otherwise the vault is left with an orphaned
+// entry for a provider that no longer exists.
+func TestDeleteProvider_RemovesLinkedVaultEntry(t *testing.T) {
+	db := openTestDB(t)
+	store, err := NewAIStore(db)
+	if err != nil {
+		t.Fatalf("NewAIStore: %v", err)
+	}
+
+	p := AIProvider{ID: "p1", Name: "My OpenAI", ProviderID: "openai", Tier: "known", APIKey: "sk-abc"}
+	if err := store.SaveProvider(p); err != nil {
+		t.Fatalf("SaveProvider: %v", err)
+	}
+
+	got, err := store.GetProvider("p1", "default")
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if got.VaultRef == "" {
+		t.Fatal("expected a vault_ref to be set after SaveProvider")
+	}
+
+	if err := store.DeleteProvider("p1", "default"); err != nil {
+		t.Fatalf("DeleteProvider: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM vault_secrets WHERE id = ?`, got.VaultRef).Scan(&count); err != nil {
+		t.Fatalf("querying vault_secrets: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected linked vault entry %s to be removed after DeleteProvider, got count=%d", got.VaultRef, count)
+	}
+}
+
 // TestProviderProfileIsolation is a regression test: a provider saved under one
 // profile must not be visible, testable, or deletable from a different profile.
 func TestProviderProfileIsolation(t *testing.T) {
@@ -230,6 +273,91 @@ func TestChatMessageCRUD(t *testing.T) {
 	}
 	if len(history) != 0 {
 		t.Errorf("GetChatHistory after clear: len = %d, want 0", len(history))
+	}
+}
+
+func TestSaveAndGetProvider_APIKeyGoesThroughVault(t *testing.T) {
+	db := openTestDB(t)
+	store, err := NewAIStore(db)
+	if err != nil {
+		t.Fatalf("NewAIStore: %v", err)
+	}
+
+	cred := "PLACEHOLDER-one"
+	p := AIProvider{ID: "p1", Name: "My OpenAI"}
+	p.ProviderID = "openai"
+	p.Tier = "known"
+	p.APIKey = cred
+	if err := store.SaveProvider(p); err != nil {
+		t.Fatalf("SaveProvider: %v", err)
+	}
+
+	var rawStoredValue, vaultRef string
+	if err := db.QueryRow(`SELECT api_key, vault_ref FROM ai_providers WHERE id = 'p1'`).Scan(&rawStoredValue, &vaultRef); err != nil {
+		t.Fatalf("reading raw row: %v", err)
+	}
+	if rawStoredValue != "" {
+		t.Fatalf("expected ai_providers.api_key to be empty after save, got %q", rawStoredValue)
+	}
+	if vaultRef == "" {
+		t.Fatal("expected vault_ref to be populated")
+	}
+
+	got, err := store.GetProvider("p1", "default")
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if got.APIKey != cred {
+		t.Fatalf("expected GetProvider to resolve the real credential, got %q", got.APIKey)
+	}
+
+	list, err := store.ListProviders("default")
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected one provider, got %d", len(list))
+	}
+	if list[0].APIKey != "" {
+		t.Fatal("expected ListProviders to never decrypt the credential, same invariant as vault_secrets.List")
+	}
+}
+
+func TestSaveProvider_UpdatingReusesSameVaultEntry(t *testing.T) {
+	db := openTestDB(t)
+	store, err := NewAIStore(db)
+	if err != nil {
+		t.Fatalf("NewAIStore: %v", err)
+	}
+
+	credA := "PLACEHOLDER-one"
+	p := AIProvider{ID: "p1", Name: "My OpenAI"}
+	p.ProviderID = "openai"
+	p.Tier = "known"
+	p.APIKey = credA
+	if err := store.SaveProvider(p); err != nil {
+		t.Fatalf("first SaveProvider: %v", err)
+	}
+	first, err := store.GetProvider("p1", "default")
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+
+	credB := "PLACEHOLDER-two"
+	p.APIKey = credB
+	p.VaultRef = first.VaultRef
+	if err := store.SaveProvider(p); err != nil {
+		t.Fatalf("second SaveProvider: %v", err)
+	}
+	second, err := store.GetProvider("p1", "default")
+	if err != nil {
+		t.Fatalf("GetProvider after update: %v", err)
+	}
+	if second.VaultRef != first.VaultRef {
+		t.Fatalf("expected the same vault entry to be reused, got %q want %q", second.VaultRef, first.VaultRef)
+	}
+	if second.APIKey != credB {
+		t.Fatalf("expected updated credential, got %q", second.APIKey)
 	}
 }
 

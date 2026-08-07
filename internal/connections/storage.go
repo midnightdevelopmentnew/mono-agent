@@ -27,6 +27,7 @@ type Connection struct {
 	Status     string                 `json:"status"`      // "active" | "expired" | "error"
 	LastTested string                 `json:"last_tested,omitempty"`
 	ProfileID  string                 `json:"profile_id,omitempty"`
+	VaultRef   string                 `json:"vault_ref,omitempty"`
 	CreatedAt  string                 `json:"created_at"`
 	UpdatedAt  string                 `json:"updated_at"`
 }
@@ -44,6 +45,7 @@ type SafeConnection struct {
 	Status     string     `json:"status"`
 	LastTested string     `json:"last_tested,omitempty"`
 	ProfileID  string     `json:"profile_id,omitempty"`
+	VaultRef   string     `json:"vault_ref,omitempty"`
 	CreatedAt  string     `json:"created_at"`
 	UpdatedAt  string     `json:"updated_at"`
 }
@@ -59,6 +61,7 @@ func (c Connection) Redact() SafeConnection {
 		Status:     c.Status,
 		LastTested: c.LastTested,
 		ProfileID:  c.ProfileID,
+		VaultRef:   c.VaultRef,
 		CreatedAt:  c.CreatedAt,
 		UpdatedAt:  c.UpdatedAt,
 	}
@@ -137,6 +140,10 @@ func (s *Store) EnsureTable(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, createConnectionsTable); err != nil {
 		return err
 	}
+	// Idempotent column add for pre-existing databases: SQLite errors on a
+	// duplicate column, which is expected and ignored here — same pattern
+	// ai.AIStore.initTables already uses for its own added-later columns.
+	_, _ = s.db.ExecContext(ctx, `ALTER TABLE connections ADD COLUMN vault_ref TEXT NOT NULL DEFAULT ''`)
 	_, err := s.db.ExecContext(ctx, createRefreshLocksTable)
 	return err
 }
@@ -156,8 +163,20 @@ func (s *Store) Save(ctx context.Context, c *Connection) error {
 	if c.Status == "" {
 		c.Status = "active"
 	}
+	if c.ProfileID == "" {
+		c.ProfileID = "default"
+	}
 
-	dataBytes, err := json.Marshal(c.Data)
+	secretFields, nonSecret := splitSecretFields(c.Platform, c.Method, c.Data)
+	if len(secretFields) > 0 {
+		linkID, putErr := secrets.PutSystemEntry(ctx, s.db, c.ProfileID, "connection", c.VaultRef, connectionVaultName(c), secretFields, c.AccountID, "")
+		if putErr != nil {
+			return fmt.Errorf("connections.Save: saving credentials to vault: %w", putErr)
+		}
+		c.VaultRef = linkID
+	}
+
+	dataBytes, err := json.Marshal(nonSecret)
 	if err != nil {
 		return fmt.Errorf("connections.Save: marshal data: %w", err)
 	}
@@ -166,21 +185,17 @@ func (s *Store) Save(ctx context.Context, c *Connection) error {
 		return fmt.Errorf("connections.Save: encrypting data: %w", err)
 	}
 
-	if c.ProfileID == "" {
-		c.ProfileID = "default"
-	}
-
 	const q = `
-INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, vault_ref, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     label=excluded.label, account_id=excluded.account_id,
     data=excluded.data, status=excluded.status,
-    last_tested=excluded.last_tested, updated_at=excluded.updated_at`
+    last_tested=excluded.last_tested, vault_ref=excluded.vault_ref, updated_at=excluded.updated_at`
 
 	_, err = s.db.ExecContext(ctx, q,
 		c.ID, c.Platform, string(c.Method), c.Label, c.AccountID,
-		encodedData, c.Status, c.LastTested, c.ProfileID, c.CreatedAt, c.UpdatedAt,
+		encodedData, c.Status, c.LastTested, c.ProfileID, c.VaultRef, c.CreatedAt, c.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("connections.Save: %w", err)
@@ -191,7 +206,7 @@ ON CONFLICT(id) DO UPDATE SET
 // Get returns the connection with the given ID, or nil if not found.
 func (s *Store) Get(ctx context.Context, id string) (*Connection, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
+		`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), COALESCE(vault_ref,''), created_at, updated_at
          FROM connections WHERE id = ?`, id)
 	return scanConnection(ctx, s.db, row)
 }
@@ -272,6 +287,7 @@ func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 		// would permanently break the connection.
 		if latest, err := s.Get(ctx, conn.ID); err == nil && latest != nil && latest.Data != nil {
 			conn.Data = latest.Data
+			conn.VaultRef = latest.VaultRef
 		}
 	}
 
@@ -471,7 +487,7 @@ func (s *Store) SaveOAuthClient(ctx context.Context, platform, profileID, client
 
 // ListAll returns all connections ordered by platform then created_at.
 func (s *Store) ListAll(ctx context.Context, profileID string) ([]Connection, error) {
-	const q = `SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
+	const q = `SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), COALESCE(vault_ref,''), created_at, updated_at
 	           FROM connections WHERE COALESCE(profile_id,'default') = ? ORDER BY platform, created_at`
 	rows, err := s.db.QueryContext(ctx, q, profileID)
 	if err != nil {
@@ -497,11 +513,11 @@ func (s *Store) ListByPlatform(ctx context.Context, platform, profileID string) 
 	)
 	if profileID == "" {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
+			`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), COALESCE(vault_ref,''), created_at, updated_at
 			 FROM connections WHERE platform = ? ORDER BY created_at`, platform)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), created_at, updated_at
+			`SELECT id, platform, method, label, account_id, data, status, last_tested, COALESCE(profile_id,'default'), COALESCE(vault_ref,''), created_at, updated_at
 			 FROM connections WHERE platform = ? AND COALESCE(profile_id,'default') = ? ORDER BY created_at`,
 			platform, profileID)
 	}
@@ -512,10 +528,17 @@ func (s *Store) ListByPlatform(ctx context.Context, platform, profileID string) 
 	return scanConnections(ctx, s.db, rows)
 }
 
-// Delete removes a connection by ID, scoped to profileID. Returns an error if the row does not exist.
+// Delete removes a connection by ID, scoped to profileID, and its linked
+// vault entry (if any) — same credential, so both must go together.
+// Returns an error if the row does not exist.
 func (s *Store) Delete(ctx context.Context, id, profileID string) error {
 	if profileID == "" {
 		profileID = "default"
+	}
+	if conn, getErr := s.Get(ctx, id); getErr == nil && conn != nil && conn.VaultRef != "" {
+		if delErr := secrets.Delete(ctx, s.db, profileID, conn.VaultRef); delErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: connection %s deleted but its vault entry %s could not be removed: %v\n", id, conn.VaultRef, delErr)
+		}
 	}
 	const q = `DELETE FROM connections WHERE id = ? AND COALESCE(profile_id,'default') = ?`
 	res, err := s.db.ExecContext(ctx, q, id, profileID)
@@ -556,7 +579,7 @@ func scanConnection(ctx context.Context, db *sql.DB, row *sql.Row) (*Connection,
 	var c Connection
 	var dataJSON, method string
 	err := row.Scan(&c.ID, &c.Platform, &method, &c.Label, &c.AccountID,
-		&dataJSON, &c.Status, &c.LastTested, &c.ProfileID, &c.CreatedAt, &c.UpdatedAt)
+		&dataJSON, &c.Status, &c.LastTested, &c.ProfileID, &c.VaultRef, &c.CreatedAt, &c.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -571,10 +594,39 @@ func scanConnection(ctx context.Context, db *sql.DB, row *sql.Row) (*Connection,
 	if err := json.Unmarshal(decoded, &c.Data); err != nil {
 		return nil, fmt.Errorf("scanConnection: unmarshal data: %w", err)
 	}
+	if err := mergeVaultFields(ctx, db, &c); err != nil {
+		return nil, fmt.Errorf("scanConnection: %w", err)
+	}
 	return &c, nil
 }
 
-// scanConnections reads all Connection rows from a *sql.Rows result set.
+// mergeVaultFields decrypts c's linked vault entry (if any) and merges its
+// fields back into c.Data, so every existing caller reading e.g.
+// c.Data["access_token"] keeps working regardless of where the value is
+// actually stored.
+func mergeVaultFields(ctx context.Context, db *sql.DB, c *Connection) error {
+	if c.VaultRef == "" {
+		return nil
+	}
+	resolved, _, err := secrets.DecryptFields(ctx, db, c.ProfileID, c.VaultRef)
+	if err != nil {
+		return fmt.Errorf("resolving vault credentials: %w", err)
+	}
+	if c.Data == nil {
+		c.Data = map[string]interface{}{}
+	}
+	for k, v := range resolved {
+		c.Data[k] = v
+	}
+	return nil
+}
+
+// scanConnections reads all Connection rows from a *sql.Rows result set. A
+// per-row mergeVaultFields failure (e.g. a dangling vault_ref left by an
+// out-of-band delete or corruption) is logged and that row is omitted,
+// rather than aborting the whole scan — unlike scanConnection's single-row
+// path, which does return the error, since a caller looking up one specific
+// connection should see it fail clearly instead of silently disappearing.
 func scanConnections(ctx context.Context, db *sql.DB, rows *sql.Rows) ([]Connection, error) {
 	var out []Connection
 	for rows.Next() {
@@ -582,7 +634,7 @@ func scanConnections(ctx context.Context, db *sql.DB, rows *sql.Rows) ([]Connect
 		var method, dataJSON string
 		if err := rows.Scan(
 			&c.ID, &c.Platform, &method, &c.Label, &c.AccountID,
-			&dataJSON, &c.Status, &c.LastTested, &c.ProfileID, &c.CreatedAt, &c.UpdatedAt,
+			&dataJSON, &c.Status, &c.LastTested, &c.ProfileID, &c.VaultRef, &c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanConnections: %w", err)
 		}
@@ -593,6 +645,10 @@ func scanConnections(ctx context.Context, db *sql.DB, rows *sql.Rows) ([]Connect
 		}
 		if err := json.Unmarshal(decoded, &c.Data); err != nil {
 			return nil, fmt.Errorf("scanConnections: unmarshal data: %w", err)
+		}
+		if err := mergeVaultFields(ctx, db, &c); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: connection %s: could not resolve vault credentials, omitting from list: %v\n", c.ID, err)
+			continue
 		}
 		out = append(out, c)
 	}

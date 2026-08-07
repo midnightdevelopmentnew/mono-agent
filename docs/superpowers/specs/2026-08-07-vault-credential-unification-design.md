@@ -145,6 +145,8 @@ Because system-managed entries are now ordinary `vault_secrets` rows, **`secrets
 
    A `nil` callback simply skips re-materializing that kind (the vault entry itself still imports) — `internal/secrets`' own package-internal tests pass `nil` for all three and only assert on the vault row. `cmd/monoagentcli/secret_export.go`'s `secret import` command — the only real caller — wires all three to the actual `internal/connections`/`internal/ai`/session-save upsert functions, matched against an existing row by natural key (platform+label for connections, platform+username for sessions, provider name for AI providers) to update in place rather than duplicate on a re-import.
 
+   A name collision on import is a **skip, not an update**: `secrets.Import` checks for an existing entry of the same name before any rematerialize callback runs, and leaves the destination's existing entry (and its credential) untouched when one is found. This is the safer default — an older exported credential (e.g. a since-rotated OAuth refresh token) could otherwise silently replace a working local one — but it does mean re-importing a vault export onto a machine that already has a same-named connection/session/provider is a no-op for that entry, not a refresh.
+
 ---
 
 ## Vault UI/CLI surface

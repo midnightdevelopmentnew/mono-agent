@@ -7,14 +7,30 @@ import (
 	"os"
 )
 
-// plaintextDataQuery finds connections rows whose data column has not been
-// through secrets.EncryptBlob yet. The "vaultenc:v1:" literal must match
-// internal/secrets/blob.go's blobPrefix constant.
-const plaintextDataQuery = `SELECT COUNT(*) FROM connections WHERE data NOT LIKE 'vaultenc:v1:%'`
+// needsMigrationQuery finds connections rows that either aren't yet wrapped
+// by the vault at all (pre-secrets-vault plaintext rows) or are wrapped but
+// haven't had their credential-bearing Data keys split out into a linked
+// vault entry yet (pre-credential-unification rows, vault_ref still empty).
+// The "vaultenc:v1:" literal must match internal/secrets/blob.go's
+// blobPrefix constant.
+//
+// The empty-vault_ref half of the OR excludes method='browser': a browser
+// connection (Instagram/LinkedIn/X/TikTok/HackerNews/Gemini) has no
+// secret-bearing Data fields to split into the vault (see
+// splitSecretFields/TestStoreSave_BrowserPlatformNeverGetsAVaultRef), so it
+// structurally never gets a vault_ref — without this exclusion the COUNT
+// stays permanently non-zero for any profile with one, and the full
+// enumerate-and-re-save loop below re-runs on every startup instead of
+// reaching a (0, 0) steady state. A legacy plaintext browser row (if one
+// ever existed) still matches via the first half of the OR and gets its
+// data column re-encrypted.
+const needsMigrationQuery = `SELECT COUNT(*) FROM connections WHERE data NOT LIKE 'vaultenc:v1:%' OR (COALESCE(vault_ref,'') = '' AND method != 'browser')`
 
-// EncryptPlaintextConnections re-encrypts any connections rows whose data
-// column isn't yet wrapped by the vault (see secrets.EncryptBlob), by
-// re-saving each one through Store.Save, which always encrypts on write.
+// MigrateConnectionsToVault re-encrypts any connections rows whose data
+// column isn't yet wrapped by the vault (see secrets.EncryptBlob), or
+// are wrapped but haven't had their credential-bearing Data keys split
+// into the vault yet, by re-saving each one through Store.Save, which
+// (after Task 4) automatically splits credential fields into the vault.
 // This is the shared implementation behind `monoagentcli secret
 // encrypt-connections` and the automatic startup checks in the CLI and GUI:
 // it first runs a single cheap COUNT query, and only does the full
@@ -24,17 +40,17 @@ const plaintextDataQuery = `SELECT COUNT(*) FROM connections WHERE data NOT LIKE
 //
 // Per-row Save failures are logged to stderr and skipped rather than
 // aborting the rest of the batch.
-func EncryptPlaintextConnections(ctx context.Context, db *sql.DB) (migrated, total int, err error) {
+func MigrateConnectionsToVault(ctx context.Context, db *sql.DB) (migrated, total int, err error) {
 	store := NewStore(db)
 	if err := store.EnsureTable(ctx); err != nil {
-		return 0, 0, fmt.Errorf("connections.EncryptPlaintextConnections: ensuring table: %w", err)
+		return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: ensuring table: %w", err)
 	}
 
-	var plaintextCount int
-	if err := db.QueryRowContext(ctx, plaintextDataQuery).Scan(&plaintextCount); err != nil {
-		return 0, 0, fmt.Errorf("connections.EncryptPlaintextConnections: counting plaintext rows: %w", err)
+	var needsMigrationCount int
+	if err := db.QueryRowContext(ctx, needsMigrationQuery).Scan(&needsMigrationCount); err != nil {
+		return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: counting rows: %w", err)
 	}
-	if plaintextCount == 0 {
+	if needsMigrationCount == 0 {
 		return 0, 0, nil
 	}
 
@@ -43,29 +59,29 @@ func EncryptPlaintextConnections(ctx context.Context, db *sql.DB) (migrated, tot
 	// distinct profile IDs first and migrate each in turn.
 	rows, err := db.QueryContext(ctx, `SELECT DISTINCT COALESCE(profile_id,'default') FROM connections`)
 	if err != nil {
-		return 0, 0, fmt.Errorf("connections.EncryptPlaintextConnections: listing connection profiles: %w", err)
+		return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: listing connection profiles: %w", err)
 	}
 	var profileIDs []string
 	for rows.Next() {
 		var profileID string
 		if err := rows.Scan(&profileID); err != nil {
 			rows.Close()
-			return 0, 0, fmt.Errorf("connections.EncryptPlaintextConnections: scanning profile id: %w", err)
+			return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: scanning profile id: %w", err)
 		}
 		profileIDs = append(profileIDs, profileID)
 	}
 	if err := rows.Close(); err != nil {
-		return 0, 0, fmt.Errorf("connections.EncryptPlaintextConnections: listing connection profiles: %w", err)
+		return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: listing connection profiles: %w", err)
 	}
 	if err := rows.Err(); err != nil {
-		return 0, 0, fmt.Errorf("connections.EncryptPlaintextConnections: listing connection profiles: %w", err)
+		return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: listing connection profiles: %w", err)
 	}
 
 	var conns []Connection
 	for _, profileID := range profileIDs {
 		profileConns, err := store.ListAll(ctx, profileID)
 		if err != nil {
-			return 0, 0, fmt.Errorf("connections.EncryptPlaintextConnections: listing connections for profile %q: %w", profileID, err)
+			return 0, 0, fmt.Errorf("connections.MigrateConnectionsToVault: listing connections for profile %q: %w", profileID, err)
 		}
 		conns = append(conns, profileConns...)
 	}

@@ -11,7 +11,7 @@ import (
 // MigrateFieldsToKV re-encrypts any vault_secrets row still holding the
 // pre-key-value single-string ciphertext (kv = 0) as a JSON
 // {"secret": "<old value>"} blob instead, so DecryptFields can read every
-// row uniformly. Mirrors connections.EncryptPlaintextConnections: a single
+// row uniformly. Mirrors connections.MigrateConnectionsToVault: a single
 // cheap COUNT query first, a near-zero-cost no-op once everything is
 // migrated, and self-healing if an unmigrated row is ever reintroduced.
 // Applies uniformly to "secret"- and "login"-kind rows alike. A per-row

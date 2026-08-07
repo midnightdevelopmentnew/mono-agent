@@ -96,11 +96,17 @@ func (a *App) startup(ctx context.Context) {
 	// left over from before the secrets vault shipped. Cheap (a single COUNT
 	// query) once everything is already encrypted, and self-healing if a
 	// plaintext row is ever reintroduced.
-	if _, _, err := connections.EncryptPlaintextConnections(ctx, db); err != nil {
+	if _, _, err := connections.MigrateConnectionsToVault(ctx, db); err != nil {
 		runtime.LogErrorf(ctx, "connections migration error: %v", err)
 	}
 	if _, _, err := secrets.MigrateFieldsToKV(ctx, db); err != nil {
 		runtime.LogErrorf(ctx, "vault key-value migration error: %v", err)
+	}
+	if _, _, err := secrets.MigrateSessionsToVault(ctx, db); err != nil {
+		runtime.LogErrorf(ctx, "sessions migration error: %v", err)
+	}
+	if _, _, err := ai.MigrateProvidersToVault(ctx, db); err != nil {
+		runtime.LogErrorf(ctx, "ai providers migration error: %v", err)
 	}
 
 	// Ensure vault directory exists.
@@ -481,19 +487,19 @@ func (a *App) TestSession(id int) string {
 	if a.db == nil {
 		return "error: database not available"
 	}
-	var platform, cookiesJSON string
+	var platform, vaultRef string
 	var activeInt int
 	err := a.db.QueryRow(
-		`SELECT platform, cookies_json, (expiry > datetime('now')) as active
+		`SELECT platform, COALESCE(vault_ref,''), (expiry > datetime('now')) as active
 		 FROM crawler_sessions WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID(),
-	).Scan(&platform, &cookiesJSON, &activeInt)
+	).Scan(&platform, &vaultRef, &activeInt)
 	if err != nil {
 		return "error: session not found"
 	}
 	if activeInt != 1 {
 		return "error: session expired"
 	}
-	if len(cookiesJSON) < 10 {
+	if vaultRef == "" {
 		return "error: no cookies stored"
 	}
 	return "ok"
@@ -503,12 +509,21 @@ func (a *App) DeleteSession(id int) error {
 	if a.db == nil {
 		return fmt.Errorf("database not available")
 	}
+	var vaultRef string
+	_ = a.db.QueryRow(
+		`SELECT COALESCE(vault_ref,'') FROM crawler_sessions WHERE id = ? AND profile_id = ?`, id, a.getActiveProfileID(),
+	).Scan(&vaultRef)
 	res, err := a.db.Exec("DELETE FROM crawler_sessions WHERE id = ? AND profile_id = ?", id, a.getActiveProfileID())
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("session %d not found", id)
+	}
+	if vaultRef != "" {
+		if err := secrets.Delete(context.Background(), a.db, a.getActiveProfileID(), vaultRef); err != nil {
+			runtime.LogErrorf(a.ctx, "deleting vault entry %s for session %d: %v", vaultRef, id, err)
+		}
 	}
 	a.emitLog("SESSIONS", "WARN", fmt.Sprintf("Deleted session ID %d", id))
 	return nil

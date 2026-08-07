@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"monoagent/internal/ai"
 	"monoagent/internal/connections"
+	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 
 	"github.com/zalando/go-keyring"
@@ -396,5 +398,231 @@ func TestSecretRm_RespectsJSONOutput(t *testing.T) {
 	}
 	if parsed.Name != "temp" {
 		t.Fatalf("expected name %q in rm output, got %+v", "temp", parsed)
+	}
+}
+
+func TestSecretRm_CascadesToLinkedConnectionRow(t *testing.T) {
+	db := newLoginTestDB(t) // reuses Task 6's helper — same package, same file set
+	ctx := context.Background()
+
+	if _, err := db.DB.Exec(`CREATE TABLE IF NOT EXISTS connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating connections table: %v", err)
+	}
+
+	credA := "PLACEHOLDER-a"
+	fields := make(map[string]string)
+	fields["access_token"] = credA
+	vaultID, err := secrets.PutSystemEntry(ctx, db.DB, "default", "connection", "", "GitHub", fields, "", "")
+	if err != nil {
+		t.Fatalf("PutSystemEntry: %v", err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO connections (id, platform, profile_id, vault_ref) VALUES ('conn-1', 'github', 'default', ?)`, vaultID); err != nil {
+		t.Fatalf("seeding connections row: %v", err)
+	}
+
+	if err := secrets.DeleteCascade(ctx, db.DB, "default", vaultID); err != nil {
+		t.Fatalf("DeleteCascade: %v", err)
+	}
+
+	var count int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM connections WHERE id = 'conn-1'`).Scan(&count); err != nil {
+		t.Fatalf("counting connections: %v", err)
+	}
+	if count != 0 {
+		t.Fatal("expected the linked connection to be deleted")
+	}
+}
+
+func TestSecretImport_RematerializesConnectionOnFreshMachine(t *testing.T) {
+	ctx := context.Background()
+	src := newLoginTestDB(t)
+	if _, err := src.DB.Exec(`CREATE TABLE IF NOT EXISTS connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating source connections table: %v", err)
+	}
+	store := connections.NewStore(src.DB)
+	credA := "PLACEHOLDER-one"
+	credB := "PLACEHOLDER-ref-one"
+	seedFields := map[string]interface{}{}
+	seedFields["access_token"] = credA
+	seedFields["refresh_token"] = credB
+	conn := &connections.Connection{Platform: "github", Method: connections.MethodOAuth, Label: "work", Data: seedFields}
+	if err := store.Save(ctx, conn); err != nil {
+		t.Fatalf("seeding source connection: %v", err)
+	}
+
+	passphrase, err := secrets.GenerateExportPassword()
+	if err != nil {
+		t.Fatalf("GenerateExportPassword: %v", err)
+	}
+	data, _, _, err := secrets.Export(ctx, src.DB, "default", passphrase)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	dst := newLoginTestDB(t)
+	if err := connections.NewStore(dst.DB).EnsureTable(ctx); err != nil {
+		t.Fatalf("EnsureTable on destination: %v", err)
+	}
+	imported, skipped, err := secrets.Import(ctx, dst.DB, "default", passphrase, data,
+		rematerializeConnection, rematerializeSession, rematerializeProvider)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if imported != 1 || skipped != 0 {
+		t.Fatalf("expected imported=1 skipped=0, got imported=%d skipped=%d", imported, skipped)
+	}
+
+	restored, err := connections.NewStore(dst.DB).ListByPlatform(ctx, "github", "default")
+	if err != nil {
+		t.Fatalf("ListByPlatform on destination: %v", err)
+	}
+	if len(restored) != 1 || restored[0].Label != "work" {
+		t.Fatalf("expected the github connection to be rematerialized, got %+v", restored)
+	}
+	if restored[0].Data["access_token"] != credA || restored[0].Data["refresh_token"] != credB {
+		t.Fatalf("expected the credentials to be resolvable after import, got %+v", restored[0].Data)
+	}
+}
+
+// TestSecretImport_RematerializesConnection_PreservesNonSecretDataOnUpdate
+// covers re-importing onto a machine that already has a connection for the
+// imported platform+label: rematerializeConnection must merge in the
+// pre-existing row's non-secret Data (e.g. expires_at, which
+// ensureFreshToken in internal/connections/storage.go relies on to decide
+// whether to proactively refresh) instead of wiping it to an empty map, and
+// must update the existing row in place rather than creating a duplicate.
+func TestSecretImport_RematerializesConnection_PreservesNonSecretDataOnUpdate(t *testing.T) {
+	ctx := context.Background()
+	src := newLoginTestDB(t)
+	if _, err := src.DB.Exec(`CREATE TABLE IF NOT EXISTS connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating source connections table: %v", err)
+	}
+	srcConn := &connections.Connection{
+		Platform: "github", Method: connections.MethodOAuth, Label: "work",
+		Data: map[string]interface{}{"access_token": "PLACEHOLDER-new-one"},
+	}
+	if err := connections.NewStore(src.DB).Save(ctx, srcConn); err != nil {
+		t.Fatalf("seeding source connection: %v", err)
+	}
+
+	passphrase, err := secrets.GenerateExportPassword()
+	if err != nil {
+		t.Fatalf("GenerateExportPassword: %v", err)
+	}
+	data, _, _, err := secrets.Export(ctx, src.DB, "default", passphrase)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	dst := newLoginTestDB(t)
+	if _, err := dst.DB.Exec(`CREATE TABLE IF NOT EXISTS connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating destination connections table: %v", err)
+	}
+	// Seeded directly (not via Store.Save) so this row's vault-entry name
+	// never lands in the destination vault — otherwise Import's
+	// existingNames dedup would skip the incoming entry as a duplicate name
+	// before rematerializeConnection ever runs.
+	if _, err := dst.DB.Exec(`INSERT INTO connections (id, platform, method, label, account_id, data, status, last_tested, profile_id, vault_ref, created_at, updated_at)
+		VALUES ('conn-old', 'github', 'oauth', 'work', '', '{"access_token":"PLACEHOLDER-old-one","expires_at":"2030-01-01T00:00:00Z"}', 'active', '', 'default', '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("seeding destination connection: %v", err)
+	}
+
+	imported, skipped, err := secrets.Import(ctx, dst.DB, "default", passphrase, data,
+		rematerializeConnection, rematerializeSession, rematerializeProvider)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if imported != 1 || skipped != 0 {
+		t.Fatalf("expected imported=1 skipped=0, got imported=%d skipped=%d", imported, skipped)
+	}
+
+	restored, err := connections.NewStore(dst.DB).ListByPlatform(ctx, "github", "default")
+	if err != nil {
+		t.Fatalf("ListByPlatform on destination: %v", err)
+	}
+	if len(restored) != 1 {
+		t.Fatalf("expected the import to update the existing connection in place, not add a second one, got %d", len(restored))
+	}
+	if restored[0].ID != "conn-old" {
+		t.Fatalf("expected the existing row's ID to be preserved, got %q", restored[0].ID)
+	}
+	if restored[0].Data["expires_at"] != "2030-01-01T00:00:00Z" {
+		t.Fatalf("expected the pre-existing non-secret expires_at field to survive the rematerialize update, got %+v", restored[0].Data)
+	}
+}
+
+// TestSecretImport_RematerializesProvider_PreservesStatusOnUpdate covers
+// re-importing onto a machine that already has an AI provider with the
+// imported name: rematerializeProvider must carry over the existing row's
+// Status/LastTested instead of resetting them to zero value.
+func TestSecretImport_RematerializesProvider_PreservesStatusOnUpdate(t *testing.T) {
+	ctx := context.Background()
+	src := newLoginTestDB(t)
+	srcStore, err := ai.NewAIStore(src.DB)
+	if err != nil {
+		t.Fatalf("ai.NewAIStore(src): %v", err)
+	}
+	if err := srcStore.SaveProvider(ai.AIProvider{
+		ID: "prov-src", Name: "OpenAI Work", ProviderID: "openai", Tier: "known",
+		APIKey: "sk-test", ProfileID: "default",
+	}); err != nil {
+		t.Fatalf("seeding source provider: %v", err)
+	}
+
+	passphrase, err := secrets.GenerateExportPassword()
+	if err != nil {
+		t.Fatalf("GenerateExportPassword: %v", err)
+	}
+	data, _, _, err := secrets.Export(ctx, src.DB, "default", passphrase)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	dst := newLoginTestDB(t)
+	dstStore, err := ai.NewAIStore(dst.DB)
+	if err != nil {
+		t.Fatalf("ai.NewAIStore(dst): %v", err)
+	}
+	// Seeded directly (not via SaveProvider) so this row's vault-entry name
+	// never lands in the destination vault, matching the connections test's
+	// rationale above.
+	if _, err := dst.DB.Exec(`INSERT INTO ai_providers (id, name, provider_id, tier, api_key, base_url, default_model, extra_headers, status, last_tested, profile_id, vault_ref, created_at)
+		VALUES ('prov-old', 'OpenAI Work', 'openai', 'known', '', '', '', '', 'active', '2026-01-01T00:00:00Z', 'default', '', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("seeding destination provider: %v", err)
+	}
+
+	imported, skipped, err := secrets.Import(ctx, dst.DB, "default", passphrase, data,
+		rematerializeConnection, rematerializeSession, rematerializeProvider)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if imported != 1 || skipped != 0 {
+		t.Fatalf("expected imported=1 skipped=0, got imported=%d skipped=%d", imported, skipped)
+	}
+
+	restored, err := dstStore.ListProviders("default")
+	if err != nil {
+		t.Fatalf("ListProviders on destination: %v", err)
+	}
+	if len(restored) != 1 {
+		t.Fatalf("expected the import to update the existing provider in place, not add a second one, got %d", len(restored))
+	}
+	if restored[0].ID != "prov-old" {
+		t.Fatalf("expected the existing row's ID to be preserved, got %q", restored[0].ID)
+	}
+	if restored[0].Status != "active" || restored[0].LastTested != "2026-01-01T00:00:00Z" {
+		t.Fatalf("expected the pre-existing Status/LastTested to survive the rematerialize update, got status=%q last_tested=%q", restored[0].Status, restored[0].LastTested)
 	}
 }

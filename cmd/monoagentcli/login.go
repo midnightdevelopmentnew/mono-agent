@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,7 +17,6 @@ import (
 	"monoagent/internal/bot"
 	"monoagent/internal/chromecookies"
 	"monoagent/internal/secrets"
-	"monoagent/internal/storage"
 
 	// Import platform bots to trigger init() registration.
 	_ "monoagent/internal/bot/email"
@@ -165,32 +165,41 @@ func boolField(m map[string]interface{}, key string) bool {
 	return v
 }
 
-// saveSession upserts a crawler_sessions row scoped to the active profile.
-// UPDATE-then-INSERT (rather than INSERT OR REPLACE) because REPLACE keys
-// only on UNIQUE(username, platform, profile_id) — a plain REPLACE would
-// still be scoped correctly here, but going through UPDATE first avoids
-// resetting the auto-increment id/when_added on every re-login.
-func saveSession(db *storage.Database, profileID, platform, username string, cookiesJSON []byte) error {
-	expiry := time.Now().Add(30 * 24 * time.Hour) // 30 days
-	// Session cookies are live-login material; encrypt them under the same vault
-	// envelope used for connection credentials rather than storing plaintext.
-	enc, err := secrets.EncryptBlob(context.Background(), db.DB, cookiesJSON)
-	if err != nil {
-		return fmt.Errorf("encrypting session cookies: %w", err)
+// upsertSessionRow stores platform/username's cookie jar as a "session"-kind
+// vault entry and upserts the corresponding crawler_sessions row to point
+// at it via vault_ref — UPDATE-then-INSERT (rather than INSERT OR REPLACE)
+// so a re-login doesn't reset the auto-increment id/when_added. Shared by
+// the CLI login-capture flow and, in Task 10, the "session"
+// RematerializeFunc that reconnects an imported vault export on a new
+// machine.
+func upsertSessionRow(ctx context.Context, db *sql.DB, profileID, platform, username string, cookiesJSON []byte) error {
+	var linkedVaultID string
+	_ = db.QueryRowContext(ctx,
+		`SELECT vault_ref FROM crawler_sessions WHERE username = ? AND platform = ? AND profile_id = ?`,
+		username, platform, profileID,
+	).Scan(&linkedVaultID)
+
+	entryName := fmt.Sprintf("%s session — %s", platform, username)
+	cookieField := map[string]string{"cookies": string(cookiesJSON)}
+	vaultID, putErr := secrets.PutSystemEntry(ctx, db, profileID, "session", linkedVaultID, entryName, cookieField, username, platform)
+	if putErr != nil {
+		return fmt.Errorf("saving session cookies to vault: %w", putErr)
 	}
-	res, err := db.DB.Exec(
-		`UPDATE crawler_sessions SET cookies_json = ?, expiry = ?
+
+	expiry := time.Now().Add(30 * 24 * time.Hour) // 30 days
+	res, err := db.ExecContext(ctx,
+		`UPDATE crawler_sessions SET vault_ref = ?, expiry = ?
 		 WHERE username = ? AND platform = ? AND profile_id = ?`,
-		enc, expiry, username, platform, profileID,
+		vaultID, expiry, username, platform, profileID,
 	)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		_, err = db.DB.Exec(
-			`INSERT INTO crawler_sessions (username, platform, cookies_json, expiry, profile_id)
-			 VALUES (?, ?, ?, ?, ?)`,
-			username, platform, enc, expiry, profileID,
+		_, err = db.ExecContext(ctx,
+			`INSERT INTO crawler_sessions (username, platform, cookies_json, vault_ref, expiry, profile_id)
+			 VALUES (?, ?, '', ?, ?, ?)`,
+			username, platform, vaultID, expiry, profileID,
 		)
 	}
 	return err
@@ -318,7 +327,7 @@ func newLoginConfirmCmd(cfg *globalConfig) *cobra.Command {
 			// bots already use when ExtractUsername can't determine one.
 			username := "unknown"
 
-			if err := saveSession(db, cfg.ProfileID, strings.ToLower(platform), username, cookiesJSON); err != nil {
+			if err := upsertSessionRow(cmd.Context(), db.DB, cfg.ProfileID, strings.ToLower(platform), username, cookiesJSON); err != nil {
 				return fmt.Errorf("saving session: %w", err)
 			}
 
