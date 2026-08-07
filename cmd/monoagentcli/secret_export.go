@@ -141,6 +141,13 @@ func rematerializeConnection(ctx context.Context, db *sql.DB, profileID, vaultID
 	for _, e := range existing {
 		if e.Label == meta["label"] {
 			conn.ID = e.ID
+			existingConn, getErr := store.Get(ctx, e.ID)
+			if getErr != nil {
+				return fmt.Errorf("loading the existing connection to preserve its data: %w", getErr)
+			}
+			if existingConn != nil {
+				conn.Data = existingConn.Data
+			}
 			break
 		}
 	}
@@ -195,6 +202,8 @@ func rematerializeProvider(ctx context.Context, db *sql.DB, profileID, vaultID, 
 	for _, e := range existing {
 		if e.Name == name {
 			p.ID = e.ID
+			p.Status = e.Status
+			p.LastTested = e.LastTested
 			break
 		}
 	}
