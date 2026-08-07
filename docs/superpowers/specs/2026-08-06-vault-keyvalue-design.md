@@ -201,3 +201,7 @@ Every `wails-app/app_vault.go` vault method drops its direct `secrets.X(...)` ca
 - Folding `notes` into the key-value field set — it stays the existing separate encrypted field.
 - User-configurable Argon2id parameters.
 - A field-qualified workflow reference syntax (e.g. selecting one field of a multi-field entry by name) — bare `@secret:name` references continue to resolve only the `secret`-keyed or sole field, per the Workflow reference resolution note above.
+
+## Known Trade-offs
+
+- **Field values travel as CLI subprocess arguments.** `wails-app/app_vault.go`'s `AddSecret`/`UpdateSecret` pass each field as a literal `--field key=value` argv entry when shelling out, unlike the export passphrase (piped via stdin) and the single-value `add` prompt (also stdin) — that reasoning was never extended to `--field`. Exposure is bounded: on macOS, process argv is only readable by the same user or root, and the subprocess lives milliseconds. The durable exposure is endpoint security/EDR tooling that logs full exec argv on a monitored machine, which would capture field values in plaintext. Fixing this means moving field values to stdin (e.g. JSON), which changes the CLI's public `--field` contract and its existing tests — deliberately deferred rather than taken as part of this feature. Revisit if this tool is ever expected to run on monitored/managed endpoints.
