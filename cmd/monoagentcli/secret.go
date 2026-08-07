@@ -392,7 +392,7 @@ func newSecretRmCmd(cfg *globalConfig) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := secrets.Delete(cmd.Context(), db.DB, profileID, id); err != nil {
+			if err := secrets.DeleteCascade(cmd.Context(), db.DB, profileID, id); err != nil {
 				return fmt.Errorf("deleting entry: %w", err)
 			}
 			if cfg.JSONOutput {

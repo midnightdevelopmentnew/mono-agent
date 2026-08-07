@@ -15,10 +15,20 @@ const fmtDate = (s) => {
 const KIND_COLORS = {
   login: { bg: 'rgba(0,180,216,0.1)', border: 'rgba(0,180,216,0.25)', color: '#00b4d8' },
   secret: { bg: 'rgba(124,58,237,0.15)', border: 'rgba(124,58,237,0.3)', color: '#a78bfa' },
+  connection: { bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)', color: '#10b981' },
+  session: { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)', color: '#f59e0b' },
+  ai_provider: { bg: 'rgba(236,72,153,0.12)', border: 'rgba(236,72,153,0.3)', color: '#ec4899' },
+}
+const KIND_LABELS = {
+  secret: 'keys',
+  login: 'login',
+  connection: 'connection',
+  session: 'session',
+  ai_provider: 'ai key',
 }
 const kindBadge = (kind) => {
   const s = KIND_COLORS[kind] || { bg: '#1a2332', border: '#334', color: '#64748b' }
-  const label = kind === 'secret' ? 'keys' : kind
+  const label = KIND_LABELS[kind] || kind
   return (
     <span style={{
       background: s.bg, border: `1px solid ${s.border}`, borderRadius: 3,

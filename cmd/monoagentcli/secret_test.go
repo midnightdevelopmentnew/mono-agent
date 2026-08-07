@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"monoagent/internal/connections"
+	"monoagent/internal/secrets"
 	"monoagent/internal/storage"
 
 	"github.com/zalando/go-keyring"
@@ -396,5 +397,94 @@ func TestSecretRm_RespectsJSONOutput(t *testing.T) {
 	}
 	if parsed.Name != "temp" {
 		t.Fatalf("expected name %q in rm output, got %+v", "temp", parsed)
+	}
+}
+
+func TestSecretRm_CascadesToLinkedConnectionRow(t *testing.T) {
+	db := newLoginTestDB(t) // reuses Task 6's helper — same package, same file set
+	ctx := context.Background()
+
+	if _, err := db.DB.Exec(`CREATE TABLE IF NOT EXISTS connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating connections table: %v", err)
+	}
+
+	credA := "PLACEHOLDER-a"
+	fields := make(map[string]string)
+	fields["access_token"] = credA
+	vaultID, err := secrets.PutSystemEntry(ctx, db.DB, "default", "connection", "", "GitHub", fields, "", "")
+	if err != nil {
+		t.Fatalf("PutSystemEntry: %v", err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO connections (id, platform, profile_id, vault_ref) VALUES ('conn-1', 'github', 'default', ?)`, vaultID); err != nil {
+		t.Fatalf("seeding connections row: %v", err)
+	}
+
+	if err := secrets.DeleteCascade(ctx, db.DB, "default", vaultID); err != nil {
+		t.Fatalf("DeleteCascade: %v", err)
+	}
+
+	var count int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM connections WHERE id = 'conn-1'`).Scan(&count); err != nil {
+		t.Fatalf("counting connections: %v", err)
+	}
+	if count != 0 {
+		t.Fatal("expected the linked connection to be deleted")
+	}
+}
+
+func TestSecretImport_RematerializesConnectionOnFreshMachine(t *testing.T) {
+	ctx := context.Background()
+	src := newLoginTestDB(t)
+	if _, err := src.DB.Exec(`CREATE TABLE IF NOT EXISTS connections (
+		id TEXT PRIMARY KEY, platform TEXT, method TEXT, label TEXT, account_id TEXT,
+		data TEXT, status TEXT, last_tested TEXT, profile_id TEXT, vault_ref TEXT, created_at TEXT, updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("creating source connections table: %v", err)
+	}
+	store := connections.NewStore(src.DB)
+	credA := "PLACEHOLDER-one"
+	credB := "PLACEHOLDER-ref-one"
+	seedFields := map[string]interface{}{}
+	seedFields["access_token"] = credA
+	seedFields["refresh_token"] = credB
+	conn := &connections.Connection{Platform: "github", Method: connections.MethodOAuth, Label: "work", Data: seedFields}
+	if err := store.Save(ctx, conn); err != nil {
+		t.Fatalf("seeding source connection: %v", err)
+	}
+
+	passphrase, err := secrets.GenerateExportPassword()
+	if err != nil {
+		t.Fatalf("GenerateExportPassword: %v", err)
+	}
+	data, _, _, err := secrets.Export(ctx, src.DB, "default", passphrase)
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	dst := newLoginTestDB(t)
+	if err := connections.NewStore(dst.DB).EnsureTable(ctx); err != nil {
+		t.Fatalf("EnsureTable on destination: %v", err)
+	}
+	imported, skipped, err := secrets.Import(ctx, dst.DB, "default", passphrase, data,
+		rematerializeConnection, rematerializeSession, rematerializeProvider)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if imported != 1 || skipped != 0 {
+		t.Fatalf("expected imported=1 skipped=0, got imported=%d skipped=%d", imported, skipped)
+	}
+
+	restored, err := connections.NewStore(dst.DB).ListByPlatform(ctx, "github", "default")
+	if err != nil {
+		t.Fatalf("ListByPlatform on destination: %v", err)
+	}
+	if len(restored) != 1 || restored[0].Label != "work" {
+		t.Fatalf("expected the github connection to be rematerialized, got %+v", restored)
+	}
+	if restored[0].Data["access_token"] != credA || restored[0].Data["refresh_token"] != credB {
+		t.Fatalf("expected the credentials to be resolvable after import, got %+v", restored[0].Data)
 	}
 }
