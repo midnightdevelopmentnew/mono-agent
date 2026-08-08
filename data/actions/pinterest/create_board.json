@@ -1,0 +1,193 @@
+{
+  "actionType": "create_board",
+  "platform": "PINTEREST",
+  "version": "1.0.0",
+  "description": "Create a new Pinterest board",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "boardName", "type": "string", "description": "Name of the board to create" }
+    ],
+    "optional": [
+      { "name": "description", "type": "string", "default": "", "description": "Board description" },
+      { "name": "isSecret", "type": "boolean", "default": false, "description": "Create the board as secret (private)" }
+    ]
+  },
+  "outputs": {
+    "success": ["boardUrl"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_home",
+      "type": "navigate",
+      "url": "https://www.pinterest.com/",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_create_button",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='header-create-button']",
+      "alternatives": [
+        "//button[@aria-label='Create']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_create_button",
+      "type": "click",
+      "elementRef": "find_create_button"
+    },
+    {
+      "id": "wait_for_create_menu",
+      "type": "wait",
+      "duration": 1.5,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_create_board_option",
+      "type": "find_element",
+      "xpath": "//a[@href='/board-create/']",
+      "alternatives": [
+        "//div[contains(text(), 'Create board')]",
+        "//div[@role='menuitem'][contains(., 'Board')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_create_board_option",
+      "type": "click",
+      "elementRef": "find_create_board_option",
+      "waitFor": "network_idle"
+    },
+    {
+      "id": "wait_for_board_modal",
+      "type": "wait",
+      "duration": 2.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_board_name_input",
+      "type": "find_element",
+      "xpath": "//input[@data-test-id='board-name-input']",
+      "alternatives": [
+        "//input[contains(@placeholder, 'Places to Go')]",
+        "//div[@data-test-id='board-form']//input[@type='text']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_board_name_input",
+      "type": "click",
+      "elementRef": "find_board_name_input"
+    },
+    {
+      "id": "type_board_name",
+      "type": "type",
+      "elementRef": "find_board_name_input",
+      "text": "{{boardName}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_description",
+      "type": "condition",
+      "condition": "description != ''",
+      "then": [
+        "find_description_field",
+        "click_description_field",
+        "type_description"
+      ],
+      "else": []
+    },
+    {
+      "id": "find_description_field",
+      "type": "find_element",
+      "xpath": "//textarea[@data-test-id='board-description-input']",
+      "alternatives": [
+        "//textarea[contains(@placeholder, 'description')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_description_field",
+      "type": "click",
+      "elementRef": "find_description_field"
+    },
+    {
+      "id": "type_description",
+      "type": "type",
+      "elementRef": "find_description_field",
+      "text": "{{description}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_is_secret",
+      "type": "condition",
+      "condition": "isSecret == true",
+      "then": [
+        "find_secret_toggle",
+        "click_secret_toggle"
+      ],
+      "else": []
+    },
+    {
+      "id": "find_secret_toggle",
+      "type": "find_element",
+      "xpath": "//button[@data-test-id='board-form-secret-switch']",
+      "alternatives": [
+        "//input[@type='checkbox'][contains(@aria-label, 'Secret')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_secret_toggle",
+      "type": "click",
+      "elementRef": "find_secret_toggle"
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//button[@data-test-id='board-form-create-button']",
+      "alternatives": [
+        "//button[contains(text(), 'Create')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit_button",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "wait_for_board_created",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Board created successfully",
+      "value": "Board name: {{boardName}}"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

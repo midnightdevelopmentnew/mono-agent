@@ -1,0 +1,139 @@
+{
+  "actionType": "like_pin",
+  "platform": "PINTEREST",
+  "version": "1.0.0",
+  "description": "Save (like) a Pinterest pin, optionally to a specific board",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "pinUrl", "type": "string", "description": "URL of the pin to save/like" }
+    ],
+    "optional": [
+      { "name": "boardName", "type": "string", "default": "", "description": "Board to save the pin to; if empty, saves to the last-used/default board" }
+    ]
+  },
+  "outputs": {
+    "success": ["saved"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_pin",
+      "type": "navigate",
+      "url": "{{pinUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_pin_load",
+      "type": "wait",
+      "duration": 2.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_save_button",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='pin-save-button']",
+      "alternatives": [
+        "//button[@aria-label='Save']",
+        "//div[@aria-label='Save'][@role='button']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_save_button",
+      "type": "click",
+      "elementRef": "find_save_button",
+      "waitFor": "network_idle"
+    },
+    {
+      "id": "check_has_board_name",
+      "type": "condition",
+      "condition": "boardName != ''",
+      "then": [
+        "wait_for_board_picker",
+        "find_board_search_input",
+        "click_board_search_input",
+        "type_board_search",
+        "wait_for_board_filtered",
+        "find_board_option",
+        "click_board_option"
+      ],
+      "else": []
+    },
+    {
+      "id": "wait_for_board_picker",
+      "type": "wait",
+      "duration": 1.5,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_board_search_input",
+      "type": "find_element",
+      "xpath": "//input[@placeholder='Search boards']",
+      "alternatives": [
+        "//div[@data-test-id='board-dropdown-select-button']//input"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_board_search_input",
+      "type": "click",
+      "elementRef": "find_board_search_input"
+    },
+    {
+      "id": "type_board_search",
+      "type": "type",
+      "elementRef": "find_board_search_input",
+      "text": "{{boardName}}",
+      "humanLike": true
+    },
+    {
+      "id": "wait_for_board_filtered",
+      "type": "wait",
+      "duration": 1.5,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_board_option",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='board-list-item']//div[contains(text(), '{{boardName}}')]",
+      "alternatives": [
+        "//div[@role='listbox']//div[contains(text(), '{{boardName}}')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_board_option",
+      "type": "click",
+      "elementRef": "find_board_option",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "wait_for_saved_confirmation",
+      "type": "wait",
+      "duration": 2.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Pin saved successfully",
+      "value": "Pin URL: {{pinUrl}}, Board: {{boardName}}"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

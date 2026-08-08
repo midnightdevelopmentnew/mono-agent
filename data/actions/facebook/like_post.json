@@ -1,0 +1,116 @@
+{
+  "actionType": "like_post",
+  "platform": "FACEBOOK",
+  "version": "1.0.0",
+  "description": "Like or react to a Facebook post via its permalink URL",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "postUrl", "type": "string", "description": "Permalink URL of the post to like/react to" }
+    ],
+    "optional": [
+      { "name": "reactionType", "type": "string", "default": "Like", "enum": ["Like", "Love", "Care", "Haha", "Wow", "Sad", "Angry"], "description": "Reaction to apply; 'Like' performs a direct click, others open the reaction picker" }
+    ]
+  },
+  "outputs": {
+    "success": ["reactionApplied"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_post",
+      "type": "navigate",
+      "url": "{{postUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_post_load",
+      "type": "wait",
+      "duration": 2.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_like_button",
+      "type": "find_element",
+      "xpath": "//div[@role='article']//div[@aria-label='Like'][@role='button']",
+      "alternatives": [
+        "//div[@role='article']//span[text()='Like']/ancestor::div[@role='button'][1]",
+        "//div[@role='article']//div[@aria-label='React'][@role='button']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_reaction_type",
+      "type": "condition",
+      "condition": "reactionType == 'Like' or reactionType == ''",
+      "then": [
+        "click_like_button"
+      ],
+      "else": [
+        "hover_like_button",
+        "wait_for_reaction_tray",
+        "find_reaction_option",
+        "click_reaction_option"
+      ]
+    },
+    {
+      "id": "click_like_button",
+      "type": "click",
+      "elementRef": "find_like_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "hover_like_button",
+      "type": "hover",
+      "elementRef": "find_like_button"
+    },
+    {
+      "id": "wait_for_reaction_tray",
+      "type": "wait",
+      "duration": 1.5,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_reaction_option",
+      "type": "find_element",
+      "xpath": "//div[@aria-label='{{reactionType}}'][@role='button']",
+      "alternatives": [
+        "//div[@role='menu']//div[@aria-label='{{reactionType}}']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_reaction_option",
+      "type": "click",
+      "elementRef": "find_reaction_option",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "wait_for_reaction_applied",
+      "type": "wait",
+      "duration": 1.5,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Reaction applied to post",
+      "value": "Post URL: {{postUrl}}, Reaction: {{reactionType}}"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

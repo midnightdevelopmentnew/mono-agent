@@ -1,0 +1,225 @@
+{
+  "actionType": "publish_pin",
+  "platform": "PINTEREST",
+  "version": "1.0.0",
+  "description": "Create and publish a new pin via the Pinterest pin-creation tool",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "imagePath", "type": "string", "description": "Local file path of the image to upload" },
+      { "name": "title", "type": "string", "description": "Pin title" },
+      { "name": "boardName", "type": "string", "description": "Name of the board to publish the pin to" }
+    ],
+    "optional": [
+      { "name": "description", "type": "string", "default": "", "description": "Pin description" },
+      { "name": "destinationLink", "type": "string", "default": "", "description": "Destination URL the pin should link to" }
+    ]
+  },
+  "outputs": {
+    "success": ["pinUrl"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_creation_tool",
+      "type": "navigate",
+      "url": "https://www.pinterest.com/pin-creation-tool/",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_tool_load",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_file_input",
+      "type": "find_element",
+      "xpath": "//input[@data-test-id='pin-draft-file-input']",
+      "alternatives": [
+        "//input[@type='file'][contains(@accept, 'image')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "upload_pin_image",
+      "type": "type",
+      "elementRef": "find_file_input",
+      "text": "{{imagePath}}",
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_image_processed",
+      "type": "wait",
+      "duration": 5.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_title_input",
+      "type": "find_element",
+      "xpath": "//textarea[@data-test-id='pin-draft-title-field']",
+      "alternatives": [
+        "//input[@placeholder='Add a title']",
+        "//div[@data-test-id='storyboard-creation-title']//textarea"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_title_input",
+      "type": "click",
+      "elementRef": "find_title_input"
+    },
+    {
+      "id": "type_title",
+      "type": "type",
+      "elementRef": "find_title_input",
+      "text": "{{title}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_description",
+      "type": "condition",
+      "condition": "description != ''",
+      "then": [
+        "find_description_field",
+        "click_description_field",
+        "type_description"
+      ],
+      "else": []
+    },
+    {
+      "id": "find_description_field",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='pin-draft-description-field']//div[@contenteditable='true']",
+      "alternatives": [
+        "//textarea[@placeholder='Add a detailed description']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_description_field",
+      "type": "click",
+      "elementRef": "find_description_field"
+    },
+    {
+      "id": "type_description",
+      "type": "type",
+      "elementRef": "find_description_field",
+      "text": "{{description}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_link",
+      "type": "condition",
+      "condition": "destinationLink != ''",
+      "then": [
+        "find_link_input",
+        "click_link_input",
+        "type_link"
+      ],
+      "else": []
+    },
+    {
+      "id": "find_link_input",
+      "type": "find_element",
+      "xpath": "//input[@data-test-id='pin-draft-link-field']",
+      "alternatives": [
+        "//input[@placeholder='Add a destination link']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_link_input",
+      "type": "click",
+      "elementRef": "find_link_input"
+    },
+    {
+      "id": "type_link",
+      "type": "type",
+      "elementRef": "find_link_input",
+      "text": "{{destinationLink}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_board_dropdown",
+      "type": "find_element",
+      "xpath": "//button[@data-test-id='board-dropdown-select-button']",
+      "alternatives": [
+        "//div[@data-test-id='board-dropdown-select-button']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_board_dropdown",
+      "type": "click",
+      "elementRef": "find_board_dropdown"
+    },
+    {
+      "id": "wait_for_board_list",
+      "type": "wait",
+      "duration": 1.5,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_board_option",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='board-list-item']//div[contains(text(), '{{boardName}}')]",
+      "alternatives": [
+        "//div[@role='listbox']//div[contains(text(), '{{boardName}}')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_board_option",
+      "type": "click",
+      "elementRef": "find_board_option"
+    },
+    {
+      "id": "find_publish_button",
+      "type": "find_element",
+      "xpath": "//button[@data-test-id='board-dropdown-save-button']",
+      "alternatives": [
+        "//div[@data-test-id='pin-draft-publish-button']",
+        "//button[contains(text(), 'Publish')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_publish_button",
+      "type": "click",
+      "elementRef": "find_publish_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "wait_for_pin_published",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Pin published successfully",
+      "value": "Title: {{title}}, Board: {{boardName}}"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

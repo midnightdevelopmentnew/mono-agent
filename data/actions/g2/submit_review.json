@@ -1,0 +1,196 @@
+{
+  "actionType": "submit_review",
+  "platform": "G2",
+  "version": "1.0.0",
+  "description": "Submit a software review on a G2 product review page",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["productSlug", "rating", "reviewTitle", "reviewText"],
+    "optional": ["pros", "cons", "recommendations"]
+  },
+  "outputs": {
+    "success": ["reviewUrl", "reviewId"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_reviews_url",
+      "type": "update_progress",
+      "set": {
+        "reviewsUrl": "https://www.g2.com/products/{{productSlug}}/reviews"
+      }
+    },
+    {
+      "id": "navigate_to_reviews",
+      "type": "navigate",
+      "url": "{{reviewsUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_write_review_button",
+      "type": "find_element",
+      "xpath": "//a[contains(@href,'/survey/g2/') or contains(text(),'Write a Review')]",
+      "alternatives": [
+        "//button[contains(text(),'Write a review')]",
+        "//a[contains(@class,'js-log-click') and contains(.,'Write a Review')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_write_review",
+      "type": "click",
+      "elementRef": "find_write_review_button",
+      "waitFor": "page_load"
+    },
+    {
+      "id": "wait_for_review_form",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_rating_star",
+      "type": "find_element",
+      "xpath": "//div[contains(@class,'star-rating')]//label[@data-rating='{{rating}}']",
+      "alternatives": [
+        "//fieldset[contains(@class,'rating')]//input[@value='{{rating}}']/following-sibling::label"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_rating_star",
+      "type": "click",
+      "elementRef": "find_rating_star"
+    },
+    {
+      "id": "find_review_title_input",
+      "type": "find_element",
+      "xpath": "//input[@id='review-title' or @name='title']",
+      "alternatives": [
+        "//label[contains(text(),'Review title')]/following::input[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_review_title",
+      "type": "type",
+      "elementRef": "find_review_title_input",
+      "text": "{{reviewTitle}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_review_text_area",
+      "type": "find_element",
+      "xpath": "//textarea[@id='review-comment' or @name='comment']",
+      "alternatives": [
+        "//label[contains(text(),'What do you like best')]/following::textarea[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_review_text",
+      "type": "type",
+      "elementRef": "find_review_text_area",
+      "text": "{{reviewText}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_pros",
+      "type": "condition",
+      "condition": "pros != '' and pros != None",
+      "then": ["find_pros_textarea", "type_pros"]
+    },
+    {
+      "id": "find_pros_textarea",
+      "type": "find_element",
+      "xpath": "//textarea[@id='review-pros' or @name='pros']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_pros",
+      "type": "type",
+      "elementRef": "find_pros_textarea",
+      "text": "{{pros}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_cons",
+      "type": "condition",
+      "condition": "cons != '' and cons != None",
+      "then": ["find_cons_textarea", "type_cons"]
+    },
+    {
+      "id": "find_cons_textarea",
+      "type": "find_element",
+      "xpath": "//textarea[@id='review-cons' or @name='cons']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_cons",
+      "type": "type",
+      "elementRef": "find_cons_textarea",
+      "text": "{{cons}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_recommendations",
+      "type": "condition",
+      "condition": "recommendations != '' and recommendations != None",
+      "then": ["find_recommendations_textarea", "type_recommendations"]
+    },
+    {
+      "id": "find_recommendations_textarea",
+      "type": "find_element",
+      "xpath": "//textarea[@id='review-recommendations' or @name='recommendations']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_recommendations",
+      "type": "type",
+      "elementRef": "find_recommendations_textarea",
+      "text": "{{recommendations}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_submit_review_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and contains(text(),'Submit')]",
+      "alternatives": [
+        "//form[contains(@class,'review-form')]//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit_review",
+      "type": "click",
+      "elementRef": "find_submit_review_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_for_confirmation",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Review submitted on G2",
+      "value": "Product: {{productSlug}} Rating: {{rating}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 3000, "onFinalFailure": "log_and_continue" }
+}

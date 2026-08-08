@@ -1,0 +1,206 @@
+{
+  "actionType": "submit_startup",
+  "platform": "BETALIST",
+  "version": "1.0.0",
+  "description": "Submit a startup to BetaList, including name, tagline, URL, description, and category",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["name", "tagline", "url", "description", "category"],
+    "optional": ["twitterHandle", "logoPath"]
+  },
+  "outputs": {
+    "success": ["success", "startupUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_submit",
+      "type": "navigate",
+      "url": "https://betalist.com/submit",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_name_input",
+      "type": "find_element",
+      "xpath": "//input[@id='startup_name' or @name='startup[name]']",
+      "alternatives": [
+        "//label[contains(text(),'Name')]/following::input[1]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_name",
+      "type": "type",
+      "elementRef": "find_name_input",
+      "text": "{{name}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_tagline_input",
+      "type": "find_element",
+      "xpath": "//input[@id='startup_tagline' or @name='startup[tagline]']",
+      "alternatives": [
+        "//label[contains(text(),'Tagline')]/following::input[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_tagline",
+      "type": "type",
+      "elementRef": "find_tagline_input",
+      "text": "{{tagline}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_url_input",
+      "type": "find_element",
+      "xpath": "//input[@id='startup_url' or @name='startup[url]']",
+      "alternatives": [
+        "//label[contains(text(),'Website') or contains(text(),'URL')]/following::input[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_url",
+      "type": "type",
+      "elementRef": "find_url_input",
+      "text": "{{url}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_description_textarea",
+      "type": "find_element",
+      "xpath": "//textarea[@id='startup_description' or @name='startup[description]']",
+      "alternatives": [
+        "//label[contains(text(),'Description')]/following::textarea[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_description",
+      "type": "type",
+      "elementRef": "find_description_textarea",
+      "text": "{{description}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_category_select",
+      "type": "find_element",
+      "xpath": "//select[@id='startup_category_id' or @name='startup[category_id]']",
+      "alternatives": [
+        "//label[contains(text(),'Category')]/following::select[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "select_category",
+      "type": "click",
+      "elementRef": "find_category_select",
+      "waitFor": "element_visible"
+    },
+    {
+      "id": "find_category_option",
+      "type": "find_element",
+      "xpath": "//select[@id='startup_category_id' or @name='startup[category_id]']//option[normalize-space(text())='{{category}}']",
+      "timeout": 5,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_category_option",
+      "type": "click",
+      "elementRef": "find_category_option",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_twitter_handle",
+      "type": "condition",
+      "condition": "twitterHandle != '' and twitterHandle != None",
+      "then": ["find_twitter_input", "type_twitter_handle"],
+      "else": []
+    },
+    {
+      "id": "find_twitter_input",
+      "type": "find_element",
+      "xpath": "//input[@id='startup_twitter' or @name='startup[twitter]']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_twitter_handle",
+      "type": "type",
+      "elementRef": "find_twitter_input",
+      "text": "{{twitterHandle}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_logo",
+      "type": "condition",
+      "condition": "logoPath != '' and logoPath != None",
+      "then": ["find_logo_input", "upload_logo"],
+      "else": []
+    },
+    {
+      "id": "find_logo_input",
+      "type": "find_element",
+      "xpath": "//input[@type='file' and (@id='startup_logo' or @name='startup[logo]')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "upload_logo",
+      "type": "type",
+      "elementRef": "find_logo_input",
+      "text": "{{logoPath}}",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and contains(text(),'Submit')]",
+      "alternatives": [
+        "//input[@type='submit']",
+        "//button[@data-testid='submit-startup-button']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_submit",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_startup_url",
+      "type": "extract_attribute",
+      "xpath": "//link[@rel='canonical']",
+      "attribute": "href",
+      "variable_name": "startupUrl",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Startup submitted to BetaList",
+      "value": "Name: {{name}} URL: {{url}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 3000, "onFinalFailure": "log_and_continue" }
+}

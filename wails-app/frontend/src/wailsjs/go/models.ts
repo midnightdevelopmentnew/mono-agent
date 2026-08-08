@@ -9,6 +9,7 @@ export namespace connections {
 	    status: string;
 	    last_tested?: string;
 	    profile_id?: string;
+	    vault_ref?: string;
 	    created_at: string;
 	    updated_at: string;
 	
@@ -26,6 +27,7 @@ export namespace connections {
 	        this.status = source["status"];
 	        this.last_tested = source["last_tested"];
 	        this.profile_id = source["profile_id"];
+	        this.vault_ref = source["vault_ref"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];
 	    }

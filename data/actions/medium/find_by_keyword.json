@@ -1,0 +1,87 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "MEDIUM",
+  "version": "1.0.0",
+  "description": "Search for Medium articles by keyword",
+  "metadata": {
+    "requiresAuth": false,
+    "supportsPagination": true,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "keyword",
+      "maxResultsCount"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [
+      "resultsCount",
+      "maxResultsCount"
+    ],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://medium.com/search?q={{keyword}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": {
+        "action": "retry",
+        "maxRetries": 3
+      }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_results",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='postPreview'] | //div[contains(@class,'streamItem')]",
+      "timeout": 15
+    },
+    {
+      "id": "extract_result_data",
+      "type": "extract_multiple",
+      "configKey": "articles",
+      "onSuccess": {
+        "action": "save_data"
+      }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": [
+        "scroll_for_more",
+        "extract_result_data",
+        "check_more_needed"
+      ],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_results",
+      "waitFor": "time"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

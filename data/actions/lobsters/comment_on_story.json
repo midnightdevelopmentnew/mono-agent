@@ -1,0 +1,74 @@
+{
+  "actionType": "comment_on_story",
+  "platform": "LOBSTERS",
+  "version": "1.0.0",
+  "description": "Post a comment on a lobste.rs story",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": ["storyUrl", "commentText"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["commentPosted", "storyUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_story",
+      "type": "navigate",
+      "url": "{{storyUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_story_load",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_comment_input",
+      "type": "find_element",
+      "xpath": "//textarea[@id='comment_comment']",
+      "alternatives": [
+        "//textarea[@name='comment[comment]']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_comment_input",
+      "type": "click",
+      "elementRef": "find_comment_input",
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_comment",
+      "type": "type",
+      "elementRef": "find_comment_input",
+      "text": "{{commentText}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "find_submit_comment_button",
+      "type": "find_element",
+      "xpath": "//input[@type='submit'][@value='Add Comment']",
+      "alternatives": [
+        "//button[contains(., 'Add Comment')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit_comment",
+      "type": "click",
+      "elementRef": "find_submit_comment_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

@@ -1,0 +1,207 @@
+{
+  "actionType": "publish_post",
+  "platform": "FACEBOOK",
+  "version": "1.0.0",
+  "description": "Publish a text/media post to the Facebook feed",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "text", "type": "string", "description": "Post text content" }
+    ],
+    "optional": [
+      { "name": "media", "type": "array", "default": [], "description": "Local file paths of images/videos to attach" },
+      { "name": "privacy", "type": "string", "default": "PUBLIC", "enum": ["PUBLIC", "FRIENDS", "ONLY_ME"], "description": "Audience selector for the post" },
+      { "name": "locationTag", "type": "string", "default": "", "description": "Optional location tag to attach to the post" }
+    ]
+  },
+  "outputs": {
+    "success": ["postUrl"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_home",
+      "type": "navigate",
+      "url": "https://www.facebook.com/",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_composer_trigger",
+      "type": "find_element",
+      "xpath": "//div[@role='button'][contains(@aria-label, \"What's on your mind\")]",
+      "alternatives": [
+        "//span[contains(text(), \"What's on your mind\")]/ancestor::div[@role='button'][1]",
+        "//div[@data-pagelet='FeedComposer']//div[@role='button']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_composer_trigger",
+      "type": "click",
+      "elementRef": "find_composer_trigger",
+      "waitFor": "network_idle"
+    },
+    {
+      "id": "wait_for_dialog",
+      "type": "wait",
+      "duration": 2.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_composer_textbox",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//div[@role='textbox'][@contenteditable='true']",
+      "alternatives": [
+        "//div[@aria-label='Create a post']//div[@contenteditable='true']",
+        "//div[@role='dialog']//div[@data-lexical-editor='true']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_composer_textbox",
+      "type": "click",
+      "elementRef": "find_composer_textbox"
+    },
+    {
+      "id": "type_post_text",
+      "type": "type",
+      "elementRef": "find_composer_textbox",
+      "text": "{{text}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_media",
+      "type": "condition",
+      "condition": "media.length > 0",
+      "then": [
+        "find_photo_video_button",
+        "click_photo_video_button",
+        "find_file_input",
+        "upload_media_files",
+        "wait_for_media_processed"
+      ],
+      "else": []
+    },
+    {
+      "id": "find_photo_video_button",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//div[@aria-label='Photo/video'][@role='button']",
+      "alternatives": [
+        "//div[@role='dialog']//span[contains(text(), 'Photo/video')]/ancestor::div[@role='button'][1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_photo_video_button",
+      "type": "click",
+      "elementRef": "find_photo_video_button"
+    },
+    {
+      "id": "find_file_input",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//input[@type='file'][contains(@accept, 'image') or contains(@accept, 'video')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "upload_media_files",
+      "type": "type",
+      "elementRef": "find_file_input",
+      "text": "{{media}}",
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "skip" }
+    },
+    {
+      "id": "wait_for_media_processed",
+      "type": "wait",
+      "duration": 5.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "check_has_location",
+      "type": "condition",
+      "condition": "locationTag != ''",
+      "then": [
+        "find_location_button",
+        "click_location_button",
+        "type_location_query",
+        "find_location_suggestion",
+        "click_location_suggestion"
+      ],
+      "else": []
+    },
+    {
+      "id": "find_location_button",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//div[@aria-label='Check in'][@role='button']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_location_button",
+      "type": "click",
+      "elementRef": "find_location_button"
+    },
+    {
+      "id": "type_location_query",
+      "type": "type",
+      "elementRef": "find_location_button",
+      "text": "{{locationTag}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_location_suggestion",
+      "type": "find_element",
+      "xpath": "(//div[@role='dialog']//div[@role='listbox']//div[@role='option'])[1]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_location_suggestion",
+      "type": "click",
+      "elementRef": "find_location_suggestion"
+    },
+    {
+      "id": "find_post_button",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//div[@aria-label='Post'][@role='button']",
+      "alternatives": [
+        "//div[@role='dialog']//span[text()='Post']/ancestor::div[@role='button'][1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_post_button",
+      "type": "click",
+      "elementRef": "find_post_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "wait_for_post_published",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Post published to Facebook feed",
+      "value": "Text: {{text}}"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

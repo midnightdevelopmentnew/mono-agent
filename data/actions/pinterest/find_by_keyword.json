@@ -1,0 +1,88 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "PINTEREST",
+  "version": "1.0.0",
+  "description": "Search for pins on Pinterest using keywords",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": true,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "keyword", "type": "string", "description": "Search keyword or phrase" },
+      { "name": "maxResultsCount", "type": "number", "default": 20, "min": 1, "max": 200, "description": "Maximum number of results to collect" }
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["pins", "resultsCount", "maxResultsCount"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://www.pinterest.com/search/pins/?q={{keyword}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_pins",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='pin']",
+      "alternatives": [
+        "//div[@data-test-id='pinrep-image']/ancestor::div[@data-test-id='pin'][1]",
+        "//div[@data-grid-item='true']//a[contains(@href, '/pin/')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_pins",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-test-id='pin']//a[contains(@href, '/pin/')]",
+      "attribute": "href",
+      "variable_name": "pins",
+      "onSuccess": { "action": "save_data" }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": [
+        "scroll_for_more",
+        "extract_pins",
+        "check_more_needed"
+      ],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_pins",
+      "direction": "down",
+      "waitFor": "time"
+    }
+  ],
+  "loops": [],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

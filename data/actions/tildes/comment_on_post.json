@@ -1,0 +1,102 @@
+{
+  "actionType": "comment_on_post",
+  "platform": "TILDES",
+  "version": "1.0.0",
+  "description": "Post a comment on a Tildes topic",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["topicUrl", "commentText"],
+    "optional": ["parentCommentId"]
+  },
+  "outputs": {
+    "success": ["success", "topicUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_topic",
+      "type": "navigate",
+      "url": "{{topicUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "check_has_parent",
+      "type": "condition",
+      "condition": "parentCommentId != '' and parentCommentId != None",
+      "then": ["find_reply_link", "click_reply_link", "find_reply_form_textarea"],
+      "else": ["find_top_level_textarea"]
+    },
+    {
+      "id": "find_reply_link",
+      "type": "find_element",
+      "xpath": "//article[@id='comment-{{parentCommentId}}']//button[contains(text(),'Reply')]",
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_reply_link",
+      "type": "click",
+      "elementRef": "find_reply_link",
+      "waitFor": "element_visible"
+    },
+    {
+      "id": "find_reply_form_textarea",
+      "type": "find_element",
+      "xpath": "//article[@id='comment-{{parentCommentId}}']//form[contains(@class,'comment-form')]//textarea",
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "find_top_level_textarea",
+      "type": "find_element",
+      "xpath": "//form[@id='comment-form']//textarea[@name='markdown']",
+      "alternatives": [
+        "//div[contains(@class,'topic-comment-form')]//textarea",
+        "//textarea[@id='comment-textarea']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_comment",
+      "type": "type",
+      "elementRef": "find_top_level_textarea",
+      "text": "{{commentText}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_post_comment_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and contains(text(),'Post comment')]",
+      "alternatives": [
+        "//form[contains(@class,'comment-form')]//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_post_comment",
+      "type": "click",
+      "elementRef": "find_post_comment_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_post",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Comment posted on Tildes topic",
+      "value": "Topic: {{topicUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

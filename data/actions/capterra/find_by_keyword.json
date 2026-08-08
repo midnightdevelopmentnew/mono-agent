@@ -1,0 +1,150 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "CAPTERRA",
+  "version": "1.0.0",
+  "description": "Search Capterra for software products matching a keyword",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["keyword", "maxResultsCount"],
+    "optional": ["category"]
+  },
+  "outputs": {
+    "success": ["resultsCount", "maxResultsCount", "productUrls"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://www.capterra.com/search/?q={{keywordEncoded}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3 }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 15,
+      "waitFor": "element_visible",
+      "xpath": "//a[@data-testid='product-card-title']",
+      "alternatives": [
+        "//div[contains(@class,'product-card')]//a[contains(@href,'/p/')]"
+      ]
+    },
+    {
+      "id": "check_has_category_filter",
+      "type": "condition",
+      "condition": "category != '' and category != None",
+      "then": ["find_category_filter", "click_category_filter", "wait_for_filtered_results"],
+      "else": []
+    },
+    {
+      "id": "find_category_filter",
+      "type": "find_element",
+      "xpath": "//a[contains(@href,'/categories/') and contains(text(),'{{category}}')]",
+      "alternatives": [
+        "//label[contains(text(),'{{category}}')]/preceding-sibling::input[@type='checkbox']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_category_filter",
+      "type": "click",
+      "elementRef": "find_category_filter",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "wait_for_filtered_results",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_product_links",
+      "type": "extract_multiple",
+      "xpath": "//a[@data-testid='product-card-title']",
+      "attribute": "href",
+      "alternatives": [
+        "//div[contains(@class,'product-card')]//a[contains(@href,'/p/')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_product_names",
+      "type": "extract_multiple",
+      "xpath": "//a[@data-testid='product-card-title']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_product_ratings",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'product-card')]//span[@data-testid='rating-value']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "store_results",
+      "type": "update_progress",
+      "set": {
+        "productUrls": "{{extract_product_links.data}}",
+        "resultsCount": "{{extract_product_links.count}}"
+      }
+    },
+    {
+      "id": "check_need_more_results",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": ["find_next_page_button", "click_next_page", "wait_for_next_page", "extract_more_product_links"],
+      "else": []
+    },
+    {
+      "id": "find_next_page_button",
+      "type": "find_element",
+      "xpath": "//a[@rel='next']",
+      "alternatives": [
+        "//button[contains(@aria-label,'Next page')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_next_page",
+      "type": "click",
+      "elementRef": "find_next_page_button",
+      "waitFor": "page_load",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "wait_for_next_page",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_more_product_links",
+      "type": "extract_multiple",
+      "xpath": "//a[@data-testid='product-card-title']",
+      "attribute": "href",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_results",
+      "type": "log",
+      "description": "Capterra keyword search complete",
+      "value": "Keyword: {{keyword}} Results: {{resultsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

@@ -1,0 +1,80 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "LOBSTERS",
+  "version": "1.0.0",
+  "description": "Search for stories on lobste.rs by keyword",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["keyword", "maxResultsCount"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["resultsCount", "maxResultsCount"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://lobste.rs/search?utf8=%E2%9C%93&q={{keyword}}&what=stories&order=relevance"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3 }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_story_results",
+      "type": "find_element",
+      "xpath": "//li[contains(@class, 'story')]//a[contains(@class, 'u-url')]",
+      "alternatives": [
+        "//div[@class='details']//a[contains(@class, 'link')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_story_urls",
+      "type": "extract_multiple",
+      "xpath": "//li[contains(@class, 'story')]//a[contains(@class, 'u-url')]",
+      "attribute": "href",
+      "timeout": 10,
+      "alternatives": [
+        "//div[@class='details']//a[contains(@class, 'link')]"
+      ]
+    },
+    {
+      "id": "store_story_urls",
+      "type": "update_progress",
+      "set": {
+        "storyUrls": "{{extract_story_urls.data}}",
+        "resultsCount": "{{extract_story_urls.count}}"
+      }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": ["scroll_for_more", "extract_story_urls", "store_story_urls", "check_more_needed"],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_story_results",
+      "waitFor": "time"
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

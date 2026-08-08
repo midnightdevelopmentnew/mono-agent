@@ -1,0 +1,82 @@
+{
+  "actionType": "upvote_tool",
+  "platform": "FUTUREPEDIA",
+  "version": "1.0.0",
+  "description": "Upvote an AI tool listing on Futurepedia",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["toolUrl"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["success", "toolUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_tool",
+      "type": "navigate",
+      "url": "{{toolUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_upvote_button",
+      "type": "find_element",
+      "xpath": "//button[contains(@aria-label,'Upvote') or @data-testid='upvote-button']",
+      "alternatives": [
+        "//button[contains(@class,'upvote')]",
+        "//button[.//svg[contains(@class,'chevron-up')]]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_already_upvoted",
+      "type": "condition",
+      "condition": {
+        "variable": "find_upvote_button.attributes.aria-pressed",
+        "operator": "equals",
+        "value": "true"
+      },
+      "then": ["log_already_upvoted"],
+      "else": ["click_upvote_button", "wait_after_upvote", "verify_upvoted", "log_success"]
+    },
+    {
+      "id": "click_upvote_button",
+      "type": "click",
+      "elementRef": "find_upvote_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_upvote",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "verify_upvoted",
+      "type": "find_element",
+      "xpath": "//button[@data-testid='upvote-button' and @aria-pressed='true']",
+      "timeout": 5,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Upvoted Futurepedia tool",
+      "value": "Tool: {{toolUrl}}"
+    },
+    {
+      "id": "log_already_upvoted",
+      "type": "log",
+      "description": "Tool already upvoted",
+      "value": "Tool: {{toolUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

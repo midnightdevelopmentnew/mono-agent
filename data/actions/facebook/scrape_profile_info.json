@@ -1,0 +1,118 @@
+{
+  "actionType": "scrape_profile_info",
+  "platform": "FACEBOOK",
+  "version": "1.0.0",
+  "description": "Extract profile/page information from a Facebook profile URL",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "profileUrl", "type": "string", "description": "Full URL of the profile or page to scrape" }
+    ],
+    "optional": [
+      { "name": "fieldsToScrape", "type": "string", "default": "all", "enum": ["all", "basic", "about", "followers"], "description": "Which profile fields to scrape" },
+      { "name": "delayAfterLoad", "type": "number", "default": 3, "min": 1, "max": 30, "description": "Seconds to wait after page load" }
+    ]
+  },
+  "outputs": {
+    "success": ["profileData"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_profile",
+      "type": "navigate",
+      "url": "{{profileUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_page",
+      "type": "wait",
+      "duration": "{{delayAfterLoad or 3}}",
+      "waitFor": "time"
+    },
+    {
+      "id": "find_profile_name",
+      "type": "find_element",
+      "xpath": "//div[@role='main']//h1",
+      "alternatives": [
+        "//div[@data-pagelet='ProfileActions']/preceding::h1[1]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "get_profile_name_text",
+      "type": "extract_text",
+      "elementRef": "find_profile_name"
+    },
+    {
+      "id": "find_followers_count",
+      "type": "find_element",
+      "xpath": "//a[contains(@href, 'followers')]//span",
+      "alternatives": [
+        "//div[@role='main']//span[contains(text(), 'followers')]",
+        "//div[@role='main']//span[contains(text(), 'friends')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "get_followers_count_text",
+      "type": "extract_text",
+      "elementRef": "find_followers_count"
+    },
+    {
+      "id": "find_about_bio",
+      "type": "find_element",
+      "xpath": "//div[@data-pagelet='ProfileTilesFeed_0']//span",
+      "alternatives": [
+        "//div[@aria-label='Intro']//span",
+        "//div[@role='main']//div[contains(@data-pagelet,'ProfileTiles')]//span"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "get_about_bio_text",
+      "type": "extract_text",
+      "elementRef": "find_about_bio"
+    },
+    {
+      "id": "find_profile_image",
+      "type": "find_element",
+      "xpath": "//div[@role='main']//svg[@aria-label='Profile photo']/ancestor::a[1]//image | //div[@role='main']//img[contains(@alt, 'profile picture')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "get_profile_image_src",
+      "type": "extract_attribute",
+      "elementRef": "find_profile_image",
+      "attribute": "src"
+    },
+    {
+      "id": "save_profile_data",
+      "type": "save_data",
+      "dataSource": "profileData",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Profile info scraped",
+      "value": "Profile: {{profileUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

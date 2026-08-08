@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 
 	"monoagent/internal/workflow"
@@ -17,7 +18,7 @@ import (
 //
 // Config fields:
 //
-//	"operation"        (string, required): "upload_video" | "get_video_stats" | "list_comments" | "reply_to_comment"
+//	"operation"        (string, required): "upload_video" | "get_video_stats" | "list_comments" | "reply_to_comment" | "search_videos"
 //	"access_token"     (string, required): OAuth2 access token
 //	"title"            (string, required for upload_video)
 //	"description"      (string): video description
@@ -28,12 +29,17 @@ import (
 //	"video_id"         (string, required for get_video_stats/list_comments)
 //	"comment_id"       (string, required for reply_to_comment)
 //	"text"             (string, required for reply_to_comment)
+//	"query"            (string, required for search_videos)
+//	"max_results"      (int, optional for search_videos, default 10)
 type YouTubeNode struct{}
 
 func (n *YouTubeNode) Type() string { return "service.youtube" }
 
 const youtubeUploadURL = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
-const youtubeAPIBase = "https://www.googleapis.com/youtube/v3"
+
+// youtubeAPIBase is declared as a var (not const) so tests can point it at
+// an httptest server.
+var youtubeAPIBase = "https://www.googleapis.com/youtube/v3"
 
 func (n *YouTubeNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	accessToken := strVal(config, "access_token")
@@ -94,6 +100,26 @@ func (n *YouTubeNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		items, err := youtubeParseCommentThreads(raw)
 		if err != nil {
 			return nil, fmt.Errorf("youtube list_comments: %w", err)
+		}
+		return []workflow.NodeOutput{{Handle: "main", Items: items}}, nil
+
+	case "search_videos":
+		query := strVal(config, "query")
+		if query == "" {
+			return nil, fmt.Errorf("youtube: query is required for search_videos")
+		}
+		maxResults := intVal(config, "max_results")
+		if maxResults <= 0 {
+			maxResults = 10
+		}
+		endpoint := fmt.Sprintf("%s/search?part=snippet&type=video&q=%s&maxResults=%d", youtubeAPIBase, url.QueryEscape(query), maxResults)
+		raw, err := apiRequest(ctx, "GET", endpoint, accessToken, nil)
+		if err != nil {
+			return nil, fmt.Errorf("youtube search_videos: %w", err)
+		}
+		items, err := youtubeParseSearchResults(raw)
+		if err != nil {
+			return nil, fmt.Errorf("youtube search_videos: %w", err)
 		}
 		return []workflow.NodeOutput{{Handle: "main", Items: items}}, nil
 
@@ -218,6 +244,26 @@ func youtubeParseVideoStats(raw map[string]interface{}) (map[string]interface{},
 		"like_count":    stats["likeCount"],
 		"comment_count": stats["commentCount"],
 	}, nil
+}
+
+// youtubeParseSearchResults flattens a search.list(type=video) response into
+// workflow items (one per video result).
+func youtubeParseSearchResults(raw map[string]interface{}) ([]workflow.Item, error) {
+	items, _ := raw["items"].([]interface{})
+	out := make([]workflow.Item, 0, len(items))
+	for _, it := range items {
+		result, _ := it.(map[string]interface{})
+		id, _ := result["id"].(map[string]interface{})
+		snippet, _ := result["snippet"].(map[string]interface{})
+		out = append(out, workflow.NewItem(map[string]interface{}{
+			"video_id":      id["videoId"],
+			"title":         snippet["title"],
+			"description":   snippet["description"],
+			"channel_title": snippet["channelTitle"],
+			"published_at":  snippet["publishedAt"],
+		}))
+	}
+	return out, nil
 }
 
 // youtubeParseCommentThreads flattens a commentThreads.list response into

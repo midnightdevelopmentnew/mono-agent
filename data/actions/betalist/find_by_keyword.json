@@ -1,0 +1,128 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "BETALIST",
+  "version": "1.0.0",
+  "description": "Search BetaList for startups matching a keyword",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["keyword", "maxResultsCount"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["resultsCount", "maxResultsCount", "startupUrls"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://betalist.com/search?q={{keywordEncoded}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3 }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 15,
+      "waitFor": "element_visible",
+      "xpath": "//a[contains(@class,'startup-link')]",
+      "alternatives": [
+        "//div[contains(@class,'startup-card')]//a[@href]"
+      ]
+    },
+    {
+      "id": "extract_startup_links",
+      "type": "extract_multiple",
+      "xpath": "//a[contains(@class,'startup-link')]",
+      "attribute": "href",
+      "alternatives": [
+        "//div[contains(@class,'startup-card')]//a[@href]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_startup_names",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'startup-card')]//h3",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_startup_taglines",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'startup-card')]//p[contains(@class,'tagline')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_upvote_counts",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'startup-card')]//span[contains(@class,'vote-count')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "store_results",
+      "type": "update_progress",
+      "set": {
+        "startupUrls": "{{extract_startup_links.data}}",
+        "resultsCount": "{{extract_startup_links.count}}"
+      }
+    },
+    {
+      "id": "check_need_more_results",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": ["find_next_page_button", "click_next_page", "wait_for_next_page", "extract_more_startup_links"],
+      "else": []
+    },
+    {
+      "id": "find_next_page_button",
+      "type": "find_element",
+      "xpath": "//a[@rel='next']",
+      "alternatives": [
+        "//a[contains(@class,'pagination-next')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_next_page",
+      "type": "click",
+      "elementRef": "find_next_page_button",
+      "waitFor": "page_load",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "wait_for_next_page",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_more_startup_links",
+      "type": "extract_multiple",
+      "xpath": "//a[contains(@class,'startup-link')]",
+      "attribute": "href",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_results",
+      "type": "log",
+      "description": "BetaList keyword search complete",
+      "value": "Keyword: {{keyword}} Results: {{resultsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

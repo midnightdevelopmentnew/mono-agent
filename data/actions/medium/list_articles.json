@@ -1,0 +1,80 @@
+{
+  "actionType": "list_articles",
+  "platform": "MEDIUM",
+  "version": "1.0.0",
+  "description": "List articles from a Medium publication or user profile",
+  "metadata": {
+    "requiresAuth": false,
+    "supportsPagination": true,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "profileUrl",
+      "maxResultsCount"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [
+      "resultsCount",
+      "maxResultsCount"
+    ],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_profile",
+      "type": "navigate",
+      "url": "{{profileUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": {
+        "action": "retry",
+        "maxRetries": 3
+      }
+    },
+    {
+      "id": "wait_for_articles",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_articles",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='postPreview'] | //article",
+      "timeout": 15
+    },
+    {
+      "id": "extract_article_data",
+      "type": "extract_multiple",
+      "configKey": "articles",
+      "onSuccess": {
+        "action": "save_data"
+      }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": [
+        "scroll_for_more",
+        "extract_article_data",
+        "check_more_needed"
+      ],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_articles",
+      "waitFor": "time"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

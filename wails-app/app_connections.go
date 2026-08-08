@@ -38,7 +38,7 @@ func (a *App) ListCredentialsForNode(nodeType string) []CredentialOption {
 	var platform string
 
 	// Detect social platform from node type prefix (e.g. "action.instagram.publish_post")
-	socialPlatforms := []string{"instagram", "linkedin", "tiktok", "x", "twitter"}
+	socialPlatforms := []string{"instagram", "linkedin", "tiktok", "x", "twitter", "hackernews", "producthunt"}
 	lnodeType := strings.ToLower(nodeType)
 	for _, sp := range socialPlatforms {
 		if strings.Contains(lnodeType, sp) {
@@ -52,9 +52,32 @@ func (a *App) ListCredentialsForNode(nodeType string) []CredentialOption {
 		serviceMap := map[string]string{
 			"openrouter":    "openrouter",
 			"huggingface":   "huggingface",
-			"google_sheets": "google",
-			"gmail":         "google",
+			"google_sheets": "google_sheets",
+			"google_drive":  "google_drive",
+			"gmail":         "gmail",
+			"youtube":       "youtube",
 			"slack":         "slack",
+			"discord":       "discord",
+			"stripe":        "stripe",
+			"shopify":       "shopify",
+			"salesforce":    "salesforce",
+			"hubspot":       "hubspot",
+			"github":        "github",
+			"notion":        "notion",
+			"airtable":      "airtable",
+			"jira":          "jira",
+			"linear":        "linear",
+			"asana":         "asana",
+			"outlook":       "outlook",
+			"telegram":      "telegram",
+			"twilio":        "twilio",
+			"whatsapp":      "whatsapp",
+			"devto":         "devto",
+			"hashnode":      "hashnode",
+			"producthunt":   "producthunt",
+			"bluesky":       "bluesky",
+			"mastodon":      "mastodon",
+			"reddit":        "reddit",
 		}
 		for key, pid := range serviceMap {
 			if strings.Contains(lnodeType, key) {

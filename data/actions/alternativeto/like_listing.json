@@ -1,0 +1,86 @@
+{
+  "actionType": "like_listing",
+  "platform": "ALTERNATIVETO",
+  "version": "1.0.0",
+  "description": "Like a software listing on AlternativeTo",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["listingUrl"],
+    "optional": ["skipIfAlreadyLiked"]
+  },
+  "outputs": {
+    "success": ["success", "likesCount"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_listing",
+      "type": "navigate",
+      "url": "{{listingUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_like_button",
+      "type": "find_element",
+      "xpath": "//button[contains(@class,'like-button') or @data-action='like']",
+      "alternatives": [
+        "//button[@aria-label='Like this app']",
+        "//a[contains(@class,'AddLike')]",
+        "//div[contains(@class,'app-actions')]//button[contains(.,'Like')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_already_liked",
+      "type": "condition",
+      "condition": {
+        "variable": "skipIfAlreadyLiked",
+        "operator": "equals",
+        "value": true
+      },
+      "then": ["extract_like_state"]
+    },
+    {
+      "id": "extract_like_state",
+      "type": "extract_attribute",
+      "elementRef": "find_like_button",
+      "attribute": "class",
+      "variable_name": "likeButtonClass",
+      "timeout": 5,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_like",
+      "type": "click",
+      "elementRef": "find_like_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_like",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_likes_count",
+      "type": "extract_text",
+      "xpath": "//span[contains(@class,'likes-count')]",
+      "variable_name": "likesCount",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Liked AlternativeTo listing",
+      "value": "Listing: {{listingUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

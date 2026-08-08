@@ -1,0 +1,52 @@
+{
+  "actionType": "upvote_post",
+  "platform": "INDIEHACKERS",
+  "version": "1.0.0",
+  "description": "Upvote an Indie Hackers post",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["postUrl"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["upvoted", "postUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_post",
+      "type": "navigate",
+      "url": "{{postUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_post_load",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_upvote_button",
+      "type": "find_element",
+      "xpath": "//button[contains(@class, 'upvote')]",
+      "alternatives": [
+        "//a[contains(@class, 'upvote-btn')]",
+        "//button[@aria-label='Upvote']",
+        "//div[contains(@class, 'vote')]//button"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_upvote",
+      "type": "click",
+      "elementRef": "find_upvote_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

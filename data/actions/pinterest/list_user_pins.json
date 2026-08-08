@@ -1,0 +1,105 @@
+{
+  "actionType": "list_user_pins",
+  "platform": "PINTEREST",
+  "version": "1.0.0",
+  "description": "List pins from a Pinterest user's profile",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": true,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "username", "type": "string", "description": "Pinterest username to list pins from (without @)" }
+    ],
+    "optional": [
+      { "name": "maxCount", "type": "number", "default": 20, "min": 1, "max": 200, "description": "Maximum number of pins to return" },
+      { "name": "delayAfterLoad", "type": "number", "default": 3, "min": 1, "max": 30, "description": "Seconds to wait after page load" }
+    ]
+  },
+  "outputs": {
+    "success": ["pins", "pinsCount"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_profile",
+      "type": "navigate",
+      "url": "https://www.pinterest.com/{{username}}/",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_page",
+      "type": "wait",
+      "duration": "{{delayAfterLoad or 3}}",
+      "waitFor": "time"
+    },
+    {
+      "id": "find_pins_grid",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='pin']",
+      "alternatives": [
+        "//div[@data-grid-item='true']//a[contains(@href, '/pin/')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_pins",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-test-id='pin']//a[contains(@href, '/pin/')]",
+      "attribute": "href",
+      "timeout": 15,
+      "alternatives": [
+        "//main//a[contains(@href, '/pin/')]"
+      ],
+      "variable_name": "pins",
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "pins.count < maxCount",
+      "then": [
+        "scroll_for_more",
+        "extract_pins",
+        "check_more_needed"
+      ],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_pins_grid",
+      "direction": "down",
+      "waitFor": "time"
+    },
+    {
+      "id": "save_pins",
+      "type": "save_data",
+      "dataSource": "pins",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "store_count",
+      "type": "update_progress",
+      "set": {
+        "pinsCount": "{{pins.count}}"
+      }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Pins listed",
+      "value": "User: {{username}}, Count: {{pinsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": {
+    "globalRetries": 2,
+    "retryDelay": 3000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

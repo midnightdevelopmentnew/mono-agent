@@ -1,0 +1,93 @@
+{
+  "actionType": "post_answer",
+  "platform": "QUORA",
+  "version": "1.0.0",
+  "description": "Post an answer to a Quora question",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": ["questionUrl", "answerText"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["answerPosted", "questionUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_question",
+      "type": "navigate",
+      "url": "{{questionUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_question_load",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_answer_trigger",
+      "type": "find_element",
+      "xpath": "//div[@role='button'][.//span[text()='Answer']] | //a[contains(@href, '/answer')]",
+      "alternatives": [
+        "//span[text()='Answer']/ancestor::div[@role='button'][1]",
+        "//button[contains(., 'Answer')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_answer_trigger",
+      "type": "click",
+      "elementRef": "find_answer_trigger",
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_editor",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_answer_editor",
+      "type": "find_element",
+      "xpath": "//div[@contenteditable='true'][@role='textbox']",
+      "alternatives": [
+        "//div[@data-placeholder='Write your answer']",
+        "//div[contains(@class, 'q-box')][@contenteditable='true']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "type_answer",
+      "type": "type",
+      "elementRef": "find_answer_editor",
+      "text": "{{answerText}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//button[contains(., 'Submit')] | //div[@role='button'][contains(., 'Submit')]",
+      "alternatives": [
+        "//button[text()='Post']",
+        "//div[@role='button'][text()='Post']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

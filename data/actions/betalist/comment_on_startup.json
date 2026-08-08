@@ -1,0 +1,91 @@
+{
+  "actionType": "comment_on_startup",
+  "platform": "BETALIST",
+  "version": "1.0.0",
+  "description": "Post a comment on a BetaList startup listing",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["startupUrl", "commentText"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["success", "startupUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_startup",
+      "type": "navigate",
+      "url": "{{startupUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_comments_section",
+      "type": "find_element",
+      "xpath": "//section[@id='comments' or contains(@class,'comments-section')]",
+      "alternatives": [
+        "//div[@data-testid='comments']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "scroll_to_comments",
+      "type": "scroll",
+      "elementRef": "find_comments_section",
+      "direction": "down"
+    },
+    {
+      "id": "find_comment_textarea",
+      "type": "find_element",
+      "xpath": "//textarea[@id='comment_body' or @name='comment[body]']",
+      "alternatives": [
+        "//section[@id='comments']//textarea",
+        "//div[@data-testid='comments']//textarea"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_comment",
+      "type": "type",
+      "elementRef": "find_comment_textarea",
+      "text": "{{commentText}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_post_comment_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and (contains(text(),'Post Comment') or contains(text(),'Comment'))]",
+      "alternatives": [
+        "//section[@id='comments']//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_post_comment",
+      "type": "click",
+      "elementRef": "find_post_comment_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_post",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Comment posted on BetaList startup",
+      "value": "Startup: {{startupUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

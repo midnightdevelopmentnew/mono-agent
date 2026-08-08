@@ -1,0 +1,98 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "G2",
+  "version": "1.0.0",
+  "description": "Search G2 for software products matching a keyword",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["keyword"],
+    "optional": ["maxResultsCount", "category"]
+  },
+  "outputs": {
+    "success": ["resultsCount", "products"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://www.g2.com/search?query={{keywordEncoded}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "element_visible",
+      "xpath": "//div[contains(@class,'product-listing')]",
+      "alternatives": ["//div[contains(@class,'js-log-click') and contains(@class,'product-card')]"]
+    },
+    {
+      "id": "check_has_category_filter",
+      "type": "condition",
+      "condition": "category != '' and category != None",
+      "then": ["find_category_filter", "click_category_filter"]
+    },
+    {
+      "id": "find_category_filter",
+      "type": "find_element",
+      "xpath": "//a[contains(@href,'/categories/{{category}}')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_category_filter",
+      "type": "click",
+      "elementRef": "find_category_filter",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_product_names",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'product-listing')]//div[contains(@class,'product-card')]//a[contains(@href,'/products/')]",
+      "attribute": "text",
+      "timeout": 10,
+      "alternatives": ["//a[contains(@href,'/products/') and contains(@class,'js-log-click')]"]
+    },
+    {
+      "id": "extract_product_urls",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'product-listing')]//div[contains(@class,'product-card')]//a[contains(@href,'/products/')]",
+      "attribute": "href",
+      "timeout": 10,
+      "alternatives": ["//a[contains(@href,'/products/') and contains(@class,'js-log-click')]"]
+    },
+    {
+      "id": "store_results",
+      "type": "update_progress",
+      "set": {
+        "products": "{{extract_product_urls.data}}",
+        "resultsCount": "{{extract_product_urls.count}}"
+      }
+    },
+    {
+      "id": "save_results",
+      "type": "save_data",
+      "dataSource": "products",
+      "batchSize": 1,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "G2 keyword search complete",
+      "value": "Keyword: {{keyword}} Results: {{resultsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

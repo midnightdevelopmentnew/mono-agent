@@ -1,0 +1,54 @@
+{
+  "actionType": "like_post",
+  "platform": "THREADS",
+  "version": "1.0.0",
+  "description": "Like a specific Threads post",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "postUrl"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_post",
+      "type": "navigate",
+      "url": "{{postUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": {
+        "action": "retry",
+        "maxRetries": 3
+      }
+    },
+    {
+      "id": "find_like_button",
+      "type": "find_element",
+      "xpath": "//div[@role='button' and .//*[local-name()='svg' and (@aria-label='Like' or @aria-label='Unlike')]][1]",
+      "timeout": 15
+    },
+    {
+      "id": "click_like",
+      "type": "click",
+      "elementRef": "find_like_button",
+      "waitFor": "like_registered",
+      "onSuccess": {
+        "action": "update_progress"
+      }
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

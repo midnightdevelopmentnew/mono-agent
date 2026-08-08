@@ -1,0 +1,89 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "FACEBOOK",
+  "version": "1.0.0",
+  "description": "Search for posts and pages on Facebook using keywords",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": true,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "keyword", "type": "string", "description": "Search keyword or phrase" },
+      { "name": "maxResultsCount", "type": "number", "default": 20, "min": 1, "max": 200, "description": "Maximum number of results to collect" }
+    ],
+    "optional": [
+      { "name": "searchType", "type": "string", "default": "posts", "enum": ["posts", "pages", "people", "groups"], "description": "Which Facebook search vertical to query" }
+    ]
+  },
+  "outputs": {
+    "success": ["results", "resultsCount", "maxResultsCount"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://www.facebook.com/search/{{searchType or 'posts'}}/?q={{keyword}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_results",
+      "type": "find_element",
+      "xpath": "//div[@role='feed']//div[@role='article']",
+      "alternatives": [
+        "//div[@data-pagelet='SearchFeed']//div[@role='article']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_results",
+      "type": "extract_multiple",
+      "xpath": "//div[@role='feed']//div[@role='article']",
+      "configKey": "search_result_fields",
+      "variable_name": "results",
+      "onSuccess": { "action": "save_data" }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": [
+        "scroll_for_more",
+        "extract_results",
+        "check_more_needed"
+      ],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_results",
+      "direction": "down",
+      "waitFor": "time"
+    }
+  ],
+  "loops": [],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

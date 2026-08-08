@@ -1,0 +1,80 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "INDIEHACKERS",
+  "version": "1.0.0",
+  "description": "Search for posts and products on Indie Hackers by keyword",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["keyword", "maxResultsCount"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["resultsCount", "maxResultsCount"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://www.indiehackers.com/search?query={{keyword}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3 }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_post_results",
+      "type": "find_element",
+      "xpath": "//div[contains(@class, 'search-result')]//a[contains(@class, 'post-title')]",
+      "alternatives": [
+        "//a[contains(@href, '/post/')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_post_urls",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class, 'search-result')]//a[contains(@class, 'post-title')]",
+      "attribute": "href",
+      "timeout": 10,
+      "alternatives": [
+        "//a[contains(@href, '/post/')]"
+      ]
+    },
+    {
+      "id": "store_post_urls",
+      "type": "update_progress",
+      "set": {
+        "postUrls": "{{extract_post_urls.data}}",
+        "resultsCount": "{{extract_post_urls.count}}"
+      }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": ["scroll_for_more", "extract_post_urls", "store_post_urls", "check_more_needed"],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_post_results",
+      "waitFor": "time"
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

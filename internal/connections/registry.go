@@ -163,12 +163,42 @@ var Registry = map[string]PlatformDef{
 	},
 	"producthunt": {
 		ID:         "producthunt",
-		Name:       "Product Hunt Crawl",
+		Name:       "Product Hunt",
 		Category:   "social",
-		ConnectVia: "UI",
-		Methods:    []AuthMethod{MethodBrowser},
-		Fields:     map[AuthMethod][]CredentialField{},
-		IconEmoji:  "🐱",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey, MethodBrowser},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "access_token", Label: "Developer Token", Secret: true, Required: true, HelpURL: "https://www.producthunt.com/v2/oauth/applications"},
+			},
+		},
+		IconEmoji: "🐱",
+	},
+	"devto": {
+		ID:         "devto",
+		Name:       "Dev.to API",
+		Category:   "social",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "api_key", Label: "API Key", Secret: true, Required: true, HelpURL: "https://dev.to/settings/extensions"},
+			},
+		},
+		IconEmoji: "📝",
+	},
+	"hashnode": {
+		ID:         "hashnode",
+		Name:       "Hashnode API",
+		Category:   "social",
+		ConnectVia: "API",
+		Methods:    []AuthMethod{MethodAPIKey},
+		Fields: map[AuthMethod][]CredentialField{
+			MethodAPIKey: {
+				{Key: "token", Label: "Personal Access Token", Secret: true, Required: true, HelpURL: "https://hashnode.com/settings/developer"},
+			},
+		},
+		IconEmoji: "📓",
 	},
 	"gemini": {
 		ID:         "gemini",

@@ -4,10 +4,10 @@ import (
 	"testing"
 )
 
-// allExpectedIDs lists all 42 platform IDs that must exist in the registry.
+// allExpectedIDs lists all 44 platform IDs that must exist in the registry.
 var allExpectedIDs = []string{
 	// social
-	"instagram", "linkedin", "x", "tiktok", "reddit", "mastodon", "bluesky", "hackernews", "producthunt", "gemini", "telegram",
+	"instagram", "linkedin", "x", "tiktok", "reddit", "mastodon", "bluesky", "hackernews", "producthunt", "devto", "hashnode", "gemini", "telegram",
 	// service
 	"github", "notion", "airtable", "jira", "linear", "asana",
 	"stripe", "shopify", "salesforce", "hubspot",
@@ -25,16 +25,16 @@ var allExpectedIDs = []string{
 // TestRegistryHasAllExpectedPlatforms verifies that every expected platform ID
 // is present in the Registry.
 func TestRegistryHasAllExpectedPlatforms(t *testing.T) {
-	if len(allExpectedIDs) != 42 {
-		t.Fatalf("test setup error: expected 42 IDs, got %d", len(allExpectedIDs))
+	if len(allExpectedIDs) != 44 {
+		t.Fatalf("test setup error: expected 44 IDs, got %d", len(allExpectedIDs))
 	}
 	for _, id := range allExpectedIDs {
 		if _, ok := Registry[id]; !ok {
 			t.Errorf("Registry missing platform %q", id)
 		}
 	}
-	if got := len(Registry); got != 42 {
-		t.Errorf("Registry has %d platforms, want 42", got)
+	if got := len(Registry); got != 44 {
+		t.Errorf("Registry has %d platforms, want 44", got)
 	}
 }
 

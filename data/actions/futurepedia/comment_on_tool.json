@@ -1,0 +1,114 @@
+{
+  "actionType": "comment_on_tool",
+  "platform": "FUTUREPEDIA",
+  "version": "1.0.0",
+  "description": "Post a comment or review on a Futurepedia AI tool listing, optionally including a star rating",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["toolUrl", "commentText"],
+    "optional": ["rating"]
+  },
+  "outputs": {
+    "success": ["success", "toolUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_tool",
+      "type": "navigate",
+      "url": "{{toolUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_reviews_section",
+      "type": "find_element",
+      "xpath": "//section[@id='reviews' or contains(@class,'reviews-section')]",
+      "alternatives": [
+        "//div[@data-testid='reviews']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "scroll_to_reviews",
+      "type": "scroll",
+      "elementRef": "find_reviews_section",
+      "direction": "down"
+    },
+    {
+      "id": "check_has_rating",
+      "type": "condition",
+      "condition": "rating != '' and rating != None",
+      "then": ["find_rating_star", "click_rating_star"],
+      "else": []
+    },
+    {
+      "id": "find_rating_star",
+      "type": "find_element",
+      "xpath": "//section[@id='reviews']//button[@aria-label='Rate {{rating}} out of 5 stars']",
+      "alternatives": [
+        "//div[@data-testid='reviews']//div[contains(@class,'star-rating')]//button[position()={{rating}}]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_rating_star",
+      "type": "click",
+      "elementRef": "find_rating_star",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "find_comment_textarea",
+      "type": "find_element",
+      "xpath": "//textarea[@id='review_body' or @name='comment']",
+      "alternatives": [
+        "//section[@id='reviews']//textarea",
+        "//div[@data-testid='reviews']//textarea"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_comment",
+      "type": "type",
+      "elementRef": "find_comment_textarea",
+      "text": "{{commentText}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_post_comment_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and (contains(text(),'Post') or contains(text(),'Submit Review'))]",
+      "alternatives": [
+        "//section[@id='reviews']//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_post_comment",
+      "type": "click",
+      "elementRef": "find_post_comment_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_post",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Comment posted on Futurepedia tool",
+      "value": "Tool: {{toolUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

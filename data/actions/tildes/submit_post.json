@@ -1,0 +1,153 @@
+{
+  "actionType": "submit_post",
+  "platform": "TILDES",
+  "version": "1.0.0",
+  "description": "Submit a new topic to a Tildes group (link or text topic)",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["group", "title"],
+    "optional": ["link", "text", "tags"]
+  },
+  "outputs": {
+    "success": ["topicUrl", "topicId"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_new_topic_url",
+      "type": "update_progress",
+      "set": {
+        "newTopicUrl": "https://tildes.net/~{{group}}/topics/new"
+      }
+    },
+    {
+      "id": "navigate_to_new_topic",
+      "type": "navigate",
+      "url": "{{newTopicUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3 }
+    },
+    {
+      "id": "find_title_input",
+      "type": "find_element",
+      "xpath": "//input[@id='title' or @name='title']",
+      "alternatives": [
+        "//form[contains(@action, 'topics')]//input[@name='title']",
+        "//label[normalize-space(text())='Title']/following::input[1]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_title",
+      "type": "type",
+      "elementRef": "find_title_input",
+      "text": "{{title}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_link",
+      "type": "condition",
+      "condition": "link != '' and link != None",
+      "then": ["find_link_input", "type_link"],
+      "else": ["find_text_input", "type_text"]
+    },
+    {
+      "id": "find_link_input",
+      "type": "find_element",
+      "xpath": "//input[@id='link' or @name='link']",
+      "alternatives": [
+        "//label[normalize-space(text())='Link']/following::input[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_link",
+      "type": "type",
+      "elementRef": "find_link_input",
+      "text": "{{link}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_text_input",
+      "type": "find_element",
+      "xpath": "//textarea[@id='markdown' or @name='markdown']",
+      "alternatives": [
+        "//label[normalize-space(text())='Text']/following::textarea[1]",
+        "//div[contains(@class,'markdown-editor')]//textarea"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_text",
+      "type": "type",
+      "elementRef": "find_text_input",
+      "text": "{{text}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_tags",
+      "type": "condition",
+      "condition": "tags != '' and tags != None",
+      "then": ["find_tags_input", "type_tags"]
+    },
+    {
+      "id": "find_tags_input",
+      "type": "find_element",
+      "xpath": "//input[@id='tags' or @name='tags']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_tags",
+      "type": "type",
+      "elementRef": "find_tags_input",
+      "text": "{{tags}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and (contains(text(),'Post') or contains(text(),'Submit'))]",
+      "alternatives": [
+        "//form[contains(@action, 'topics')]//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_for_redirect",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_topic_url",
+      "type": "extract_attribute",
+      "xpath": "//link[@rel='canonical']",
+      "attribute": "href",
+      "variable_name": "topicUrl",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Topic submitted to Tildes",
+      "value": "Group: ~{{group}} Title: {{title}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 3000, "onFinalFailure": "log_and_continue" }
+}

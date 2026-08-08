@@ -1,0 +1,112 @@
+{
+  "actionType": "comment_on_listing",
+  "platform": "ALTERNATIVETO",
+  "version": "1.0.0",
+  "description": "Post a comment or review on an AlternativeTo software listing",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["listingUrl", "commentText"],
+    "optional": ["rating"]
+  },
+  "outputs": {
+    "success": ["success", "listingUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_listing",
+      "type": "navigate",
+      "url": "{{listingUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "scroll_to_comments",
+      "type": "scroll",
+      "elementRef": "find_comments_section",
+      "direction": "down"
+    },
+    {
+      "id": "find_comments_section",
+      "type": "find_element",
+      "xpath": "//section[@id='comments' or contains(@class,'comments-section')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_rating",
+      "type": "condition",
+      "condition": "rating != '' and rating != None",
+      "then": ["find_rating_stars", "click_rating_star"]
+    },
+    {
+      "id": "find_rating_stars",
+      "type": "find_element",
+      "xpath": "//div[contains(@class,'rating-stars')]//span[@data-rating='{{rating}}']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_rating_star",
+      "type": "click",
+      "elementRef": "find_rating_stars",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "find_comment_textarea",
+      "type": "find_element",
+      "xpath": "//textarea[@id='comment-body' or @name='comment']",
+      "alternatives": [
+        "//form[contains(@class,'comment-form')]//textarea",
+        "//textarea[@placeholder='Write a comment...']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_comment_textarea",
+      "type": "click",
+      "elementRef": "find_comment_textarea"
+    },
+    {
+      "id": "type_comment",
+      "type": "type",
+      "elementRef": "find_comment_textarea",
+      "text": "{{commentText}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_post_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and (contains(text(),'Post') or contains(text(),'Comment'))]",
+      "alternatives": [
+        "//form[contains(@class,'comment-form')]//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_post",
+      "type": "click",
+      "elementRef": "find_post_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_post",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Comment posted on AlternativeTo listing",
+      "value": "Listing: {{listingUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

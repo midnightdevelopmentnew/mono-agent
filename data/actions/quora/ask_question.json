@@ -1,0 +1,111 @@
+{
+  "actionType": "ask_question",
+  "platform": "QUORA",
+  "version": "1.0.0",
+  "description": "Ask a new question on Quora",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": ["questionTitle"],
+    "optional": ["questionDetails", "topics"]
+  },
+  "outputs": {
+    "success": ["questionPosted", "questionUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_home",
+      "type": "navigate",
+      "url": "https://www.quora.com/",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_add_question_button",
+      "type": "find_element",
+      "xpath": "//div[@role='button'][contains(., 'Add Question')]",
+      "alternatives": [
+        "//span[text()='Add Question']",
+        "//a[contains(@href, '/create_question')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_add_question",
+      "type": "click",
+      "elementRef": "find_add_question_button",
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_dialog",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_title_input",
+      "type": "find_element",
+      "xpath": "//textarea[contains(@placeholder, 'Start your question with')]",
+      "alternatives": [
+        "//div[@contenteditable='true'][@aria-label='Question']",
+        "//textarea[contains(@class, 'question_text')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_title",
+      "type": "type",
+      "elementRef": "find_title_input",
+      "text": "{{questionTitle}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_has_details",
+      "type": "condition",
+      "condition": "questionDetails != '' and questionDetails != None",
+      "then": ["find_details_input", "type_details"],
+      "else": []
+    },
+    {
+      "id": "find_details_input",
+      "type": "find_element",
+      "xpath": "//div[@contenteditable='true'][@aria-label='Add details (optional)']",
+      "alternatives": [
+        "//textarea[contains(@placeholder, 'details')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_details",
+      "type": "type",
+      "elementRef": "find_details_input",
+      "text": "{{questionDetails}}",
+      "humanLike": true,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "find_submit_question_button",
+      "type": "find_element",
+      "xpath": "//button[contains(., 'Add Question')]",
+      "alternatives": [
+        "//div[@role='button'][text()='Add']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit_question",
+      "type": "click",
+      "elementRef": "find_submit_question_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

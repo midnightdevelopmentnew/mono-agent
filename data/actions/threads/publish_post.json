@@ -1,0 +1,98 @@
+{
+  "actionType": "publish_post",
+  "platform": "THREADS",
+  "version": "1.0.0",
+  "description": "Publish a new text post (thread) to Threads",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "text"
+    ],
+    "optional": [
+      "media"
+    ]
+  },
+  "outputs": {
+    "success": [],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_home",
+      "type": "navigate",
+      "url": "https://www.threads.net/",
+      "waitFor": "page_load",
+      "timeout": 30
+    },
+    {
+      "id": "find_new_thread_button",
+      "type": "find_element",
+      "xpath": "//div[@role='button' and .//*[local-name()='svg' and @aria-label='Create']] | //a[@href='/create']",
+      "timeout": 15
+    },
+    {
+      "id": "click_new_thread",
+      "type": "click",
+      "elementRef": "find_new_thread_button",
+      "waitFor": "compose_open"
+    },
+    {
+      "id": "find_compose_input",
+      "type": "find_element",
+      "xpath": "//div[@contenteditable='true' and @role='textbox' and (@aria-label='Thread text' or contains(@data-lexical-editor,'true'))]",
+      "timeout": 15
+    },
+    {
+      "id": "type_thread",
+      "type": "type",
+      "elementRef": "find_compose_input",
+      "text": "{{text}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_media",
+      "type": "condition",
+      "condition": "media.length > 0",
+      "then": [
+        "upload_media",
+        "click_upload"
+      ],
+      "else": []
+    },
+    {
+      "id": "upload_media",
+      "type": "find_element",
+      "xpath": "//input[@type='file' and contains(@accept, 'image')]",
+      "timeout": 10
+    },
+    {
+      "id": "click_upload",
+      "type": "click",
+      "elementRef": "upload_media"
+    },
+    {
+      "id": "find_post_button",
+      "type": "find_element",
+      "xpath": "//div[@role='button' and (text()='Post' or .//div[text()='Post'])]",
+      "timeout": 10
+    },
+    {
+      "id": "click_post",
+      "type": "click",
+      "elementRef": "find_post_button",
+      "waitFor": "post_published",
+      "onSuccess": {
+        "action": "update_progress"
+      }
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

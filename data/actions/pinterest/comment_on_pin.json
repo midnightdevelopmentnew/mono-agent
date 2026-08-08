@@ -1,0 +1,104 @@
+{
+  "actionType": "comment_on_pin",
+  "platform": "PINTEREST",
+  "version": "1.0.0",
+  "description": "Comment on a Pinterest pin via its URL",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "pinUrl", "type": "string", "description": "URL of the pin to comment on" },
+      { "name": "commentText", "type": "string", "description": "Comment text to post" }
+    ],
+    "optional": [
+      { "name": "delayBeforeSubmit", "type": "number", "default": 2, "min": 1, "max": 30, "description": "Seconds to wait after typing before submitting" }
+    ]
+  },
+  "outputs": {
+    "success": ["commentPosted"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_pin",
+      "type": "navigate",
+      "url": "{{pinUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_pin_load",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_comment_input",
+      "type": "find_element",
+      "xpath": "//div[@data-test-id='pin-comment-field']//textarea",
+      "alternatives": [
+        "//textarea[@placeholder='Add a comment']",
+        "//div[@aria-label='Add a comment'][@contenteditable='true']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_comment_input",
+      "type": "click",
+      "elementRef": "find_comment_input"
+    },
+    {
+      "id": "type_comment",
+      "type": "type",
+      "elementRef": "find_comment_input",
+      "text": "{{commentText}}",
+      "humanLike": true
+    },
+    {
+      "id": "wait_before_submit",
+      "type": "wait",
+      "duration": "{{delayBeforeSubmit or 2}}",
+      "waitFor": "time"
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//button[@data-test-id='pin-comment-submit-button']",
+      "alternatives": [
+        "//div[@aria-label='Post comment'][@role='button']",
+        "//button[contains(text(), 'Post')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_submit_button",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" }
+    },
+    {
+      "id": "wait_for_comment_posted",
+      "type": "wait",
+      "duration": 2.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Comment posted on pin",
+      "value": "Pin URL: {{pinUrl}}"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

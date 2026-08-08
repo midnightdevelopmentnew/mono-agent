@@ -1,0 +1,106 @@
+{
+  "actionType": "publish_post",
+  "platform": "INDIEHACKERS",
+  "version": "1.0.0",
+  "description": "Create a new post in an Indie Hackers group",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": ["groupUrl", "title", "body"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["postPublished", "postUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_group",
+      "type": "navigate",
+      "url": "{{groupUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_new_post_button",
+      "type": "find_element",
+      "xpath": "//a[contains(@href, '/post/new')]",
+      "alternatives": [
+        "//button[contains(., 'New Post')]",
+        "//a[contains(., 'New Post')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_new_post",
+      "type": "click",
+      "elementRef": "find_new_post_button",
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_form",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_title_input",
+      "type": "find_element",
+      "xpath": "//input[@id='post_title']",
+      "alternatives": [
+        "//input[@name='title']",
+        "//input[@placeholder='Title']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_title",
+      "type": "type",
+      "elementRef": "find_title_input",
+      "text": "{{title}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "find_body_input",
+      "type": "find_element",
+      "xpath": "//textarea[@id='post_body']",
+      "alternatives": [
+        "//textarea[@name='body']",
+        "//div[@contenteditable='true'][@aria-label='Body']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_body",
+      "type": "type",
+      "elementRef": "find_body_input",
+      "text": "{{body}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "find_publish_button",
+      "type": "find_element",
+      "xpath": "//button[contains(., 'Publish')]",
+      "alternatives": [
+        "//input[@type='submit'][@value='Publish']",
+        "//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_publish",
+      "type": "click",
+      "elementRef": "find_publish_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

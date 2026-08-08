@@ -1,0 +1,52 @@
+{
+  "actionType": "upvote_answer",
+  "platform": "QUORA",
+  "version": "1.0.0",
+  "description": "Upvote a Quora answer",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["answerUrl"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["upvoted", "answerUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_answer",
+      "type": "navigate",
+      "url": "{{answerUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_answer_load",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_upvote_button",
+      "type": "find_element",
+      "xpath": "//div[@aria-label='Upvote']",
+      "alternatives": [
+        "//span[@aria-label='Upvote']/ancestor::div[@role='button'][1]",
+        "//div[@role='button'][contains(@class, 'upvote')]",
+        "//button[contains(@aria-label, 'pvote')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_upvote",
+      "type": "click",
+      "elementRef": "find_upvote_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

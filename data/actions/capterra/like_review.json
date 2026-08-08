@@ -1,0 +1,87 @@
+{
+  "actionType": "like_review",
+  "platform": "CAPTERRA",
+  "version": "1.0.0",
+  "description": "Mark a Capterra review as helpful",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["productId", "productSlug", "reviewId"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["success", "reviewId"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_reviews_url",
+      "type": "update_progress",
+      "set": {
+        "reviewsUrl": "https://www.capterra.com/p/{{productId}}/{{productSlug}}/reviews/#review-{{reviewId}}"
+      }
+    },
+    {
+      "id": "navigate_to_reviews",
+      "type": "navigate",
+      "url": "{{reviewsUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_review_card",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='review-card' and @data-review-id='{{reviewId}}']",
+      "alternatives": [
+        "//div[@id='review-{{reviewId}}']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "scroll_to_review",
+      "type": "scroll",
+      "elementRef": "find_review_card",
+      "direction": "down"
+    },
+    {
+      "id": "find_helpful_button",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='review-card' and @data-review-id='{{reviewId}}']//button[contains(@aria-label,'helpful') or contains(text(),'Helpful')]",
+      "alternatives": [
+        "//div[@id='review-{{reviewId}}']//button[contains(@class,'helpful-button')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_helpful_button",
+      "type": "click",
+      "elementRef": "find_helpful_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_click",
+      "type": "wait",
+      "duration": 1,
+      "waitFor": "time"
+    },
+    {
+      "id": "verify_marked_helpful",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='review-card' and @data-review-id='{{reviewId}}']//button[@aria-pressed='true']",
+      "timeout": 5,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Marked Capterra review as helpful",
+      "value": "Product: {{productId}}/{{productSlug}} Review: {{reviewId}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

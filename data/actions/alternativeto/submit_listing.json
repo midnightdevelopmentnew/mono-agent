@@ -1,0 +1,189 @@
+{
+  "actionType": "submit_listing",
+  "platform": "ALTERNATIVETO",
+  "version": "1.0.0",
+  "description": "Submit a new software alternative listing to AlternativeTo",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["name", "description", "url"],
+    "optional": ["category", "platforms", "license", "tags"]
+  },
+  "outputs": {
+    "success": ["listingUrl", "listingId"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_add_app",
+      "type": "navigate",
+      "url": "https://alternativeto.net/add-app",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_name_input",
+      "type": "find_element",
+      "xpath": "//input[@id='app-name' or @name='name']",
+      "alternatives": [
+        "//label[contains(text(),'Name')]/following::input[1]",
+        "//input[@placeholder='e.g. Photoshop']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_name",
+      "type": "type",
+      "elementRef": "find_name_input",
+      "text": "{{name}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_url_input",
+      "type": "find_element",
+      "xpath": "//input[@id='app-url' or @name='url']",
+      "alternatives": [
+        "//label[contains(text(),'Website')]/following::input[1]",
+        "//input[@placeholder='https://']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_url",
+      "type": "type",
+      "elementRef": "find_url_input",
+      "text": "{{url}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_description_input",
+      "type": "find_element",
+      "xpath": "//textarea[@id='app-description' or @name='description']",
+      "alternatives": [
+        "//label[contains(text(),'Description')]/following::textarea[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_description",
+      "type": "type",
+      "elementRef": "find_description_input",
+      "text": "{{description}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_category",
+      "type": "condition",
+      "condition": "category != '' and category != None",
+      "then": ["find_category_select", "select_category"]
+    },
+    {
+      "id": "find_category_select",
+      "type": "find_element",
+      "xpath": "//select[@id='app-category' or @name='category']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "select_category",
+      "type": "click",
+      "elementRef": "find_category_select"
+    },
+    {
+      "id": "check_has_platforms",
+      "type": "condition",
+      "condition": "platforms != '' and platforms != None",
+      "then": ["find_platforms_checkboxes", "click_platform_checkbox"]
+    },
+    {
+      "id": "find_platforms_checkboxes",
+      "type": "find_element",
+      "xpath": "//div[contains(@class,'platform-selector')]//input[@type='checkbox' and @value='{{platforms}}']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_platform_checkbox",
+      "type": "click",
+      "elementRef": "find_platforms_checkboxes",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_license",
+      "type": "condition",
+      "condition": "license != '' and license != None",
+      "then": ["find_license_select"]
+    },
+    {
+      "id": "find_license_select",
+      "type": "find_element",
+      "xpath": "//select[@id='app-license' or @name='licenseModel']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_tags",
+      "type": "condition",
+      "condition": "tags != '' and tags != None",
+      "then": ["find_tags_input", "type_tags"]
+    },
+    {
+      "id": "find_tags_input",
+      "type": "find_element",
+      "xpath": "//input[@id='app-tags' or @name='tags']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_tags",
+      "type": "type",
+      "elementRef": "find_tags_input",
+      "text": "{{tags}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and contains(text(),'Submit')]",
+      "alternatives": [
+        "//form[contains(@action,'add-app')]//button[@type='submit']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_for_redirect",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_listing_url",
+      "type": "extract_attribute",
+      "xpath": "//link[@rel='canonical']",
+      "attribute": "href",
+      "variable_name": "listingUrl",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Listing submitted to AlternativeTo",
+      "value": "Name: {{name}} URL: {{url}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 3000, "onFinalFailure": "log_and_continue" }
+}

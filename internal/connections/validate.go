@@ -64,6 +64,12 @@ func ValidateConnection(ctx context.Context, c *Connection) (accountID string, e
 		return validateHubSpot(ctx, c)
 	case "salesforce":
 		return validateSalesforce(ctx, c)
+	case "devto":
+		return validateDevTo(ctx, c)
+	case "hashnode":
+		return validateHashnode(ctx, c)
+	case "producthunt":
+		return validateProductHunt(ctx, c)
 	case "ssh", "sftp":
 		return validateSSH(ctx, c)
 	case "ftp":
@@ -957,4 +963,106 @@ func validateSalesforce(ctx context.Context, c *Connection) (string, error) {
 		return r.Email, nil
 	}
 	return r.Name, nil
+}
+
+// validateDevTo checks a Dev.to API key by fetching the authenticated user.
+func validateDevTo(ctx context.Context, c *Connection) (string, error) {
+	apiKey := getStr(c.Data, "api_key")
+	if apiKey == "" {
+		return "", fmt.Errorf("validateDevTo: missing api_key")
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://dev.to/api/users/me", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("api-key", apiKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("validateDevTo: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("validateDevTo: API returned %d", resp.StatusCode)
+	}
+	var r struct {
+		Username string `json:"username"`
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = json.Unmarshal(body, &r)
+	if r.Username == "" {
+		return "", fmt.Errorf("validateDevTo: could not resolve username")
+	}
+	return r.Username, nil
+}
+
+// validateHashnode checks a Hashnode personal access token via the GraphQL API.
+func validateHashnode(ctx context.Context, c *Connection) (string, error) {
+	token := getStr(c.Data, "token")
+	if token == "" {
+		return "", fmt.Errorf("validateHashnode: missing token")
+	}
+	payload := []byte(`{"query":"{ me { username } }"}`)
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://gql.hashnode.com", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("validateHashnode: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("validateHashnode: API returned %d", resp.StatusCode)
+	}
+	var r struct {
+		Data struct {
+			Me struct {
+				Username string `json:"username"`
+			} `json:"me"`
+		} `json:"data"`
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = json.Unmarshal(body, &r)
+	if r.Data.Me.Username == "" {
+		return "", fmt.Errorf("validateHashnode: could not resolve username")
+	}
+	return r.Data.Me.Username, nil
+}
+
+// validateProductHunt checks a Product Hunt developer token via the GraphQL API.
+func validateProductHunt(ctx context.Context, c *Connection) (string, error) {
+	token := getStr(c.Data, "access_token")
+	if token == "" {
+		return "", fmt.Errorf("validateProductHunt: missing access_token")
+	}
+	payload := []byte(`{"query":"{ viewer { name } }"}`)
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.producthunt.com/v2/api/graphql", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("validateProductHunt: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("validateProductHunt: API returned %d", resp.StatusCode)
+	}
+	var r struct {
+		Data struct {
+			Viewer struct {
+				Name string `json:"name"`
+			} `json:"viewer"`
+		} `json:"data"`
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = json.Unmarshal(body, &r)
+	if r.Data.Viewer.Name == "" {
+		return "", fmt.Errorf("validateProductHunt: could not resolve viewer name")
+	}
+	return r.Data.Viewer.Name, nil
 }

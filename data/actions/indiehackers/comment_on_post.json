@@ -1,0 +1,76 @@
+{
+  "actionType": "comment_on_post",
+  "platform": "INDIEHACKERS",
+  "version": "1.0.0",
+  "description": "Post a comment on an Indie Hackers post",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": ["postUrl", "commentText"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["commentPosted", "postUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_post",
+      "type": "navigate",
+      "url": "{{postUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_post_load",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_comment_input",
+      "type": "find_element",
+      "xpath": "//textarea[@id='comment_body']",
+      "alternatives": [
+        "//textarea[contains(@placeholder, 'Write a comment')]",
+        "//textarea[contains(@class, 'comment-form')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_comment_input",
+      "type": "click",
+      "elementRef": "find_comment_input",
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_comment",
+      "type": "type",
+      "elementRef": "find_comment_input",
+      "text": "{{commentText}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "find_submit_comment_button",
+      "type": "find_element",
+      "xpath": "//button[contains(., 'Post comment')]",
+      "alternatives": [
+        "//input[@type='submit'][@value='Post comment']",
+        "//button[@type='submit'][contains(., 'Comment')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit_comment",
+      "type": "click",
+      "elementRef": "find_submit_comment_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

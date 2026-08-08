@@ -1,0 +1,113 @@
+{
+  "actionType": "list_reviews",
+  "platform": "G2",
+  "version": "1.0.0",
+  "description": "List reviews for a G2 product",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["productSlug"],
+    "optional": ["maxResultsCount", "sortBy", "minRating"]
+  },
+  "outputs": {
+    "success": ["resultsCount", "reviews"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_reviews_url",
+      "type": "update_progress",
+      "set": {
+        "reviewsUrl": "https://www.g2.com/products/{{productSlug}}/reviews?order={{sortBy or 'most_recent'}}"
+      }
+    },
+    {
+      "id": "navigate_to_reviews",
+      "type": "navigate",
+      "url": "{{reviewsUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_reviews",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "element_visible",
+      "xpath": "//div[contains(@class,'paper') and contains(@class,'review')]",
+      "alternatives": ["//div[@itemprop='review']"]
+    },
+    {
+      "id": "check_has_min_rating",
+      "type": "condition",
+      "condition": "minRating != '' and minRating != None",
+      "then": ["find_rating_filter", "click_rating_filter"]
+    },
+    {
+      "id": "find_rating_filter",
+      "type": "find_element",
+      "xpath": "//a[contains(@href,'filters%5Bstars%5D%5B%5D={{minRating}}')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_rating_filter",
+      "type": "click",
+      "elementRef": "find_rating_filter",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_review_titles",
+      "type": "extract_multiple",
+      "xpath": "//div[@itemprop='review']//div[contains(@class,'review-title')]",
+      "attribute": "text",
+      "timeout": 10,
+      "alternatives": ["//div[contains(@class,'paper') and contains(@class,'review')]//h3"]
+    },
+    {
+      "id": "extract_review_ratings",
+      "type": "extract_multiple",
+      "xpath": "//div[@itemprop='review']//div[contains(@class,'stars')]",
+      "attribute": "aria-label",
+      "timeout": 10,
+      "alternatives": ["//div[contains(@class,'paper') and contains(@class,'review')]//meta[@itemprop='ratingValue']"]
+    },
+    {
+      "id": "extract_review_urls",
+      "type": "extract_multiple",
+      "xpath": "//div[@itemprop='review']//a[contains(@href,'#survey-response')]",
+      "attribute": "href",
+      "timeout": 10,
+      "alternatives": ["//div[contains(@class,'paper') and contains(@class,'review')]//a"]
+    },
+    {
+      "id": "extract_review_text",
+      "type": "extract_multiple",
+      "xpath": "//div[@itemprop='review']//div[contains(@class,'review-text') or @itemprop='reviewBody']",
+      "attribute": "text",
+      "timeout": 10
+    },
+    {
+      "id": "store_results",
+      "type": "update_progress",
+      "set": {
+        "reviews": "{{extract_review_urls.data}}",
+        "resultsCount": "{{extract_review_urls.count}}"
+      }
+    },
+    {
+      "id": "save_results",
+      "type": "save_data",
+      "dataSource": "reviews",
+      "batchSize": 1,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Listed G2 reviews for product",
+      "value": "Product: {{productSlug}} Results: {{resultsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

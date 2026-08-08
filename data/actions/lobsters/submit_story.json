@@ -1,0 +1,129 @@
+{
+  "actionType": "submit_story",
+  "platform": "LOBSTERS",
+  "version": "1.0.0",
+  "description": "Submit a new story to lobste.rs",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": {
+    "required": ["title", "url"],
+    "optional": ["tags", "text"]
+  },
+  "outputs": {
+    "success": ["storySubmitted", "storyUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_new_story",
+      "type": "navigate",
+      "url": "https://lobste.rs/stories/new",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_title_input",
+      "type": "find_element",
+      "xpath": "//input[@id='story_title']",
+      "alternatives": [
+        "//input[@name='story[title]']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_title",
+      "type": "type",
+      "elementRef": "find_title_input",
+      "text": "{{title}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "find_url_input",
+      "type": "find_element",
+      "xpath": "//input[@id='story_url']",
+      "alternatives": [
+        "//input[@name='story[url]']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_url",
+      "type": "type",
+      "elementRef": "find_url_input",
+      "text": "{{url}}",
+      "humanLike": true,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_has_text",
+      "type": "condition",
+      "condition": "text != '' and text != None",
+      "then": ["find_text_input", "type_text"],
+      "else": []
+    },
+    {
+      "id": "find_text_input",
+      "type": "find_element",
+      "xpath": "//textarea[@id='story_text']",
+      "alternatives": [
+        "//textarea[@name='story[text]']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_text",
+      "type": "type",
+      "elementRef": "find_text_input",
+      "text": "{{text}}",
+      "humanLike": true,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_tags",
+      "type": "condition",
+      "condition": "tags != '' and tags != None",
+      "then": ["find_tag_checkbox", "click_tag_checkbox"],
+      "else": []
+    },
+    {
+      "id": "find_tag_checkbox",
+      "type": "find_element",
+      "xpath": "//input[@type='checkbox'][contains(@id, 'story_tags_a')][@value='{{tags}}']",
+      "alternatives": [
+        "//input[@type='checkbox'][@value='{{tags}}']",
+        "//label[contains(., '{{tags}}')]/preceding-sibling::input[@type='checkbox']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_tag_checkbox",
+      "type": "click",
+      "elementRef": "find_tag_checkbox",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//input[@type='submit'][@value='Submit Story']",
+      "alternatives": [
+        "//button[contains(., 'Submit Story')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

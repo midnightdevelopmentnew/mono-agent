@@ -1,0 +1,51 @@
+{
+  "actionType": "upvote_story",
+  "platform": "LOBSTERS",
+  "version": "1.0.0",
+  "description": "Upvote a lobste.rs story",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["storyUrl"],
+    "optional": []
+  },
+  "outputs": {
+    "success": ["upvoted", "storyUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_story",
+      "type": "navigate",
+      "url": "{{storyUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_story_load",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_upvote_button",
+      "type": "find_element",
+      "xpath": "//div[contains(@class, 'voters')]//a[contains(@class, 'upvoter')]",
+      "alternatives": [
+        "//a[@title='Upvote']",
+        "//div[contains(@class, 'story_liner')]//a[contains(@class, 'upvoter')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "retry", "maxRetries": 2, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "click_upvote",
+      "type": "click",
+      "elementRef": "find_upvote_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress" },
+      "onError": { "action": "mark_failed" }
+    }
+  ],
+  "errorHandling": { "globalRetries": 3, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

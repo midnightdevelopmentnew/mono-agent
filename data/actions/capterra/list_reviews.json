@@ -1,0 +1,162 @@
+{
+  "actionType": "list_reviews",
+  "platform": "CAPTERRA",
+  "version": "1.0.0",
+  "description": "List reviews for a Capterra product, including rating, title, text, and helpful count",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["productId", "productSlug"],
+    "optional": ["maxResultsCount", "sortBy"]
+  },
+  "outputs": {
+    "success": ["reviews", "resultsCount"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_reviews_url",
+      "type": "update_progress",
+      "set": {
+        "reviewsUrl": "https://www.capterra.com/p/{{productId}}/{{productSlug}}/reviews/"
+      }
+    },
+    {
+      "id": "navigate_to_reviews",
+      "type": "navigate",
+      "url": "{{reviewsUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "check_has_sort",
+      "type": "condition",
+      "condition": "sortBy != '' and sortBy != None",
+      "then": ["find_sort_dropdown", "click_sort_option"],
+      "else": []
+    },
+    {
+      "id": "find_sort_dropdown",
+      "type": "find_element",
+      "xpath": "//select[@data-testid='review-sort-select']",
+      "alternatives": [
+        "//button[contains(@aria-label,'Sort reviews')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_sort_option",
+      "type": "click",
+      "elementRef": "find_sort_dropdown",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "wait_for_reviews",
+      "type": "wait",
+      "duration": 15,
+      "waitFor": "element_visible",
+      "xpath": "//div[@data-testid='review-card']",
+      "alternatives": [
+        "//div[contains(@class,'review-card')]"
+      ]
+    },
+    {
+      "id": "extract_review_cards",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-testid='review-card']",
+      "alternatives": [
+        "//div[contains(@class,'review-card')]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_reviewer_names",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-testid='review-card']//span[@data-testid='reviewer-name']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_review_ratings",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-testid='review-card']//span[@data-testid='rating-value']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_review_titles",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-testid='review-card']//h3[@data-testid='review-title']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_review_texts",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-testid='review-card']//p[@data-testid='review-body']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_helpful_counts",
+      "type": "extract_multiple",
+      "xpath": "//div[@data-testid='review-card']//span[@data-testid='helpful-count']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "save_reviews",
+      "type": "save_data",
+      "dataSource": "extract_review_cards",
+      "batchSize": 20,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "store_results",
+      "type": "update_progress",
+      "set": {
+        "resultsCount": "{{extract_review_cards.count}}"
+      }
+    },
+    {
+      "id": "check_need_more_reviews",
+      "type": "condition",
+      "condition": "resultsCount < maxResultsCount",
+      "then": ["find_load_more_button", "click_load_more", "wait_for_more_reviews", "extract_review_cards"],
+      "else": []
+    },
+    {
+      "id": "find_load_more_button",
+      "type": "find_element",
+      "xpath": "//button[contains(text(),'Load More') or contains(text(),'Show More Reviews')]",
+      "alternatives": [
+        "//a[@rel='next']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_load_more",
+      "type": "click",
+      "elementRef": "find_load_more_button",
+      "waitFor": "network_idle",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "wait_for_more_reviews",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "log_results",
+      "type": "log",
+      "description": "Capterra review listing complete",
+      "value": "Product: {{productId}}/{{productSlug}} Reviews: {{resultsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

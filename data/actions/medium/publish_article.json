@@ -1,0 +1,125 @@
+{
+  "actionType": "publish_article",
+  "platform": "MEDIUM",
+  "version": "1.0.0",
+  "description": "Write and publish a new article on Medium",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "title",
+      "body"
+    ],
+    "optional": [
+      "tags",
+      "publicationId"
+    ]
+  },
+  "outputs": {
+    "success": [],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_new_story",
+      "type": "navigate",
+      "url": "https://medium.com/new-story",
+      "waitFor": "page_load",
+      "timeout": 30
+    },
+    {
+      "id": "find_title_input",
+      "type": "find_element",
+      "xpath": "//h3[@data-testid='editorTitleParagraph'] | //h1[contains(@class,'graf--title')]",
+      "timeout": 15
+    },
+    {
+      "id": "click_title",
+      "type": "click",
+      "elementRef": "find_title_input"
+    },
+    {
+      "id": "type_title",
+      "type": "type",
+      "elementRef": "find_title_input",
+      "text": "{{title}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_body_input",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='editorParagraphText'] | //p[contains(@class,'graf--p')][1]",
+      "timeout": 15
+    },
+    {
+      "id": "click_body",
+      "type": "click",
+      "elementRef": "find_body_input"
+    },
+    {
+      "id": "type_body",
+      "type": "type",
+      "elementRef": "find_body_input",
+      "text": "{{body}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_publish_button",
+      "type": "find_element",
+      "xpath": "//button[contains(text(),'Publish')]",
+      "timeout": 10
+    },
+    {
+      "id": "click_publish",
+      "type": "click",
+      "elementRef": "find_publish_button",
+      "waitFor": "publish_modal_open"
+    },
+    {
+      "id": "check_has_tags",
+      "type": "condition",
+      "condition": "tags.length > 0",
+      "then": [
+        "find_tags_input",
+        "type_tags"
+      ],
+      "else": []
+    },
+    {
+      "id": "find_tags_input",
+      "type": "find_element",
+      "xpath": "//input[@placeholder='Add a topic…']",
+      "timeout": 10
+    },
+    {
+      "id": "type_tags",
+      "type": "type",
+      "elementRef": "find_tags_input",
+      "text": "{{tags}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_publish_now_button",
+      "type": "find_element",
+      "xpath": "//button[contains(text(),'Publish now')]",
+      "timeout": 10
+    },
+    {
+      "id": "click_publish_now",
+      "type": "click",
+      "elementRef": "find_publish_now_button",
+      "waitFor": "article_published",
+      "onSuccess": {
+        "action": "update_progress"
+      }
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

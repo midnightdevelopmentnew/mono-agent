@@ -1,0 +1,72 @@
+{
+  "actionType": "like_article",
+  "platform": "MEDIUM",
+  "version": "1.0.0",
+  "description": "Clap for (like) a Medium article",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "articleUrl"
+    ],
+    "optional": [
+      "clapCount"
+    ]
+  },
+  "outputs": {
+    "success": [],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_article",
+      "type": "navigate",
+      "url": "{{articleUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": {
+        "action": "retry",
+        "maxRetries": 3
+      }
+    },
+    {
+      "id": "find_clap_button",
+      "type": "find_element",
+      "xpath": "//button[@data-testid='footerClapButton'] | //button[@aria-label='clap']",
+      "timeout": 15
+    },
+    {
+      "id": "click_clap",
+      "type": "click",
+      "elementRef": "find_clap_button",
+      "waitFor": "clap_registered",
+      "onSuccess": {
+        "action": "update_progress"
+      }
+    },
+    {
+      "id": "check_more_claps",
+      "type": "condition",
+      "condition": "clapCount > 1",
+      "then": [
+        "click_clap_again",
+        "check_more_claps"
+      ],
+      "else": []
+    },
+    {
+      "id": "click_clap_again",
+      "type": "click",
+      "elementRef": "find_clap_button",
+      "waitFor": "clap_registered"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

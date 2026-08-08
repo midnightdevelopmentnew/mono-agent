@@ -1,0 +1,98 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "ALTERNATIVETO",
+  "version": "1.0.0",
+  "description": "Search AlternativeTo for software matching a keyword and collect listing URLs",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["keyword"],
+    "optional": ["maxResultsCount", "platform", "license"]
+  },
+  "outputs": {
+    "success": ["resultsCount", "listings"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://alternativeto.net/browse/search/?q={{keywordEncoded}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "element_visible",
+      "xpath": "//div[contains(@class,'app-listing')]",
+      "alternatives": ["//ul[contains(@class,'search-results')]//li"]
+    },
+    {
+      "id": "check_has_platform_filter",
+      "type": "condition",
+      "condition": "platform != '' and platform != None",
+      "then": ["find_platform_filter", "click_platform_filter"]
+    },
+    {
+      "id": "find_platform_filter",
+      "type": "find_element",
+      "xpath": "//a[contains(@href,'platform={{platform}}')]",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_platform_filter",
+      "type": "click",
+      "elementRef": "find_platform_filter",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "extract_listing_names",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'app-listing')]//h2//a",
+      "attribute": "text",
+      "timeout": 10,
+      "alternatives": ["//div[contains(@class,'app-listing')]//a[contains(@href,'/software/')]"]
+    },
+    {
+      "id": "extract_listing_urls",
+      "type": "extract_multiple",
+      "xpath": "//div[contains(@class,'app-listing')]//h2//a",
+      "attribute": "href",
+      "timeout": 10,
+      "alternatives": ["//div[contains(@class,'app-listing')]//a[contains(@href,'/software/')]"]
+    },
+    {
+      "id": "store_results",
+      "type": "update_progress",
+      "set": {
+        "listings": "{{extract_listing_urls.data}}",
+        "resultsCount": "{{extract_listing_urls.count}}"
+      }
+    },
+    {
+      "id": "save_results",
+      "type": "save_data",
+      "dataSource": "listings",
+      "batchSize": 1,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "AlternativeTo keyword search complete",
+      "value": "Keyword: {{keyword}} Results: {{resultsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

@@ -1,0 +1,92 @@
+{
+  "actionType": "find_by_keyword",
+  "platform": "TILDES",
+  "version": "1.0.0",
+  "description": "Search Tildes for topics matching a keyword and collect results",
+  "metadata": { "requiresAuth": false, "supportsPagination": true, "supportsRetry": true },
+  "inputs": {
+    "required": ["keyword"],
+    "optional": ["group", "maxResultsCount", "sortBy"]
+  },
+  "outputs": {
+    "success": ["resultsCount", "topics"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://tildes.net/search?q={{keywordEncoded}}&order={{sortBy or 'relevance'}}"
+      }
+    },
+    {
+      "id": "check_has_group",
+      "type": "condition",
+      "condition": "group != '' and group != None",
+      "then": ["build_group_search_url"]
+    },
+    {
+      "id": "build_group_search_url",
+      "type": "update_progress",
+      "set": {
+        "searchUrl": "https://tildes.net/~{{group}}/search?q={{keywordEncoded}}&order={{sortBy or 'relevance'}}"
+      }
+    },
+    {
+      "id": "navigate_to_search",
+      "type": "navigate",
+      "url": "{{searchUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_results",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "element_visible",
+      "xpath": "//article[contains(@class,'topic')]",
+      "alternatives": ["//ol[contains(@class,'topic-listing')]//article"]
+    },
+    {
+      "id": "extract_topic_titles",
+      "type": "extract_multiple",
+      "xpath": "//article[contains(@class,'topic')]//h1//a[contains(@class,'topic-title-link')]",
+      "attribute": "text",
+      "timeout": 10,
+      "alternatives": ["//article[contains(@class,'topic')]//a[contains(@href,'/~')]"]
+    },
+    {
+      "id": "extract_topic_urls",
+      "type": "extract_multiple",
+      "xpath": "//article[contains(@class,'topic')]//h1//a[contains(@class,'topic-title-link')]",
+      "attribute": "href",
+      "timeout": 10,
+      "alternatives": ["//article[contains(@class,'topic')]//a[contains(@href,'/~')]"]
+    },
+    {
+      "id": "store_results",
+      "type": "update_progress",
+      "set": {
+        "topics": "{{extract_topic_urls.data}}",
+        "resultsCount": "{{extract_topic_urls.count}}"
+      }
+    },
+    {
+      "id": "save_results",
+      "type": "save_data",
+      "dataSource": "topics",
+      "batchSize": 1,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Tildes keyword search complete",
+      "value": "Keyword: {{keyword}} Results: {{resultsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

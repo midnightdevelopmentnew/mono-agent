@@ -1,0 +1,338 @@
+{
+  "actionType": "submit_review",
+  "platform": "CAPTERRA",
+  "version": "1.0.0",
+  "description": "Submit a software review on Capterra, including overall and category ratings, pros/cons, and review text",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["productId", "productSlug", "overallRating", "reviewTitle", "reviewText"],
+    "optional": ["pros", "cons", "easeOfUseRating", "customerServiceRating", "featuresRating", "valueForMoneyRating", "likelihoodToRecommend", "reviewerJobTitle", "usageDuration"]
+  },
+  "outputs": {
+    "success": ["success", "reviewUrl"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "build_product_url",
+      "type": "update_progress",
+      "set": {
+        "productUrl": "https://www.capterra.com/p/{{productId}}/{{productSlug}}/"
+      }
+    },
+    {
+      "id": "navigate_to_product",
+      "type": "navigate",
+      "url": "{{productUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_write_review_button",
+      "type": "find_element",
+      "xpath": "//a[contains(@href,'/reviews/') and (contains(text(),'Write a Review') or contains(text(),'Write a review'))]",
+      "alternatives": [
+        "//button[contains(text(),'Write a Review')]",
+        "//a[@data-testid='write-review-cta']",
+        "//a[contains(@data-ga-label,'write_a_review')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_write_review",
+      "type": "click",
+      "elementRef": "find_write_review_button",
+      "waitFor": "page_load"
+    },
+    {
+      "id": "wait_for_review_form",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "element_visible",
+      "xpath": "//div[@data-testid='overall-rating-input']",
+      "alternatives": [
+        "//fieldset[contains(@aria-label,'Overall Rating')]",
+        "//form[contains(@action,'reviews')]"
+      ]
+    },
+    {
+      "id": "find_overall_rating_star",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='overall-rating-input']//button[@aria-label='{{overallRating}} out of 5 stars']",
+      "alternatives": [
+        "//fieldset[contains(@aria-label,'Overall Rating')]//label[@aria-label='{{overallRating}} stars']",
+        "(//div[contains(@class,'star-rating')])[1]//button[position()={{overallRating}}]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_overall_rating",
+      "type": "click",
+      "elementRef": "find_overall_rating_star"
+    },
+    {
+      "id": "check_has_ease_of_use_rating",
+      "type": "condition",
+      "condition": "easeOfUseRating != '' and easeOfUseRating != None",
+      "then": ["find_ease_of_use_rating", "click_ease_of_use_rating"],
+      "else": []
+    },
+    {
+      "id": "find_ease_of_use_rating",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='ease-of-use-rating-input']//button[@aria-label='{{easeOfUseRating}} out of 5 stars']",
+      "alternatives": [
+        "//fieldset[contains(@aria-label,'Ease of Use')]//label[@aria-label='{{easeOfUseRating}} stars']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_ease_of_use_rating",
+      "type": "click",
+      "elementRef": "find_ease_of_use_rating",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_customer_service_rating",
+      "type": "condition",
+      "condition": "customerServiceRating != '' and customerServiceRating != None",
+      "then": ["find_customer_service_rating", "click_customer_service_rating"],
+      "else": []
+    },
+    {
+      "id": "find_customer_service_rating",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='customer-service-rating-input']//button[@aria-label='{{customerServiceRating}} out of 5 stars']",
+      "alternatives": [
+        "//fieldset[contains(@aria-label,'Customer Service')]//label[@aria-label='{{customerServiceRating}} stars']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_customer_service_rating",
+      "type": "click",
+      "elementRef": "find_customer_service_rating",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_features_rating",
+      "type": "condition",
+      "condition": "featuresRating != '' and featuresRating != None",
+      "then": ["find_features_rating", "click_features_rating"],
+      "else": []
+    },
+    {
+      "id": "find_features_rating",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='features-rating-input']//button[@aria-label='{{featuresRating}} out of 5 stars']",
+      "alternatives": [
+        "//fieldset[contains(@aria-label,'Features')]//label[@aria-label='{{featuresRating}} stars']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_features_rating",
+      "type": "click",
+      "elementRef": "find_features_rating",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_value_for_money_rating",
+      "type": "condition",
+      "condition": "valueForMoneyRating != '' and valueForMoneyRating != None",
+      "then": ["find_value_for_money_rating", "click_value_for_money_rating"],
+      "else": []
+    },
+    {
+      "id": "find_value_for_money_rating",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='value-for-money-rating-input']//button[@aria-label='{{valueForMoneyRating}} out of 5 stars']",
+      "alternatives": [
+        "//fieldset[contains(@aria-label,'Value for Money')]//label[@aria-label='{{valueForMoneyRating}} stars']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_value_for_money_rating",
+      "type": "click",
+      "elementRef": "find_value_for_money_rating",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "check_has_likelihood_to_recommend",
+      "type": "condition",
+      "condition": "likelihoodToRecommend != '' and likelihoodToRecommend != None",
+      "then": ["find_likelihood_slider", "click_likelihood_slider"],
+      "else": []
+    },
+    {
+      "id": "find_likelihood_slider",
+      "type": "find_element",
+      "xpath": "//div[@data-testid='likelihood-to-recommend']//button[@data-value='{{likelihoodToRecommend}}']",
+      "alternatives": [
+        "//fieldset[contains(@aria-label,'Likelihood to Recommend')]//label[text()='{{likelihoodToRecommend}}']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_likelihood_slider",
+      "type": "click",
+      "elementRef": "find_likelihood_slider",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "find_review_title_input",
+      "type": "find_element",
+      "xpath": "//input[@name='title' or @id='review-title']",
+      "alternatives": [
+        "//label[contains(text(),'Give your review a title')]/following::input[1]",
+        "//label[contains(text(),'Title')]/following::input[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_review_title",
+      "type": "type",
+      "elementRef": "find_review_title_input",
+      "text": "{{reviewTitle}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_review_text_area",
+      "type": "find_element",
+      "xpath": "//textarea[@name='review' or @id='review-body']",
+      "alternatives": [
+        "//label[contains(text(),'Review')]/following::textarea[1]",
+        "//textarea[@data-testid='review-text-input']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "type_review_text",
+      "type": "type",
+      "elementRef": "find_review_text_area",
+      "text": "{{reviewText}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_pros",
+      "type": "condition",
+      "condition": "pros != '' and pros != None",
+      "then": ["find_pros_input", "type_pros"],
+      "else": []
+    },
+    {
+      "id": "find_pros_input",
+      "type": "find_element",
+      "xpath": "//textarea[@name='pros' or @id='pros']",
+      "alternatives": [
+        "//label[contains(text(),'Pros')]/following::textarea[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_pros",
+      "type": "type",
+      "elementRef": "find_pros_input",
+      "text": "{{pros}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_cons",
+      "type": "condition",
+      "condition": "cons != '' and cons != None",
+      "then": ["find_cons_input", "type_cons"],
+      "else": []
+    },
+    {
+      "id": "find_cons_input",
+      "type": "find_element",
+      "xpath": "//textarea[@name='cons' or @id='cons']",
+      "alternatives": [
+        "//label[contains(text(),'Cons')]/following::textarea[1]"
+      ],
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_cons",
+      "type": "type",
+      "elementRef": "find_cons_input",
+      "text": "{{cons}}",
+      "humanLike": true
+    },
+    {
+      "id": "check_has_job_title",
+      "type": "condition",
+      "condition": "reviewerJobTitle != '' and reviewerJobTitle != None",
+      "then": ["find_job_title_input", "type_job_title"],
+      "else": []
+    },
+    {
+      "id": "find_job_title_input",
+      "type": "find_element",
+      "xpath": "//input[@name='jobTitle' or @id='job-title']",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "type_job_title",
+      "type": "type",
+      "elementRef": "find_job_title_input",
+      "text": "{{reviewerJobTitle}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_submit_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and (contains(text(),'Submit') or contains(text(),'Post Review'))]",
+      "alternatives": [
+        "//button[@data-testid='submit-review-button']"
+      ],
+      "timeout": 10,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "click_submit",
+      "type": "click",
+      "elementRef": "find_submit_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_submit",
+      "type": "wait",
+      "duration": 3,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_review_url",
+      "type": "extract_attribute",
+      "xpath": "//link[@rel='canonical']",
+      "attribute": "href",
+      "variable_name": "reviewUrl",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Review submitted on Capterra",
+      "value": "Product: {{productId}}/{{productSlug}} Title: {{reviewTitle}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 3000, "onFinalFailure": "log_and_continue" }
+}

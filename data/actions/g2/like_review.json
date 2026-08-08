@@ -1,0 +1,85 @@
+{
+  "actionType": "like_review",
+  "platform": "G2",
+  "version": "1.0.0",
+  "description": "Mark a G2 review as helpful",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": true },
+  "inputs": {
+    "required": ["reviewUrl"],
+    "optional": ["skipIfAlreadyMarked"]
+  },
+  "outputs": {
+    "success": ["success", "helpfulCount"],
+    "failure": ["error"]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_review",
+      "type": "navigate",
+      "url": "{{reviewUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "find_helpful_button",
+      "type": "find_element",
+      "xpath": "//button[contains(@class,'helpful-vote') or @data-action='helpful']",
+      "alternatives": [
+        "//button[contains(text(),'Helpful?')]",
+        "//div[contains(@class,'review-actions')]//button[contains(.,'Helpful')]"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_already_marked",
+      "type": "condition",
+      "condition": {
+        "variable": "skipIfAlreadyMarked",
+        "operator": "equals",
+        "value": true
+      },
+      "then": ["extract_marked_state"]
+    },
+    {
+      "id": "extract_marked_state",
+      "type": "extract_attribute",
+      "elementRef": "find_helpful_button",
+      "attribute": "class",
+      "variable_name": "helpfulButtonClass",
+      "timeout": 5,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "click_helpful",
+      "type": "click",
+      "elementRef": "find_helpful_button",
+      "waitFor": "network_idle",
+      "onSuccess": { "action": "update_progress", "set": { "success": true } },
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "wait_after_click",
+      "type": "wait",
+      "duration": 2,
+      "waitFor": "time"
+    },
+    {
+      "id": "extract_helpful_count",
+      "type": "extract_text",
+      "xpath": "//span[contains(@class,'helpful-count')]",
+      "variable_name": "helpfulCount",
+      "timeout": 10,
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Marked G2 review as helpful",
+      "value": "Review: {{reviewUrl}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": { "globalRetries": 2, "retryDelay": 2000, "onFinalFailure": "log_and_continue" }
+}

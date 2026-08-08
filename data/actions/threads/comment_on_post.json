@@ -1,0 +1,80 @@
+{
+  "actionType": "comment_on_post",
+  "platform": "THREADS",
+  "version": "1.0.0",
+  "description": "Reply to a specific Threads post",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "postUrl",
+      "text"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_post",
+      "type": "navigate",
+      "url": "{{postUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": {
+        "action": "retry",
+        "maxRetries": 3
+      }
+    },
+    {
+      "id": "find_reply_button",
+      "type": "find_element",
+      "xpath": "//div[@role='button' and .//*[local-name()='svg' and @aria-label='Reply']][1]",
+      "timeout": 15
+    },
+    {
+      "id": "click_reply",
+      "type": "click",
+      "elementRef": "find_reply_button",
+      "waitFor": "reply_modal_open"
+    },
+    {
+      "id": "find_reply_input",
+      "type": "find_element",
+      "xpath": "//div[@contenteditable='true' and @role='textbox' and contains(@aria-label, 'Reply')]",
+      "timeout": 15
+    },
+    {
+      "id": "type_reply",
+      "type": "type",
+      "elementRef": "find_reply_input",
+      "text": "{{text}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_post_reply_button",
+      "type": "find_element",
+      "xpath": "//div[@role='button' and (text()='Post' or .//div[text()='Post'])]",
+      "timeout": 10
+    },
+    {
+      "id": "click_post_reply",
+      "type": "click",
+      "elementRef": "find_post_reply_button",
+      "waitFor": "reply_posted",
+      "onSuccess": {
+        "action": "update_progress"
+      }
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

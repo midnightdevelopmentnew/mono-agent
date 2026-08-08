@@ -16,7 +16,6 @@ Desktop.ini
 *.swo
 *.swn
 *~
-
 # Go
 bin/
 cmd/monoagentcli/monoagentcli
@@ -29,14 +28,12 @@ go.work.sum
 /monoes
 /monoes-agent
 /bin/monoes
-
 # Wails
 wails-app/build/bin/
 wails-app/frontend/dist/
 wails-app/frontend/node_modules/
 wails-app/wails-app
 wails-app/monoagentcli
-
 # Node
 node_modules/
 npm-debug.log*
@@ -46,7 +43,6 @@ pnpm-debug.log*
 lerna-debug.log*
 .npm
 .yarn-integrity
-
 # Python
 __pycache__/
 *.pyc
@@ -63,7 +59,6 @@ venv.bak/
 htmlcov/
 .tox/
 .mypy_cache/
-
 # Environment Variables
 .env
 *.env
@@ -71,34 +66,28 @@ htmlcov/
 .env.development.local
 .env.test.local
 .env.production.local
-
 # Logs
 *.log
 logs/
 .playwright-mcp/
-
 # Database
 *.db
 *.sqlite
 *.sqlite3
 data/monoes.db
-
 # Temporary/Generated
 dist/
 coverage/
 .cache/
 tmp/
 temp/
-
 # Go Coverage
 coverage.txt
 coverage.out
-
 # Misc
 .vercel
 .serverless
 .worktrees/
-
 # Monomind runtime state
 .monograph/
 data/sessions/
@@ -107,12 +96,11 @@ data/mastermind-*.jsonl
 **/.claude-flow/
 .hive-mind/
 .swarm/
-
 # Claude Code local settings/state
 .claude/
-
 # Local build output
 /monoagentcli
 GRAPH_REPORT.md
 # monomind runtime — local state, tokens, and databases; never tracked
 .monomind/
+build/

@@ -1,0 +1,105 @@
+{
+  "actionType": "list_user_posts",
+  "platform": "FACEBOOK",
+  "version": "1.0.0",
+  "description": "List posts from a Facebook user or page profile timeline",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": true,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      { "name": "profileUrl", "type": "string", "description": "Full URL of the user or page profile (e.g. https://www.facebook.com/username)" }
+    ],
+    "optional": [
+      { "name": "maxCount", "type": "number", "default": 20, "min": 1, "max": 200, "description": "Maximum number of posts to return" },
+      { "name": "delayAfterLoad", "type": "number", "default": 3, "min": 1, "max": 30, "description": "Seconds to wait after page load" }
+    ]
+  },
+  "outputs": {
+    "success": ["posts", "postsCount"],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_profile",
+      "type": "navigate",
+      "url": "{{profileUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": { "action": "retry", "maxRetries": 3, "onFailure": "mark_failed" }
+    },
+    {
+      "id": "wait_for_page",
+      "type": "wait",
+      "duration": "{{delayAfterLoad or 3}}",
+      "waitFor": "time"
+    },
+    {
+      "id": "find_posts_feed",
+      "type": "find_element",
+      "xpath": "//div[@role='main']//div[@role='feed']",
+      "alternatives": [
+        "//div[@data-pagelet='ProfileTimeline']//div[@role='article']"
+      ],
+      "timeout": 15,
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "extract_posts",
+      "type": "extract_multiple",
+      "xpath": "//div[@role='feed']//a[contains(@href,'/posts/') or contains(@href,'/permalink/') or contains(@href,'/videos/') or contains(@href,'/photos/')]",
+      "attribute": "href",
+      "timeout": 15,
+      "alternatives": [
+        "//div[@role='article']//a[contains(@href,'story_fbid')]"
+      ],
+      "variable_name": "posts",
+      "onError": { "action": "mark_failed" }
+    },
+    {
+      "id": "check_more_needed",
+      "type": "condition",
+      "condition": "posts.count < maxCount",
+      "then": [
+        "scroll_for_more",
+        "extract_posts",
+        "check_more_needed"
+      ],
+      "else": []
+    },
+    {
+      "id": "scroll_for_more",
+      "type": "scroll",
+      "elementRef": "find_posts_feed",
+      "direction": "down",
+      "waitFor": "time"
+    },
+    {
+      "id": "save_posts",
+      "type": "save_data",
+      "dataSource": "posts",
+      "onError": { "action": "skip" }
+    },
+    {
+      "id": "store_count",
+      "type": "update_progress",
+      "set": {
+        "postsCount": "{{posts.count}}"
+      }
+    },
+    {
+      "id": "log_success",
+      "type": "log",
+      "description": "Posts listed",
+      "value": "Profile: {{profileUrl}}, Count: {{postsCount}}"
+    }
+  ],
+  "loops": [],
+  "errorHandling": {
+    "globalRetries": 2,
+    "retryDelay": 3000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "actionType": "comment_on_article",
+  "platform": "MEDIUM",
+  "version": "1.0.0",
+  "description": "Post a response (comment) on a Medium article",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      "articleUrl",
+      "text"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [],
+    "failure": []
+  },
+  "steps": [
+    {
+      "id": "navigate_to_article",
+      "type": "navigate",
+      "url": "{{articleUrl}}",
+      "waitFor": "page_load",
+      "timeout": 30,
+      "onError": {
+        "action": "retry",
+        "maxRetries": 3
+      }
+    },
+    {
+      "id": "find_respond_button",
+      "type": "find_element",
+      "xpath": "//button[@aria-label='Responses'] | //button[contains(., 'Respond')]",
+      "timeout": 15
+    },
+    {
+      "id": "click_respond",
+      "type": "click",
+      "elementRef": "find_respond_button",
+      "waitFor": "response_editor_open"
+    },
+    {
+      "id": "find_response_input",
+      "type": "find_element",
+      "xpath": "//div[@role='textbox' and @data-testid='editor-container'] | //div[@contenteditable='true' and contains(@class,'response')]",
+      "timeout": 15
+    },
+    {
+      "id": "type_response",
+      "type": "type",
+      "elementRef": "find_response_input",
+      "text": "{{text}}",
+      "humanLike": true
+    },
+    {
+      "id": "find_publish_response_button",
+      "type": "find_element",
+      "xpath": "//button[@type='submit' and contains(text(),'Respond')] | //button[contains(text(),'Publish')]",
+      "timeout": 10
+    },
+    {
+      "id": "click_publish_response",
+      "type": "click",
+      "elementRef": "find_publish_response_button",
+      "waitFor": "response_published",
+      "onSuccess": {
+        "action": "update_progress"
+      }
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 3,
+    "retryDelay": 2000,
+    "onFinalFailure": "log_and_continue"
+  }
+}
