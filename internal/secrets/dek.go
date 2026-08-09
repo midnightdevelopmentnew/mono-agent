@@ -77,30 +77,123 @@ func getOrCreateDEK(ctx context.Context, db *sql.DB) ([]byte, error) {
 	return entry.dek, entry.err
 }
 
+// fetchOrCreateDEK's fast path (KEK and wrapped DEK both already exist) is
+// pure reads and needs no lock — the common case after first bootstrap. The
+// slow path (either is still missing) hands off to bootstrapDEKLocked,
+// which serializes the *entire* bootstrap — keychain and vault_keys
+// together — across every process sharing db.
+//
+// Before this, getOrCreateKEK and the SELECT-then-INSERT on vault_keys each
+// raced independently with no cross-process lock at all: two processes
+// bootstrapping the same vault for the first time concurrently could each
+// generate a different KEK, each call keyring.Set with no compare-and-swap
+// (last write silently wins), and each attempt to INSERT the id=1 singleton
+// DEK row wrapped under whichever KEK *they* generated (only one INSERT
+// actually wins). Nothing errors at the moment of that race — the process
+// whose own INSERT won stays internally self-consistent (via its own
+// in-process memoization) for the rest of its lifetime — but the keychain
+// may now hold the *other* process's KEK, wrapping nothing. The mismatch
+// only surfaces later, on a different process (or that same process's own
+// next launch), as an unrecoverable "cipher: message authentication
+// failed" — silently destroying every stored secret except from an Export
+// backup.
 func fetchOrCreateDEK(ctx context.Context, db *sql.DB) ([]byte, error) {
-	kek, err := getOrCreateKEK()
+	kek, kekFound, err := peekKEK()
 	if err != nil {
 		return nil, fmt.Errorf("secrets: getOrCreateDEK: %w", err)
 	}
+	if kekFound {
+		var wrappedDEK, wrappedNonce []byte
+		err := db.QueryRowContext(ctx, `SELECT wrapped_dek, wrapped_nonce FROM vault_keys WHERE id = 1`).
+			Scan(&wrappedDEK, &wrappedNonce)
+		switch {
+		case err == nil:
+			dek, err := Decrypt(kek, wrappedDEK, wrappedNonce)
+			if err != nil {
+				return nil, fmt.Errorf("secrets: unwrapping DEK: %w", err)
+			}
+			return dek, nil
+		case err != sql.ErrNoRows:
+			return nil, fmt.Errorf("secrets: reading vault_keys: %w", err)
+		}
+	}
+
+	return bootstrapDEKLocked(ctx, db)
+}
+
+// bootstrapDEKLocked serializes first-time KEK/DEK creation across every
+// process sharing db, reusing the same BEGIN IMMEDIATE pattern
+// vault.Register (internal/vault/vault.go) and secrets.addEntry use for
+// cross-process singleton allocation — see either for why BEGIN IMMEDIATE
+// specifically is required (it acquires SQLite's write lock up front,
+// unlike the default DEFERRED transaction). Non-DB work (the keychain round
+// trip) running inside the transaction has the same precedent: vault.Register
+// does its file copy inside its own BEGIN IMMEDIATE for the identical reason.
+//
+// Re-checks both the keychain and vault_keys after acquiring the lock,
+// since another process may have completed bootstrap in the window between
+// fetchOrCreateDEK's fast-path peek and this function acquiring the lock.
+func bootstrapDEKLocked(ctx context.Context, db *sql.DB) ([]byte, error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("secrets: bootstrapDEKLocked: get conn: %w", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return nil, fmt.Errorf("secrets: bootstrapDEKLocked: begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	// fetchOrCreateKEK (not the memoized getOrCreateKEK): we're already
+	// holding a cross-process lock stronger than its in-process sync.Once.
+	kek, err := fetchOrCreateKEK()
+	if err != nil {
+		return nil, fmt.Errorf("secrets: bootstrapDEKLocked: %w", err)
+	}
 
 	var wrappedDEK, wrappedNonce []byte
-	err = db.QueryRowContext(ctx, `SELECT wrapped_dek, wrapped_nonce FROM vault_keys WHERE id = 1`).
+	err = conn.QueryRowContext(ctx, `SELECT wrapped_dek, wrapped_nonce FROM vault_keys WHERE id = 1`).
 		Scan(&wrappedDEK, &wrappedNonce)
-	if err == sql.ErrNoRows {
-		return createDEK(ctx, db, kek)
-	}
-	if err != nil {
+
+	var dek []byte
+	switch {
+	case err == sql.ErrNoRows:
+		dek, err = createDEK(ctx, conn, kek)
+		if err != nil {
+			return nil, err
+		}
+	case err != nil:
 		return nil, fmt.Errorf("secrets: reading vault_keys: %w", err)
+	default:
+		// Another process already finished bootstrapping between our
+		// fast-path peek and acquiring this lock.
+		dek, err = Decrypt(kek, wrappedDEK, wrappedNonce)
+		if err != nil {
+			return nil, fmt.Errorf("secrets: unwrapping DEK: %w", err)
+		}
 	}
 
-	dek, err := Decrypt(kek, wrappedDEK, wrappedNonce)
-	if err != nil {
-		return nil, fmt.Errorf("secrets: unwrapping DEK: %w", err)
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return nil, fmt.Errorf("secrets: bootstrapDEKLocked: commit: %w", err)
 	}
+	committed = true
 	return dek, nil
 }
 
-func createDEK(ctx context.Context, db *sql.DB, kek []byte) ([]byte, error) {
+// dbExecer is the subset of *sql.DB / *sql.Conn createDEK needs — it's
+// always called with the *sql.Conn already holding bootstrapDEKLocked's
+// BEGIN IMMEDIATE transaction.
+type dbExecer interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
+func createDEK(ctx context.Context, execer dbExecer, kek []byte) ([]byte, error) {
 	dek := make([]byte, 32)
 	if _, err := rand.Read(dek); err != nil {
 		return nil, fmt.Errorf("secrets: generating DEK: %w", err)
@@ -109,7 +202,7 @@ func createDEK(ctx context.Context, db *sql.DB, kek []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("secrets: wrapping DEK: %w", err)
 	}
-	_, err = db.ExecContext(ctx,
+	_, err = execer.ExecContext(ctx,
 		`INSERT INTO vault_keys (id, wrapped_dek, wrapped_nonce, created_at) VALUES (1, ?, ?, ?)`,
 		wrappedDEK, wrappedNonce, time.Now().UTC().Format(time.RFC3339),
 	)

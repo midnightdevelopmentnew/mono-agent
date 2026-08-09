@@ -259,3 +259,79 @@ func TestGetOrCreateDEK_ConcurrentFailureIsSharedThenRetried(t *testing.T) {
 		t.Fatalf("expected 32-byte DEK, got %d bytes", len(dek))
 	}
 }
+
+// TestFetchOrCreateDEK_ConcurrentColdBootstrapIsRaceFree exercises the
+// cross-process race fetchOrCreateDEK/bootstrapDEKLocked fixes. Unlike
+// TestGetOrCreateDEK_ConcurrentFirstUseIsRaceFree above (which calls the
+// memoized getOrCreateDEK and so only ever proves in-process safety via its
+// own per-db sync.Once), this calls fetchOrCreateDEK directly — bypassing
+// all in-process memoization — so each goroutine behaves like an
+// independent process doing a genuine cold-start bootstrap, all sharing one
+// on-disk SQLite file the way separate OS processes sharing
+// ~/.monoagent/monoagent.db would. Before the fix, this interleaving could
+// leave the keychain holding a different KEK than the one the persisted
+// vault_keys row was wrapped under, with no error at the moment of the
+// race — corruption that only surfaced later as an unrecoverable decrypt
+// failure. Run with -race to also confirm the shared conn pool isn't
+// misused.
+func TestFetchOrCreateDEK_ConcurrentColdBootstrapIsRaceFree(t *testing.T) {
+	resetKEKState(t)
+	keyring.MockInit()
+	db := newDEKTestDB(t)
+	ctx := context.Background()
+
+	const numGoroutines = 20
+	deks := make([][]byte, numGoroutines)
+	errs := make([]error, numGoroutines)
+
+	var wg sync.WaitGroup
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			start.Wait()
+			deks[i], errs[i] = fetchOrCreateDEK(ctx, db.DB)
+		}(i)
+	}
+	start.Done()
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d: fetchOrCreateDEK: %v", i, err)
+		}
+	}
+	for i := 1; i < numGoroutines; i++ {
+		if string(deks[i]) != string(deks[0]) {
+			t.Fatalf("goroutine %d got a different DEK than goroutine 0 — cross-process bootstrap race produced divergent keys", i)
+		}
+	}
+
+	var count int
+	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM vault_keys`).Scan(&count); err != nil {
+		t.Fatalf("counting vault_keys rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 vault_keys row after concurrent cold bootstrap, got %d", count)
+	}
+
+	// The KEK now in the keychain must actually be able to decrypt the
+	// persisted row — the exact property the old code couldn't guarantee.
+	kek, found, err := peekKEK()
+	if err != nil || !found {
+		t.Fatalf("peekKEK after bootstrap: found=%v err=%v", found, err)
+	}
+	var wrappedDEK, wrappedNonce []byte
+	if err := db.DB.QueryRow(`SELECT wrapped_dek, wrapped_nonce FROM vault_keys WHERE id = 1`).Scan(&wrappedDEK, &wrappedNonce); err != nil {
+		t.Fatalf("reading persisted vault_keys row: %v", err)
+	}
+	dek, err := Decrypt(kek, wrappedDEK, wrappedNonce)
+	if err != nil {
+		t.Fatalf("keychain KEK cannot decrypt the persisted DEK row: %v", err)
+	}
+	if string(dek) != string(deks[0]) {
+		t.Fatal("DEK decrypted via the keychain's current KEK doesn't match what fetchOrCreateDEK returned")
+	}
+}

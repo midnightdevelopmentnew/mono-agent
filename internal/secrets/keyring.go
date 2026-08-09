@@ -51,6 +51,24 @@ var (
 	currentKEKAttempt = &kekAttempt{}
 )
 
+// keyringIOMu serializes every raw keyring.Get/Set call this package makes.
+// It exists for a narrower reason than kekMu/currentKEKAttempt above (which
+// only dedupes concurrent callers within one already-known-outcome
+// attempt): peekKEK (dek.go's lockless fast path) and fetchOrCreateKEK
+// (which dek.go's bootstrapDEKLocked calls while holding a cross-process DB
+// lock that says nothing about the keychain) can otherwise run truly
+// concurrently — e.g. one goroutine's fast-path Get racing another
+// goroutine's in-progress Set of a brand-new KEK. Real OS keychain backends
+// (macOS's /usr/bin/security subprocess, Linux Secret Service over D-Bus,
+// Windows Credential Manager) are out-of-process and handle concurrent
+// access safely on their own, so this isn't a corruption risk there — but
+// go-keyring's in-memory mock (used in tests) has no such protection, and a
+// process that legitimately holds multiple *sql.DB open at once (see
+// dekEntries below) genuinely can reach the keychain from two goroutines at
+// once for the same process-wide KEK. This mutex makes this package safe
+// either way instead of relying on the backend's own guarantees.
+var keyringIOMu sync.Mutex
+
 // fetchKEK is the function getOrCreateKEK invokes to actually resolve the
 // KEK on first use. It is a package-level variable (rather than a direct
 // call to fetchOrCreateKEK) purely so tests can substitute a stub that
@@ -82,7 +100,32 @@ func getOrCreateKEK() ([]byte, error) {
 	return attempt.kek, attempt.err
 }
 
+// peekKEK reads the KEK from the OS keychain without creating one if it's
+// missing — a pure read used by fetchOrCreateDEK's fast path (dek.go) to
+// decide whether cross-process bootstrap locking is needed at all. Bypasses
+// the in-process memoization layer, same as fetchOrCreateKEK.
+func peekKEK() (kek []byte, found bool, err error) {
+	keyringIOMu.Lock()
+	defer keyringIOMu.Unlock()
+
+	stored, err := keyring.Get(keyringService, keyringAccount)
+	if err != nil {
+		if errors.Is(err, keyring.ErrNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("secrets: reading KEK from keychain: %w", err)
+	}
+	key, decodeErr := hex.DecodeString(stored)
+	if decodeErr != nil {
+		return nil, false, fmt.Errorf("secrets: decoding stored KEK: %w", decodeErr)
+	}
+	return key, true, nil
+}
+
 func fetchOrCreateKEK() ([]byte, error) {
+	keyringIOMu.Lock()
+	defer keyringIOMu.Unlock()
+
 	stored, err := keyring.Get(keyringService, keyringAccount)
 	if err == nil {
 		key, decodeErr := hex.DecodeString(stored)
