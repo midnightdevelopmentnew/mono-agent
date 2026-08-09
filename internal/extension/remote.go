@@ -17,13 +17,19 @@ import (
 // process for the fixed extension port.
 type RemoteSender struct {
 	baseURL string
+	token   string
 	client  *http.Client
 }
 
 // NewRemoteSender creates a sender that relays through the server at baseURL
-// (e.g. "http://127.0.0.1:9222").
+// (e.g. "http://127.0.0.1:9222"). Callers only construct this after Probe
+// confirms a server is already listening there, so its token file is
+// already written; if the token can't be read, requests are sent without
+// one and the server's handleRelay rejects them with a clear 401 rather
+// than proceeding unauthenticated.
 func NewRemoteSender(baseURL string) *RemoteSender {
-	return &RemoteSender{baseURL: baseURL, client: &http.Client{Timeout: 90 * time.Second}}
+	token, _ := loadToken()
+	return &RemoteSender{baseURL: baseURL, token: token, client: &http.Client{Timeout: 90 * time.Second}}
 }
 
 // Probe reports whether a Server is actually listening and reachable at
@@ -50,6 +56,7 @@ func (r *RemoteSender) SendCommand(cmd *Command, timeout time.Duration) (*Respon
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(tokenHeader, r.token)
 	httpResp, err := r.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("relay request: %w", err)
