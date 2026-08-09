@@ -31,6 +31,10 @@ if not GEMINI_API_KEY:
 @app.post("/generate-config")
 async def generate_config(request: GenerateConfigRequest):
     try:
+        # Basic security check
+        if ".." in request.configName or "/" in request.configName:
+            raise HTTPException(status_code=400, detail="Invalid config name")
+
         # Clean HTML to reduce token usage and noise
         cleaned_html = clean_html(request.htmlContent)
         
@@ -55,12 +59,18 @@ async def generate_config(request: GenerateConfigRequest):
             json.dump(config, f, indent=2)
             
         return {"configName": filename, "config": config}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/extract")
 async def extract(request: ExtractRequest):
     try:
+        # Basic security check
+        if ".." in request.configName or "/" in request.configName:
+            raise HTTPException(status_code=400, detail="Invalid config name")
+
         # Load config from file
         configs_dir = "configs"
         file_path = os.path.join(configs_dir, request.configName)
