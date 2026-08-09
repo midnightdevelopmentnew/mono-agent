@@ -45,7 +45,20 @@ jobs:
           cache-dependency-path: wails-app/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci
+        # npm ci, not npm install: this is a workaround. npm ci currently has an
+        # upstream bug (npm/cli#7622, fix PR #8310 still open/unmerged as of
+        # 2026-08-09) where an optional dependency that's ALSO recorded as a
+        # peer dependency in package-lock.json (this repo's case: vitest's
+        # optional peer on esbuild, which also ships ~30 platform-specific
+        # optionalDependencies of its own) isn't correctly skipped when its
+        # os/cpu doesn't match the install host — npm ci then hard-fails with
+        # EBADPLATFORM trying to install e.g. @esbuild/netbsd-arm64 on a linux
+        # runner. npm install doesn't hit this: it's a different code path
+        # from npm ci for resolving optional deps. Trade-off: npm install
+        # won't fail loudly if package-lock.json drifts out of sync with
+        # package.json the way npm ci would. Revert to npm ci once npm/cli#7622
+        # ships in a released npm version.
+        run: npm install
         working-directory: wails-app/frontend
 
       - name: Test and build frontend
@@ -181,7 +194,20 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Install frontend dependencies
-        run: npm ci
+        # npm ci, not npm install: this is a workaround. npm ci currently has an
+        # upstream bug (npm/cli#7622, fix PR #8310 still open/unmerged as of
+        # 2026-08-09) where an optional dependency that's ALSO recorded as a
+        # peer dependency in package-lock.json (this repo's case: vitest's
+        # optional peer on esbuild, which also ships ~30 platform-specific
+        # optionalDependencies of its own) isn't correctly skipped when its
+        # os/cpu doesn't match the install host — npm ci then hard-fails with
+        # EBADPLATFORM trying to install e.g. @esbuild/netbsd-arm64 on a linux
+        # runner. npm install doesn't hit this: it's a different code path
+        # from npm ci for resolving optional deps. Trade-off: npm install
+        # won't fail loudly if package-lock.json drifts out of sync with
+        # package.json the way npm ci would. Revert to npm ci once npm/cli#7622
+        # ships in a released npm version.
+        run: npm install
         working-directory: wails-app/frontend
 
       - name: Build CLI (bundled, arm64)
@@ -233,7 +259,20 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Install frontend dependencies
-        run: npm ci
+        # npm ci, not npm install: this is a workaround. npm ci currently has an
+        # upstream bug (npm/cli#7622, fix PR #8310 still open/unmerged as of
+        # 2026-08-09) where an optional dependency that's ALSO recorded as a
+        # peer dependency in package-lock.json (this repo's case: vitest's
+        # optional peer on esbuild, which also ships ~30 platform-specific
+        # optionalDependencies of its own) isn't correctly skipped when its
+        # os/cpu doesn't match the install host — npm ci then hard-fails with
+        # EBADPLATFORM trying to install e.g. @esbuild/netbsd-arm64 on a linux
+        # runner. npm install doesn't hit this: it's a different code path
+        # from npm ci for resolving optional deps. Trade-off: npm install
+        # won't fail loudly if package-lock.json drifts out of sync with
+        # package.json the way npm ci would. Revert to npm ci once npm/cli#7622
+        # ships in a released npm version.
+        run: npm install
         working-directory: wails-app/frontend
 
       - name: Build CLI (bundled, windows)
@@ -289,7 +328,20 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Install frontend dependencies
-        run: npm ci
+        # npm ci, not npm install: this is a workaround. npm ci currently has an
+        # upstream bug (npm/cli#7622, fix PR #8310 still open/unmerged as of
+        # 2026-08-09) where an optional dependency that's ALSO recorded as a
+        # peer dependency in package-lock.json (this repo's case: vitest's
+        # optional peer on esbuild, which also ships ~30 platform-specific
+        # optionalDependencies of its own) isn't correctly skipped when its
+        # os/cpu doesn't match the install host — npm ci then hard-fails with
+        # EBADPLATFORM trying to install e.g. @esbuild/netbsd-arm64 on a linux
+        # runner. npm install doesn't hit this: it's a different code path
+        # from npm ci for resolving optional deps. Trade-off: npm install
+        # won't fail loudly if package-lock.json drifts out of sync with
+        # package.json the way npm ci would. Revert to npm ci once npm/cli#7622
+        # ships in a released npm version.
+        run: npm install
         working-directory: wails-app/frontend
 
       - name: Build CLI (bundled, linux)
