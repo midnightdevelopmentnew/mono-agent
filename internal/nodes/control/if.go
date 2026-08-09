@@ -15,6 +15,12 @@ type IfNode struct{}
 
 func (n *IfNode) Type() string { return "core.if" }
 
+// PerItemConfigFields declares that "condition" must not be pre-resolved
+// using only the first input item: both "all" mode (which evaluates it once,
+// deliberately using item[0]) and "per_item" mode (which evaluates it fresh
+// per item below) need the raw template.
+func (n *IfNode) PerItemConfigFields() []string { return []string{"condition"} }
+
 func (n *IfNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	condition, _ := config["condition"].(string)
 	mode, _ := config["mode"].(string)

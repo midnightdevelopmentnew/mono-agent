@@ -20,6 +20,10 @@ type FilterNode struct{}
 
 func (n *FilterNode) Type() string { return "core.filter" }
 
+// PerItemConfigFields declares that "condition" must not be pre-resolved
+// using only the first input item — it's evaluated fresh for every item below.
+func (n *FilterNode) PerItemConfigFields() []string { return []string{"condition"} }
+
 func (n *FilterNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	condition, _ := config["condition"].(string)
 	if condition == "" {

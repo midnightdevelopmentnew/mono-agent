@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"monoagent/internal/secrets"
+	"monoagent/internal/vault"
 	"monoagent/internal/workflow"
 )
 
@@ -20,6 +22,19 @@ import (
 type RequestNode struct{}
 
 func (n *RequestNode) Type() string { return "http.request" }
+
+// requestPerItemFields are the config fields that commonly vary per item
+// (e.g. a URL path or query param built from $json) and so must be resolved
+// fresh for each item rather than once for the whole batch using only the
+// first item's JSON. auth_* fields are deliberately excluded: they're almost
+// always static across a batch, and leaving them out of this list keeps them
+// on the normal top-level resolution path, where @secret:/@img- references
+// already get resolved once — resolvePerItemConfig would otherwise need to
+// duplicate that for no realistic benefit.
+var requestPerItemFields = []string{"url", "query_params", "body", "headers"}
+
+// PerItemConfigFields declares requestPerItemFields — see its doc comment.
+func (n *RequestNode) PerItemConfigFields() []string { return requestPerItemFields }
 
 func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	method, _ := config["method"].(string)
@@ -111,13 +126,22 @@ func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, con
 	var mainItems []workflow.Item
 	var errorItems []workflow.Item
 
+	engine := workflow.NewExpressionEngine()
+
 	for _, item := range items {
+		itemConfig, err := n.resolvePerItemConfig(ctx, engine, config, item, input)
+		if err != nil {
+			errorItems = append(errorItems, workflow.NewItem(map[string]interface{}{"error": err.Error()}))
+			continue
+		}
+		itemURL, _ := itemConfig["url"].(string)
+
 		if paginationType == "offset" {
-			pageItems, pageErrors := n.executePaginated(ctx, client, method, rawURL, config, authType, bodyType, responseFormat, pageField, pageSize, item)
+			pageItems, pageErrors := n.executePaginated(ctx, client, method, itemURL, itemConfig, authType, bodyType, responseFormat, pageField, pageSize, item)
 			mainItems = append(mainItems, pageItems...)
 			errorItems = append(errorItems, pageErrors...)
 		} else {
-			resp, errItem := n.executeRequest(ctx, client, method, rawURL, config, authType, bodyType, responseFormat, item, -1)
+			resp, errItem := n.executeRequest(ctx, client, method, itemURL, itemConfig, authType, bodyType, responseFormat, item, -1)
 			if errItem != nil {
 				errorItems = append(errorItems, *errItem)
 			} else {
@@ -134,6 +158,49 @@ func (n *RequestNode) Execute(ctx context.Context, input workflow.NodeInput, con
 		outputs = append(outputs, workflow.NodeOutput{Handle: "error", Items: errorItems})
 	}
 	return outputs, nil
+}
+
+// resolvePerItemConfig resolves requestPerItemFields against one item's own
+// JSON and returns a copy of base with those fields overlaid by the result —
+// base itself is never mutated, since it's shared across every item in the
+// batch. Mirrors the resolution pipeline RunExecution normally applies once
+// for the whole config (internal/workflow/execution.go): expression
+// templates, then @img-NNN vault refs, then @secret:<name> refs. Only
+// requestPerItemFields go through this — every other field (including the
+// auth_* ones) already went through that same pipeline once, batch-wide, in
+// RunExecution before Execute was called.
+func (n *RequestNode) resolvePerItemConfig(ctx context.Context, engine *workflow.ExpressionEngine, base map[string]interface{}, item workflow.Item, input workflow.NodeInput) (map[string]interface{}, error) {
+	overlay := make(map[string]interface{}, len(requestPerItemFields))
+	for _, k := range requestPerItemFields {
+		if v, ok := base[k]; ok {
+			overlay[k] = v
+		}
+	}
+
+	exprCtx := workflow.ExpressionContext{
+		JSON:        item.JSON,
+		Node:        input.NodeOutputs,
+		WorkflowID:  input.WorkflowID,
+		ExecutionID: input.ExecutionID,
+	}
+	resolved, err := engine.ResolveConfig(overlay, exprCtx)
+	if err != nil {
+		return nil, fmt.Errorf("http.request: resolve per-item config: %w", err)
+	}
+
+	if vaultDB := vault.DBFromContext(ctx); vaultDB != nil {
+		_ = vault.ResolveConfig(ctx, vaultDB, resolved)
+		_ = secrets.ResolveConfig(ctx, vaultDB, vault.ProfileIDFromContext(ctx), resolved)
+	}
+
+	itemConfig := make(map[string]interface{}, len(base))
+	for k, v := range base {
+		itemConfig[k] = v
+	}
+	for k, v := range resolved {
+		itemConfig[k] = v
+	}
+	return itemConfig, nil
 }
 
 // sensitiveRedirectHeaders returns the names of request headers this node sets
