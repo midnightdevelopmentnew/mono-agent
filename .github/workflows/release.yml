@@ -15,8 +15,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ─── 0. Test gate — vet/test both Go modules and the frontend. Nothing else
+  # in this workflow runs (not even tag creation) until this passes, since
+  # every push to master otherwise auto-releases regardless of test outcome.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test core (root module)
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Install Linux system dependencies (needed to compile the Wails Go module)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev libwebkit2gtk-4.1-dev gcc pkg-config
+
+      - name: Vet and build Wails GUI backend (separate go.mod; no test files yet)
+        working-directory: wails-app
+        run: |
+          go vet -tags webkit2_41 ./...
+          go build -tags webkit2_41 ./...
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: wails-app/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: wails-app/frontend
+
+      - name: Test and build frontend
+        working-directory: wails-app/frontend
+        run: |
+          npm test -- --run
+          npm run build
+
   # ─── 1. Determine next semantic version ───────────────────────────────────
   version:
+    needs: test
     runs-on: ubuntu-latest
     outputs:
       tag:  ${{ steps.semver.outputs.tag }}
