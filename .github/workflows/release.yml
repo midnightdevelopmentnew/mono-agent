@@ -38,12 +38,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgtk-3-dev libwebkit2gtk-4.1-dev gcc pkg-config
 
-      - name: Vet and build Wails GUI backend (separate go.mod; no test files yet)
-        working-directory: wails-app
-        run: |
-          go vet -tags webkit2_41 ./...
-          go build -tags webkit2_41 ./...
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -59,6 +53,15 @@ jobs:
         run: |
           npm test -- --run
           npm run build
+
+      # Must run after the frontend build: main.go has //go:embed all:frontend/dist,
+      # which requires that directory to exist (with content) at compile time — go
+      # vet/build fail outright otherwise, not just at runtime.
+      - name: Vet and build Wails GUI backend (separate go.mod; no test files yet)
+        working-directory: wails-app
+        run: |
+          go vet -tags webkit2_41 ./...
+          go build -tags webkit2_41 ./...
 
   # ─── 1. Determine next semantic version ───────────────────────────────────
   version:
