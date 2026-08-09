@@ -23,14 +23,19 @@ function fmtDate(s) {
 
 function resolveConn(platform, connections, sessions) {
   const pid = (platform.id || '').toLowerCase()
+  // Check API-key/OAuth connections first — some SOCIAL_IDS platforms (e.g.
+  // producthunt) support both an API connection and a browser session, and
+  // an API connection must not be masked by an absent browser session.
+  const c = connections.find(x => (x.Platform || x.platform || '').toLowerCase() === pid)
+  if (c) {
+    return { _type: 'connection', id: c.ID || c.id, account: c.Label || c.AccountID || '—', method: c.Method || c.method || '—', status: c.Status || c.status || 'active', lastTested: c.LastTested || c.last_tested }
+  }
   if (SOCIAL_IDS.has(pid)) {
     const s = sessions.find(x => (x.platform || '').toLowerCase() === pid)
     if (!s) return null
     return { _type: 'session', id: s.id, account: s.username || '—', method: 'Browser', status: s.active ? 'active' : 'expired' }
   }
-  const c = connections.find(x => (x.Platform || x.platform || '').toLowerCase() === pid)
-  if (!c) return null
-  return { _type: 'connection', id: c.ID || c.id, account: c.Label || c.AccountID || '—', method: c.Method || c.method || '—', status: c.Status || c.status || 'active', lastTested: c.LastTested || c.last_tested }
+  return null
 }
 
 // ── Tile ──────────────────────────────────────────────────────────────────────

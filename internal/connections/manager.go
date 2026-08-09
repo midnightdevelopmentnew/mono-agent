@@ -337,6 +337,7 @@ func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID strin
 	}
 
 	cfg := *p.OAuth
+	cfg.PlatformID = platformID
 	if clientID != "" {
 		cfg.ClientID = clientID
 	}
@@ -379,6 +380,7 @@ func (m *Manager) ConnectOAuthWithProgress(ctx context.Context, platformID strin
 	conn.Data["refresh_token"] = result.RefreshToken
 	conn.Data["token_type"] = result.TokenType
 	conn.Data["scope"] = result.Scope
+	conn.Data["instance_url"] = result.InstanceURL
 	if result.ExpiresIn > 0 {
 		expiresAt := time.Now().UTC().Add(time.Duration(result.ExpiresIn) * time.Second)
 		conn.Data["expires_at"] = expiresAt.Format(time.RFC3339)
@@ -430,6 +432,7 @@ func (m *Manager) connectOAuth(ctx context.Context, p PlatformDef, conn *Connect
 	}
 
 	cfg := *p.OAuth // copy
+	cfg.PlatformID = p.ID
 
 	// Stored per-profile credentials first (set via `connect set-oauth-client`
 	// or persisted by a previous successful connect), then env vars
@@ -468,6 +471,7 @@ func (m *Manager) connectOAuth(ctx context.Context, p PlatformDef, conn *Connect
 	conn.Data["refresh_token"] = result.RefreshToken
 	conn.Data["token_type"] = result.TokenType
 	conn.Data["scope"] = result.Scope
+	conn.Data["instance_url"] = result.InstanceURL
 
 	// expires_at as RFC3339
 	if result.ExpiresIn > 0 {

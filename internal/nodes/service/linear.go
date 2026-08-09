@@ -114,9 +114,15 @@ type LinearNode struct{}
 func (n *LinearNode) Type() string { return "service.linear" }
 
 func (n *LinearNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
+	// Personal API keys go in the Authorization header as-is; OAuth access
+	// tokens require the standard "Bearer " prefix — sending either the
+	// wrong way authenticates neither.
+	// https://linear.app/developers/oauth-2-0-authentication
 	token := strVal(config, "api_key")
 	if token == "" {
-		token = strVal(config, "access_token")
+		if accessToken := strVal(config, "access_token"); accessToken != "" {
+			token = "Bearer " + accessToken
+		}
 	}
 	if token == "" {
 		return nil, fmt.Errorf("service.linear: 'api_key' is required")
@@ -166,7 +172,8 @@ func (n *LinearNode) linearGraphQL(ctx context.Context, token, query string, var
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	// Linear uses the token directly without "Bearer" prefix
+	// token is already fully formed by Execute — either a raw API key or a
+	// "Bearer "-prefixed OAuth access token.
 	req.Header.Set("Authorization", token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")

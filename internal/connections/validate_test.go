@@ -93,3 +93,44 @@ func TestValidateGenericMissingBaseURL(t *testing.T) {
 		}
 	}
 }
+
+// TestLinearAuthHeaderPrefersAPIKeyAsIs verifies a personal API key is sent
+// unprefixed — Linear rejects a "Bearer " prefix on API keys.
+func TestLinearAuthHeaderPrefersAPIKeyAsIs(t *testing.T) {
+	got := linearAuthHeader(map[string]interface{}{"api_key": "lin_api_example"})
+	if got != "lin_api_example" {
+		t.Errorf("linearAuthHeader = %q, want unprefixed api_key value", got)
+	}
+}
+
+// TestLinearAuthHeaderPrefixesOAuthAccessToken is a regression test: OAuth
+// access tokens were previously sent without the required "Bearer " prefix,
+// which authenticated with neither auth style and blocked Linear OAuth
+// connections entirely.
+func TestLinearAuthHeaderPrefixesOAuthAccessToken(t *testing.T) {
+	got := linearAuthHeader(map[string]interface{}{"access_token": "oauth-example-token"})
+	want := "Bearer oauth-example-token"
+	if got != want {
+		t.Errorf("linearAuthHeader = %q, want %q", got, want)
+	}
+}
+
+// TestLinearAuthHeaderAPIKeyTakesPriority verifies api_key wins when both
+// fields happen to be present, matching the pre-existing lookup order.
+func TestLinearAuthHeaderAPIKeyTakesPriority(t *testing.T) {
+	got := linearAuthHeader(map[string]interface{}{
+		"api_key":      "lin_api_example",
+		"access_token": "oauth-example-token",
+	})
+	if got != "lin_api_example" {
+		t.Errorf("linearAuthHeader = %q, want api_key to take priority", got)
+	}
+}
+
+// TestLinearAuthHeaderEmptyWhenNoCredentials verifies the empty-credentials
+// case returns "" rather than a malformed header like "Bearer ".
+func TestLinearAuthHeaderEmptyWhenNoCredentials(t *testing.T) {
+	if got := linearAuthHeader(map[string]interface{}{}); got != "" {
+		t.Errorf("linearAuthHeader = %q, want empty string", got)
+	}
+}
