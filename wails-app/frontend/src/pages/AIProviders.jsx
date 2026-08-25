@@ -512,7 +512,7 @@ function ManageModal({ provider, onClose, onRefresh, onDeleted, registry }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function AIProviders() {
+export default function AIProviders({ embedded = false }) {
   const [providers, setProviders] = useState([])
   const [registry, setRegistry]   = useState([])
   const [loading, setLoading]     = useState(true)
@@ -575,30 +575,32 @@ export default function AIProviders() {
   return (
     <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div className="page-header">
-          <div className="page-header-left">
-            <div className="page-title">AI Providers</div>
-            <div className="page-subtitle">{loading ? 'Loading…' : `${totalConnected} / ${registry.length} connected`}</div>
+        {!embedded && (
+          <div className="page-header">
+            <div className="page-header-left">
+              <div className="page-title">AI Providers (legacy)</div>
+              <div className="page-subtitle">{loading ? 'Loading…' : `${totalConnected} / ${registry.length} connected`}</div>
+            </div>
+            <div className="page-header-right" style={{ display: 'flex', gap: 6 }}>
+              {hasActiveProvider && (
+                <button
+                  className="btn btn-sm"
+                  onClick={() => setChatOpen(o => !o)}
+                  title="Chat with AI"
+                  style={{
+                    gap: 5,
+                    color: chatOpen ? '#00b4d8' : 'var(--text-muted)',
+                    borderColor: chatOpen ? 'rgba(0,180,216,0.3)' : 'var(--border)',
+                    background: chatOpen ? 'rgba(0,180,216,0.08)' : 'transparent',
+                  }}
+                >
+                  <MessageSquare size={12} /> Chat
+                </button>
+              )}
+              <button className="btn btn-ghost btn-sm" onClick={() => loadAll()} style={{ gap: 5 }}><RefreshCw size={12} /> Refresh</button>
+            </div>
           </div>
-          <div className="page-header-right" style={{ display: 'flex', gap: 6 }}>
-            {hasActiveProvider && (
-              <button
-                className="btn btn-sm"
-                onClick={() => setChatOpen(o => !o)}
-                title="Chat with AI"
-                style={{
-                  gap: 5,
-                  color: chatOpen ? '#00b4d8' : 'var(--text-muted)',
-                  borderColor: chatOpen ? 'rgba(0,180,216,0.3)' : 'var(--border)',
-                  background: chatOpen ? 'rgba(0,180,216,0.08)' : 'transparent',
-                }}
-              >
-                <MessageSquare size={12} /> Chat
-              </button>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={() => loadAll()} style={{ gap: 5 }}><RefreshCw size={12} /> Refresh</button>
-          </div>
-        </div>
+        )}
 
         <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
           {loading ? (

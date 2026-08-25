@@ -4,13 +4,14 @@ import {
   ChevronDown, ChevronRight, X, Settings2, Copy,
   AlertCircle, CheckCircle, Clock, Loader, Plus,
   Save, FolderOpen, ToggleLeft, ToggleRight, List,
-  MessageSquare, Braces, LayoutDashboard,
+  MessageSquare, Braces, LayoutDashboard, Building2,
 } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { EventsOn, EventsOff } from '../wailsjs/runtime/runtime'
 import { api, notify } from '../services/api.js'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import AIChatPanel from '../components/AIChatPanel.jsx'
+import OrgsPanel from '../components/OrgsPanel.jsx'
 import ResourcePickerField from '../components/ResourcePickerField.jsx'
 import ImagePickerModal from '../components/ImagePickerModal'
 import { NODE_CONFIG_FIELDS, BROWSER_NODE_GENERIC } from './nodeConfigFields.js'
@@ -969,6 +970,7 @@ export default function NodeRunner({ onNavigate, navData }) {
   }, [wfId])
 
   const [chatOpen, setChatOpen] = useState(false)
+  const [orgsOpen, setOrgsOpen] = useState(false)
   const [jsonView, setJsonView] = useState(false)
 
   // ── Execution overlay ───────────────────────────────────────────────────
@@ -1709,6 +1711,15 @@ export default function NodeRunner({ onNavigate, navData }) {
           <MessageSquare size={13} />
         </button>
 
+        {/* Orgs toggle */}
+        <button
+          style={{ ...tbBtn, color: orgsOpen ? '#00b4d8' : 'var(--text-muted)', borderColor: orgsOpen ? 'rgba(0,180,216,0.3)' : 'rgba(0,180,216,0.15)', background: orgsOpen ? 'rgba(0,180,216,0.08)' : 'transparent' }}
+          onMouseDown={() => setOrgsOpen(o => !o)}
+          title="Orgs"
+        >
+          <Building2 size={13} />
+        </button>
+
         {/* Run / Stop */}
         {running ? (
           <button
@@ -1913,6 +1924,13 @@ export default function NodeRunner({ onNavigate, navData }) {
           isOpen={chatOpen}
           onClose={() => setChatOpen(false)}
           onWorkflowCreated={handleLoad}
+        />
+
+        {/* Orgs Panel */}
+        <OrgsPanel
+          embedded
+          isOpen={orgsOpen}
+          onClose={() => setOrgsOpen(false)}
         />
       </div>
 

@@ -11,7 +11,8 @@ import Profile from './pages/Profile.jsx'
 import PostDetail from './pages/PostDetail.jsx'
 import Connections from './pages/Connections.jsx'
 import Communications from './pages/Communications.jsx'
-import AIProviders from './pages/AIProviders.jsx'
+import Agents from './pages/Agents.jsx'
+import Orgs from './pages/Orgs.jsx'
 import Logs from './pages/Logs.jsx'
 import NodeRunner from './pages/NodeRunner.jsx'
 import SettingsPage from './pages/Settings.jsx'
@@ -114,7 +115,8 @@ export default function App() {
     connections: <Connections onRefresh={refreshStats} />,
     vault: <ImageVault />,
     secretsVault: <Vault />,
-    ai: <AIProviders />,
+    ai: <Agents />,
+    orgs: <Orgs />,
     logs:      <Logs logs={logs} onClear={() => { api.clearLogs(); setLogs([]) }} />,
     settings:  <SettingsPage onNavigate={setActivePage} />,
   }

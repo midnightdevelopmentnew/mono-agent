@@ -104,6 +104,7 @@ be used — prefer it over guessing from --help output alone.`,
 		newAICmd(cfg),
 		newAgentCmd(cfg),
 		newChatCmd(cfg),
+		newOrgCmd(cfg),
 	)
 
 	return cmd

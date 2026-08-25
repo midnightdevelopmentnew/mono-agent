@@ -37,5 +37,26 @@ if [ "$1" = "agent" ] && [ "$2" = "exec" ]; then
   exit 0
 fi
 
+if [ "$1" = "org" ] && [ "$2" = "list" ]; then
+  echo '{"v":1,"items":[{"name":"growth","roles":3,"schedule":"manual","status":"running","goal":"grow the thing"}]}'
+  exit 0
+fi
+
+if [ "$1" = "org" ] && [ "$2" = "status" ] && [ "$3" = "growth" ]; then
+  echo '{"v":1,"name":"growth","status":"running","run":"r1","pid":9999,"paused":false}'
+  exit 0
+fi
+
+if [ "$1" = "org" ] && [ "$2" = "status" ] && [ "$3" = "missing-org" ]; then
+  echo "org 'missing-org' not found" >&2
+  exit 1
+fi
+
+if [ "$1" = "org" ] && [ "$2" = "events" ] && [ "$3" = "growth" ]; then
+  echo '{"id":"e1","ts":1,"org":"growth","run":"r1","type":"status","msg":"started"}'
+  echo '{"id":"e2","ts":2,"org":"growth","run":"r1","type":"message","from":"lead","to":"coder","subject":"start"}'
+  exit 0
+fi
+
 echo "fake-monomind: unsupported invocation: $*" >&2
 exit 2

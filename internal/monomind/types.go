@@ -14,7 +14,7 @@ const ProtocolVersion = 1
 const MinMonomindVersion = "2.10.0"
 
 // RequiredCapabilities are the handshake capabilities mono-agent relies on.
-var RequiredCapabilities = []string{"agent-exec", "agent-scan"}
+var RequiredCapabilities = []string{"agent-exec", "agent-scan", "org-json-v1"}
 
 // Event is one NDJSON event from `monomind agent exec` (protocol §3.2).
 // Exactly one Type* constant is set in Type; unknown event types are

@@ -104,3 +104,5 @@ GRAPH_REPORT.md
 # monomind runtime — local state, tokens, and databases; never tracked
 .monomind/
 build/
+# monodesign hook cache — local, regenerated per machine
+.monodesign/

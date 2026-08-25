@@ -17,9 +17,13 @@ export function AddSecret(arg1:string,arg2:string,arg3:string,arg4:string,arg5:s
 
 export function AddVaultImage(arg1:string,arg2:string):Promise<Record<string, any>>;
 
+export function AnswerOrgQuestion(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function AppSelfUpdate():Promise<main.UpdateResult>;
 
 export function ApproveHIL(arg1:string,arg2:string):Promise<void>;
+
+export function ApproveOrgAction(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function CancelWorkflow(arg1:string):Promise<void>;
 
@@ -57,11 +61,17 @@ export function DeleteVaultImage(arg1:string):Promise<void>;
 
 export function DeleteWorkflow(arg1:string):Promise<void>;
 
+export function DenyOrgAction(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function ExecuteAction(arg1:string):Promise<void>;
 
 export function ExportData():Promise<main.ExportResult>;
 
 export function ExportVaultAll():Promise<main.VaultExportResult>;
+
+export function GateApproveOrgAction(arg1:string,arg2:string,arg3:string):Promise<string>;
+
+export function GateRejectOrgAction(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function GetAIChatHistory(arg1:string):Promise<string>;
 
@@ -100,6 +110,24 @@ export function GetLatestPersonStatus(arg1:string):Promise<storage.PersonStatusU
 export function GetLogs():Promise<Array<main.LogEntry>>;
 
 export function GetOAuthCredentials(arg1:string):Promise<string>;
+
+export function GetOrgCosts(arg1:string):Promise<string>;
+
+export function GetOrgDecisions(arg1:string):Promise<string>;
+
+export function GetOrgFlow(arg1:string):Promise<string>;
+
+export function GetOrgGates(arg1:string):Promise<string>;
+
+export function GetOrgLogs(arg1:string):Promise<string>;
+
+export function GetOrgMemoryStats(arg1:string):Promise<string>;
+
+export function GetOrgQuestions(arg1:string):Promise<string>;
+
+export function GetOrgReport(arg1:string,arg2:boolean):Promise<string>;
+
+export function GetOrgStatus(arg1:string):Promise<string>;
 
 export function GetPeople(arg1:string,arg2:string,arg3:number,arg4:number):Promise<Array<main.PersonInfo>>;
 
@@ -165,6 +193,8 @@ export function ListCredentials():Promise<Array<main.CredentialSummary>>;
 
 export function ListCredentialsForNode(arg1:string):Promise<Array<main.CredentialOption>>;
 
+export function ListOrgs():Promise<string>;
+
 export function ListPlatformsJSON(arg1:string):Promise<string>;
 
 export function ListResources(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.ResourceListResult>;
@@ -205,6 +235,8 @@ export function SaveVaultImageToFile(arg1:string,arg2:string):Promise<string>;
 
 export function SaveWorkflow(arg1:main.SaveWorkflowRequest):Promise<main.WorkflowSummary>;
 
+export function ScanAgentRuntimes():Promise<string>;
+
 export function SearchVaultImages(arg1:string):Promise<Array<Record<string, any>>>;
 
 export function SelfUpdate():Promise<main.UpdateResult>;
@@ -217,7 +249,15 @@ export function SetWorkflowActive(arg1:string,arg2:boolean):Promise<void>;
 
 export function StopAIChat(arg1:string):Promise<string>;
 
+export function StopAgentChat(arg1:string):Promise<string>;
+
+export function StopOrgEvents(arg1:string):Promise<string>;
+
 export function StreamAIChat(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function StreamAgentChat(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function StreamOrgEvents(arg1:string):Promise<string>;
 
 export function SwitchProfile(arg1:string):Promise<void>;
 

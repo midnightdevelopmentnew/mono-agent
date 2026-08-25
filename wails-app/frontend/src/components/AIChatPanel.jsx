@@ -106,7 +106,7 @@ function MessageBubble({ role, content, toolCalls, isError }) {
 }
 
 // ── Main panel ─────────────────────────────────────────────────────────────────
-export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCreated }) {
+export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCreated, initialRuntime }) {
   const [messages, setMessages]             = useState([])
   const [input, setInput]                   = useState('')
   const [streaming, setStreaming]           = useState(false)
@@ -131,11 +131,14 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
       const installed = (res.agents || []).filter(a => a.installed)
       setRuntimes(installed)
       if (installed.length > 0) {
-        setSelectedRuntime(installed[0].id)
+        const preferred = initialRuntime && installed.some(a => a.id === initialRuntime)
+          ? initialRuntime
+          : installed[0].id
+        setSelectedRuntime(preferred)
         setUseAgents(true) // prefer local agents when any is installed
       }
     })
-  }, [])
+  }, [initialRuntime])
 
   // ── Load providers on mount ──────────────────────────────────────────────
   useEffect(() => {

@@ -108,6 +108,24 @@ export const api = {
   scanAgentRuntimes:  () => GoApp.ScanAgentRuntimes().then(s => JSON.parse(s)).catch(guard('scan agent runtimes', null)),
   streamAgentChat:    (workflowID, message, runtime, model) => GoApp.StreamAgentChat(workflowID, message, runtime, model).then(s => JSON.parse(s)),
   stopAgentChat:      (workflowID) => GoApp.StopAgentChat(workflowID).then(s => JSON.parse(s)).catch(guard('stop agent chat', null)),
+  // Orgs (monomind Org Runtime v2)
+  listOrgs:           () => GoApp.ListOrgs().then(s => JSON.parse(s)).catch(guard('list orgs', null)),
+  getOrgStatus:       (name = '') => GoApp.GetOrgStatus(name).then(s => JSON.parse(s)).catch(guard('org status', null)),
+  getOrgLogs:         (name) => GoApp.GetOrgLogs(name).then(s => JSON.parse(s)).catch(guard('org logs', null)),
+  getOrgReport:       (name, all = false) => GoApp.GetOrgReport(name, all).then(s => JSON.parse(s)).catch(guard('org report', null)),
+  getOrgCosts:        (name) => GoApp.GetOrgCosts(name).then(s => JSON.parse(s)).catch(guard('org costs', null)),
+  getOrgFlow:         (name) => GoApp.GetOrgFlow(name).then(s => JSON.parse(s)).catch(guard('org flow', null)),
+  getOrgQuestions:    (name) => GoApp.GetOrgQuestions(name).then(s => JSON.parse(s)).catch(guard('org questions', null)),
+  getOrgGates:        (name) => GoApp.GetOrgGates(name).then(s => JSON.parse(s)).catch(guard('org gates', null)),
+  getOrgDecisions:    (name) => GoApp.GetOrgDecisions(name).then(s => JSON.parse(s)).catch(guard('org decisions', null)),
+  getOrgMemoryStats:  (name) => GoApp.GetOrgMemoryStats(name).then(s => JSON.parse(s)).catch(guard('org memory stats', null)),
+  answerOrgQuestion:  (name, questionID, answer) => GoApp.AnswerOrgQuestion(name, questionID, answer).then(s => JSON.parse(s)),
+  approveOrgAction:   (name, role, action) => GoApp.ApproveOrgAction(name, role, action).then(s => JSON.parse(s)),
+  denyOrgAction:      (name, role, action) => GoApp.DenyOrgAction(name, role, action).then(s => JSON.parse(s)),
+  gateApproveOrgAction: (name, gateID, resolution = '') => GoApp.GateApproveOrgAction(name, gateID, resolution).then(s => JSON.parse(s)),
+  gateRejectOrgAction:  (name, gateID, resolution = '') => GoApp.GateRejectOrgAction(name, gateID, resolution).then(s => JSON.parse(s)),
+  streamOrgEvents:    (orgName) => GoApp.StreamOrgEvents(orgName).then(s => JSON.parse(s)),
+  stopOrgEvents:      (orgName) => GoApp.StopOrgEvents(orgName).then(s => JSON.parse(s)).catch(guard('stop org events', null)),
 }
 
 export function onLogEntry(callback) {
@@ -148,6 +166,16 @@ export function onAITool(callback) {
 export function onAIError(callback) {
   EventsOn('ai:error', callback)
   return () => EventsOff('ai:error')
+}
+
+export function onOrgEvent(callback) {
+  EventsOn('org:event', callback)
+  return () => EventsOff('org:event')
+}
+
+export function onOrgEventsClosed(callback) {
+  EventsOn('org:eventsClosed', callback)
+  return () => EventsOff('org:eventsClosed')
 }
 
 export const PLATFORMS = ['INSTAGRAM', 'LINKEDIN', 'X', 'TIKTOK']

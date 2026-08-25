@@ -26,12 +26,20 @@ export function AddVaultImage(arg1, arg2) {
   return window['go']['main']['App']['AddVaultImage'](arg1, arg2);
 }
 
+export function AnswerOrgQuestion(arg1, arg2, arg3) {
+  return window['go']['main']['App']['AnswerOrgQuestion'](arg1, arg2, arg3);
+}
+
 export function AppSelfUpdate() {
   return window['go']['main']['App']['AppSelfUpdate']();
 }
 
 export function ApproveHIL(arg1, arg2) {
   return window['go']['main']['App']['ApproveHIL'](arg1, arg2);
+}
+
+export function ApproveOrgAction(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApproveOrgAction'](arg1, arg2, arg3);
 }
 
 export function CancelWorkflow(arg1) {
@@ -106,6 +114,10 @@ export function DeleteWorkflow(arg1) {
   return window['go']['main']['App']['DeleteWorkflow'](arg1);
 }
 
+export function DenyOrgAction(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DenyOrgAction'](arg1, arg2, arg3);
+}
+
 export function ExecuteAction(arg1) {
   return window['go']['main']['App']['ExecuteAction'](arg1);
 }
@@ -116,6 +128,14 @@ export function ExportData() {
 
 export function ExportVaultAll() {
   return window['go']['main']['App']['ExportVaultAll']();
+}
+
+export function GateApproveOrgAction(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GateApproveOrgAction'](arg1, arg2, arg3);
+}
+
+export function GateRejectOrgAction(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GateRejectOrgAction'](arg1, arg2, arg3);
 }
 
 export function GetAIChatHistory(arg1) {
@@ -192,6 +212,42 @@ export function GetLogs() {
 
 export function GetOAuthCredentials(arg1) {
   return window['go']['main']['App']['GetOAuthCredentials'](arg1);
+}
+
+export function GetOrgCosts(arg1) {
+  return window['go']['main']['App']['GetOrgCosts'](arg1);
+}
+
+export function GetOrgDecisions(arg1) {
+  return window['go']['main']['App']['GetOrgDecisions'](arg1);
+}
+
+export function GetOrgFlow(arg1) {
+  return window['go']['main']['App']['GetOrgFlow'](arg1);
+}
+
+export function GetOrgGates(arg1) {
+  return window['go']['main']['App']['GetOrgGates'](arg1);
+}
+
+export function GetOrgLogs(arg1) {
+  return window['go']['main']['App']['GetOrgLogs'](arg1);
+}
+
+export function GetOrgMemoryStats(arg1) {
+  return window['go']['main']['App']['GetOrgMemoryStats'](arg1);
+}
+
+export function GetOrgQuestions(arg1) {
+  return window['go']['main']['App']['GetOrgQuestions'](arg1);
+}
+
+export function GetOrgReport(arg1, arg2) {
+  return window['go']['main']['App']['GetOrgReport'](arg1, arg2);
+}
+
+export function GetOrgStatus(arg1) {
+  return window['go']['main']['App']['GetOrgStatus'](arg1);
 }
 
 export function GetPeople(arg1, arg2, arg3, arg4) {
@@ -322,6 +378,10 @@ export function ListCredentialsForNode(arg1) {
   return window['go']['main']['App']['ListCredentialsForNode'](arg1);
 }
 
+export function ListOrgs() {
+  return window['go']['main']['App']['ListOrgs']();
+}
+
 export function ListPlatformsJSON(arg1) {
   return window['go']['main']['App']['ListPlatformsJSON'](arg1);
 }
@@ -402,6 +462,10 @@ export function SaveWorkflow(arg1) {
   return window['go']['main']['App']['SaveWorkflow'](arg1);
 }
 
+export function ScanAgentRuntimes() {
+  return window['go']['main']['App']['ScanAgentRuntimes']();
+}
+
 export function SearchVaultImages(arg1) {
   return window['go']['main']['App']['SearchVaultImages'](arg1);
 }
@@ -426,8 +490,24 @@ export function StopAIChat(arg1) {
   return window['go']['main']['App']['StopAIChat'](arg1);
 }
 
+export function StopAgentChat(arg1) {
+  return window['go']['main']['App']['StopAgentChat'](arg1);
+}
+
+export function StopOrgEvents(arg1) {
+  return window['go']['main']['App']['StopOrgEvents'](arg1);
+}
+
 export function StreamAIChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['StreamAIChat'](arg1, arg2, arg3, arg4);
+}
+
+export function StreamAgentChat(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['StreamAgentChat'](arg1, arg2, arg3, arg4);
+}
+
+export function StreamOrgEvents(arg1) {
+  return window['go']['main']['App']['StreamOrgEvents'](arg1);
 }
 
 export function SwitchProfile(arg1) {

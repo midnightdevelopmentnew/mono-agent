@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   LayoutDashboard, Users,
   Terminal, PlayCircle, Settings, Image, UserCheck, Mail, KeyRound, Zap,
-  ChevronDown, Plus, Check
+  ChevronDown, Plus, Check, Bot, Building2
 } from 'lucide-react'
 import { GetVersion } from '../wailsjs/go/main/App'
 import * as WailsApp from '../wailsjs/go/main/App'
@@ -18,6 +18,8 @@ const NAV_ITEMS = [
   { id: 'noderunner',  label: 'Workflows',   icon: PlayCircle,      section: 'MAIN' },
   { id: 'actions',     label: 'Actions',     icon: Zap,             section: 'MAIN' },
   { id: 'hil',         label: 'Human in Loop', icon: UserCheck,     section: 'MAIN' },
+  { id: 'ai',          label: 'Agents',      icon: Bot,             section: 'MAIN' },
+  { id: 'orgs',        label: 'Orgs',        icon: Building2,       section: 'MAIN' },
   { id: 'people',      label: 'People',      icon: Users,           section: 'DATA' },
   { id: 'communications', label: 'Communications', icon: Mail,      section: 'DATA' },
   { id: 'vault',       label: 'Images',      icon: Image,           section: 'DATA' },
