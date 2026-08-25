@@ -53,7 +53,7 @@ function RuntimeTile({ agent, onChat }) {
 export default function Agents() {
   const [tab, setTab] = useState('agents')
   const [agents, setAgents] = useState([])
-  const [monomindMissing, setMonomindMissing] = useState(false)
+  const [scanError, setScanError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatRuntime, setChatRuntime] = useState('')
@@ -63,10 +63,10 @@ export default function Agents() {
     try {
       const res = await api.scanAgentRuntimes()
       if (!res || res.error) {
-        setMonomindMissing(true)
+        setScanError(res?.error || 'Unable to reach monomind.')
         setAgents([])
       } else {
-        setMonomindMissing(false)
+        setScanError(null)
         setAgents(res.agents || [])
       }
     } finally {
@@ -90,7 +90,7 @@ export default function Agents() {
           <div className="page-header-left">
             <div className="page-title">Agents</div>
             <div className="page-subtitle">
-              {loading ? 'Loading…' : monomindMissing ? 'monomind not installed' : `${installedCount} / ${agents.length} runtimes installed`}
+              {loading ? 'Loading…' : scanError ? 'monomind unavailable' : `${installedCount} / ${agents.length} runtimes installed`}
             </div>
           </div>
           <div className="page-header-right" style={{ display: 'flex', gap: 6 }}>
@@ -133,13 +133,19 @@ export default function Agents() {
           <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
             {loading ? (
               <div className="empty-state"><div className="spinner" /></div>
-            ) : monomindMissing ? (
+            ) : scanError ? (
               <div className="empty-state">
                 <div className="empty-state-icon"><Bot size={36} /></div>
-                <div className="empty-state-title">monomind not installed</div>
-                <div className="empty-state-desc">
-                  Agents run through the local monomind engine. Install it with{' '}
-                  <code>npm install -g @monoes/monomindcli</code> to detect and chat with installed agent CLIs.
+                <div className="empty-state-title">
+                  {/not found/i.test(scanError) ? 'monomind not installed' : 'monomind is out of date'}
+                </div>
+                <div className="empty-state-desc" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <span>
+                    Agents run through the local monomind engine. {/not found/i.test(scanError)
+                      ? <>Install it with <code>npm install -g @monoes/monomindcli</code>.</>
+                      : <>Update it with <code>npm install -g @monoes/monomindcli@latest</code>.</>}
+                  </span>
+                  <code style={{ fontSize: 10, color: 'var(--text-muted)', wordBreak: 'break-word', textAlign: 'left' }}>{scanError}</code>
                 </div>
               </div>
             ) : agents.length === 0 ? (
@@ -168,6 +174,7 @@ export default function Agents() {
           workflowID="general"
           isOpen={chatOpen}
           initialRuntime={chatRuntime}
+          canvasMode={false}
           onClose={() => setChatOpen(false)}
         />
       )}

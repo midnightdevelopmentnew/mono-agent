@@ -313,8 +313,14 @@ func formatDuration(d time.Duration) string {
 
 // Scan proxies `monomind agent scan --json` (protocol §6). Scanning always
 // exits 0 on the monomind side; errors here mean monomind is missing/broken.
+//
+// Handshakes via Ensure() first: an installed-but-too-old monomind answers
+// an unrecognized `agent scan --json` invocation with human help text
+// instead of JSON (exit 0), which would otherwise surface as a confusing
+// "unparseable output" JSON error instead of the actionable "monomind X is
+// too old" message every other entry point already gives.
 func Scan(ctx context.Context) (*ScanResult, error) {
-	bin, err := Find()
+	bin, _, err := Ensure(ctx)
 	if err != nil {
 		return nil, err
 	}

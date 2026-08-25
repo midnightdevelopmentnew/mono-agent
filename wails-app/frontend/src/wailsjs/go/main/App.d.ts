@@ -255,7 +255,7 @@ export function StopOrgEvents(arg1:string):Promise<string>;
 
 export function StreamAIChat(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
-export function StreamAgentChat(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+export function StreamAgentChat(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<string>;
 
 export function StreamOrgEvents(arg1:string):Promise<string>;
 

@@ -502,8 +502,8 @@ export function StreamAIChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['StreamAIChat'](arg1, arg2, arg3, arg4);
 }
 
-export function StreamAgentChat(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['StreamAgentChat'](arg1, arg2, arg3, arg4);
+export function StreamAgentChat(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['StreamAgentChat'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function StreamOrgEvents(arg1) {

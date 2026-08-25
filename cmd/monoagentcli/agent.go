@@ -39,10 +39,7 @@ func newAgentScanCmd(cfg *globalConfig) *cobra.Command {
 		Example: `  monoagentcli agent scan
   monoagentcli agent scan --installed --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, _, err := monomind.Ensure(cmd.Context()); err != nil {
-				return err
-			}
-			res, err := monomind.Scan(cmd.Context())
+			res, err := monomind.Scan(cmd.Context()) // handshakes internally
 			if err != nil {
 				return err
 			}

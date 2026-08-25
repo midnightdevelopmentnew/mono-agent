@@ -106,7 +106,7 @@ function MessageBubble({ role, content, toolCalls, isError }) {
 }
 
 // ── Main panel ─────────────────────────────────────────────────────────────────
-export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCreated, initialRuntime }) {
+export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCreated, initialRuntime, canvasMode = true }) {
   const [messages, setMessages]             = useState([])
   const [input, setInput]                   = useState('')
   const [streaming, setStreaming]           = useState(false)
@@ -269,7 +269,7 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
 
     try {
       if (useAgents) {
-        await api.streamAgentChat(workflowID, text, selectedRuntime, selectedModel)
+        await api.streamAgentChat(workflowID, text, selectedRuntime, selectedModel, canvasMode)
       } else {
         await api.streamAIChat(workflowID, text, selectedProvider, selectedModel)
       }
@@ -280,7 +280,11 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
         { role: 'error', content: String(err) },
       ])
     }
-  }, [input, streaming, workflowID, useAgents, selectedRuntime, selectedProvider, selectedModel])
+  }, [input, streaming, workflowID, useAgents, selectedRuntime, selectedProvider, selectedModel, canvasMode])
+
+  // Whether a backend is actually selected for the current mode — gates the
+  // input, matching send()'s own guard (useAgents ? selectedRuntime : selectedProvider).
+  const hasBackend = useAgents ? !!selectedRuntime : !!selectedProvider
 
   // ── Stop an in-flight stream ──────────────────────────────────────────────
   const stop = useCallback(async () => {
@@ -525,9 +529,9 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
         display: 'flex', flexDirection: 'column', gap: 6,
         flexShrink: 0,
       }}>
-        {!selectedProvider && (
+        {!hasBackend && (
           <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.2)', borderRadius: 'var(--radius)', fontFamily: 'var(--font-mono)', fontSize: 10, color: '#fbbf24' }}>
-            Select an AI provider above to start chatting
+            {useAgents ? 'Select an agent runtime above to start chatting' : 'Select an AI provider above to start chatting'}
           </div>
         )}
         <div style={{ display: 'flex', gap: 6 }}>
@@ -581,22 +585,22 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
         ) : (
           <button
             onClick={send}
-            disabled={!input.trim() || !selectedProvider}
-            title={!selectedProvider ? 'No provider selected' : 'Send message'}
+            disabled={!input.trim() || !hasBackend}
+            title={!hasBackend ? (useAgents ? 'No runtime selected' : 'No provider selected') : 'Send message'}
             aria-label="Send message"
             style={{
-              background: !input.trim() || !selectedProvider ? 'rgba(0,180,216,0.05)' : 'rgba(0,180,216,0.15)',
-              border: `1px solid ${!input.trim() || !selectedProvider ? 'rgba(0,180,216,0.08)' : 'rgba(0,180,216,0.3)'}`,
+              background: !input.trim() || !hasBackend ? 'rgba(0,180,216,0.05)' : 'rgba(0,180,216,0.15)',
+              border: `1px solid ${!input.trim() || !hasBackend ? 'rgba(0,180,216,0.08)' : 'rgba(0,180,216,0.3)'}`,
               borderRadius: 8,
               padding: '0 12px',
-              cursor: !input.trim() || !selectedProvider ? 'default' : 'pointer',
-              color: !input.trim() || !selectedProvider ? 'var(--text-muted)' : '#00b4d8',
+              cursor: !input.trim() || !hasBackend ? 'default' : 'pointer',
+              color: !input.trim() || !hasBackend ? 'var(--text-muted)' : '#00b4d8',
               display: 'flex', alignItems: 'center',
               transition: 'all 100ms',
               flexShrink: 0,
             }}
-            onMouseEnter={e => { if (input.trim() && selectedProvider) e.currentTarget.style.background = 'rgba(0,180,216,0.25)' }}
-            onMouseLeave={e => { if (input.trim() && selectedProvider) e.currentTarget.style.background = 'rgba(0,180,216,0.15)' }}
+            onMouseEnter={e => { if (input.trim() && hasBackend) e.currentTarget.style.background = 'rgba(0,180,216,0.25)' }}
+            onMouseLeave={e => { if (input.trim() && hasBackend) e.currentTarget.style.background = 'rgba(0,180,216,0.15)' }}
           >
             <Send size={13} />
           </button>

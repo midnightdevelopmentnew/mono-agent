@@ -106,7 +106,7 @@ export const api = {
   clearAIChatHistory: (workflowID) => GoApp.ClearAIChatHistory(workflowID).then(s => JSON.parse(s)),
   // Agent Chat (monomind delegation — local AI agent runtimes)
   scanAgentRuntimes:  () => GoApp.ScanAgentRuntimes().then(s => JSON.parse(s)).catch(guard('scan agent runtimes', null)),
-  streamAgentChat:    (workflowID, message, runtime, model) => GoApp.StreamAgentChat(workflowID, message, runtime, model).then(s => JSON.parse(s)),
+  streamAgentChat:    (workflowID, message, runtime, model, canvas = true) => GoApp.StreamAgentChat(workflowID, message, runtime, model, canvas).then(s => JSON.parse(s)),
   stopAgentChat:      (workflowID) => GoApp.StopAgentChat(workflowID).then(s => JSON.parse(s)).catch(guard('stop agent chat', null)),
   // Orgs (monomind Org Runtime v2)
   listOrgs:           () => GoApp.ListOrgs().then(s => JSON.parse(s)).catch(guard('list orgs', null)),

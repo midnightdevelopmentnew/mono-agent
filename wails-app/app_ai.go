@@ -262,17 +262,26 @@ func (a *App) ScanAgentRuntimes() string {
 	return string(b)
 }
 
-// StreamAgentChat runs one canvas-builder chat turn through the locally
-// installed agent runtime. Emits the same ai:chunk/ai:tool/ai:error events
-// as the provider chat (frontend-compatible), plus agent:session carrying
-// the resumable session id.
-func (a *App) StreamAgentChat(workflowID, message, agentRuntime, model string) string {
+// StreamAgentChat runs one chat turn through the locally installed agent
+// runtime. When canvas is true, the turn runs in workflow-builder mode: the
+// eight CanvasTools are wired in and the system prompt instructs the model
+// to build/edit the given workflow — this is what the Workflows editor
+// wants. When canvas is false (the general Agents-page assistant, where
+// workflowID is just a chat-history bucket, not a real workflow to build),
+// no --canvas flag is passed at all, so the turn is a plain conversation —
+// no tool round trips, no "build a workflow to say hi" behavior, and
+// dramatically faster. Emits the same ai:chunk/ai:tool/ai:error events as
+// the provider chat (frontend-compatible), plus agent:session carrying the
+// resumable session id.
+func (a *App) StreamAgentChat(workflowID, message, agentRuntime, model string, canvas bool) string {
 	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return aiError(err)
 	}
-	args := []string{"--profile", a.getActiveProfileID(), "chat",
-		"--runtime", agentRuntime, "--canvas", workflowID}
+	args := []string{"--profile", a.getActiveProfileID(), "chat", "--runtime", agentRuntime}
+	if canvas {
+		args = append(args, "--canvas", workflowID)
+	}
 	if model != "" {
 		args = append(args, "--model", model)
 	}

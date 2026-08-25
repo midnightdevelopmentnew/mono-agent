@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -79,6 +80,32 @@ func TestScanAgainstFake(t *testing.T) {
 	}
 	if e := res.Find("claude"); e == nil || !e.Installed {
 		t.Errorf("claude entry = %+v", e)
+	}
+}
+
+// TestScanFailsFastOnIncompatibleMonomind guards against a regression where
+// Scan spawned `agent scan --json` without handshaking first: against a
+// too-old/incompatible monomind that answers unknown subcommands with exit-0
+// human help text instead of JSON, the old code surfaced a confusing
+// "unparseable output" JSON error instead of the actionable handshake
+// message every other entry point (Exec, agent.ask, agentgen) already gives.
+func TestScanFailsFastOnIncompatibleMonomind(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "monomind")
+	script := "#!/bin/sh\necho 'Agent Management Commands'\nexit 0\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Getenv(EnvOverride)
+	os.Setenv(EnvOverride, path)
+	defer os.Setenv(EnvOverride, old)
+
+	_, err := Scan(context.Background())
+	if err == nil {
+		t.Fatal("Scan() = nil error, want a handshake error against an incompatible monomind")
+	}
+	if !strings.Contains(err.Error(), "handshake") {
+		t.Errorf("Scan() error = %q, want it to mention the handshake failure, not a JSON-parse error", err.Error())
 	}
 }
 
