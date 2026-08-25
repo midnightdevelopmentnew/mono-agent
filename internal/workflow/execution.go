@@ -279,52 +279,10 @@ func RunExecution(
 			}
 		}
 
-		// Build expression context from the first input item (if any).
-		var currentItemJSON map[string]interface{}
-		if len(inputItems) > 0 {
-			currentItemJSON = inputItems[0].JSON
-		}
-		exprCtx := buildExpressionContext(currentItemJSON, nodeOutputs, wf.ID, exec.ID)
-
-		// Resolve config templates — but preserve "condition" and "expression"
-		// fields for per-item evaluation nodes (filter, if, switch).
-		// These nodes evaluate the condition themselves for EACH item,
-		// so pre-resolving with the first item would produce wrong results.
-		perItemFields := map[string]bool{}
-		if node.Type == "core.filter" || node.Type == "core.if" || node.Type == "core.switch" {
-			perItemFields["condition"] = true
-			perItemFields["expression"] = true
-		}
-		// Temporarily remove per-item fields before resolving.
-		savedFields := make(map[string]interface{})
-		for k := range perItemFields {
-			if v, ok := config[k]; ok {
-				savedFields[k] = v
-				delete(config, k)
-			}
-		}
-		resolvedConfig, err := expr.ResolveConfig(config, exprCtx)
-		if err != nil {
-			return fmt.Errorf("node %s (%s): resolve config: %w", node.ID, node.Name, err)
-		}
-		// Restore the per-item fields unresolved.
-		for k, v := range savedFields {
-			resolvedConfig[k] = v
-		}
-
-		// Resolve @img-NNN references to absolute vault file paths.
-		if vaultDB := vault.DBFromContext(ctx); vaultDB != nil {
-			_ = vault.ResolveConfig(ctx, vaultDB, resolvedConfig)
-			// Resolve @secret:<name> references to decrypted vault values.
-			_ = secrets.ResolveConfig(ctx, vaultDB, vault.ProfileIDFromContext(ctx), resolvedConfig)
-		}
-
-		// Extract retry policy and on_error behaviour from config.
-		retryPolicy := extractRetryPolicy(resolvedConfig)
-		onError := extractOnError(resolvedConfig)
-
 		// Trigger nodes are pass-through — they emit their trigger items
-		// without needing a registered executor.
+		// without needing a registered executor, and don't use config at
+		// all, so this runs before config is resolved (or even looked up
+		// in the registry, which trigger types never are).
 		if strings.HasPrefix(node.Type, "trigger.") {
 			outputs := []NodeOutput{{Handle: "main", Items: inputItems}}
 			// Route outputs to successors.
@@ -356,12 +314,51 @@ func RunExecution(
 			continue
 		}
 
-		// Get executor from registry.
+		// Get executor from registry. Constructed now (rather than after
+		// config resolution) so a PerItemConfigResolver node can be queried
+		// for the fields to hold back before expr.ResolveConfig runs.
+		// Factories are cheap, side-effect-free constructors (e.g. "return
+		// &FooNode{}") for every registered node type, so building the
+		// executor here instead of later does not change behavior.
 		factory, ok := registry.Get(node.Type)
 		if !ok {
 			return fmt.Errorf("%w: %s", ErrNodeTypeUnknown, node.Type)
 		}
 		executor := factory()
+
+		// Build expression context from the first input item (if any).
+		var currentItemJSON map[string]interface{}
+		if len(inputItems) > 0 {
+			currentItemJSON = inputItems[0].JSON
+		}
+		exprCtx := buildExpressionContext(currentItemJSON, nodeOutputs, wf.ID, exec.ID)
+
+		// Resolve config templates — but hold back any fields the node
+		// declares via PerItemConfigResolver (e.g. a filter condition, or
+		// an HTTP URL that reads from $json). Those nodes evaluate their
+		// own held-back fields once per item; pre-resolving here would use
+		// only the first item's JSON for the whole batch.
+		var perItemFields []string
+		if resolver, ok := executor.(PerItemConfigResolver); ok {
+			perItemFields = resolver.PerItemConfigFields()
+		}
+		fieldState := extractPerItemFields(config, perItemFields)
+		resolvedConfig, err := expr.ResolveConfig(config, exprCtx)
+		if err != nil {
+			return fmt.Errorf("node %s (%s): resolve config: %w", node.ID, node.Name, err)
+		}
+		restorePerItemFields(resolvedConfig, fieldState)
+
+		// Resolve @img-NNN references to absolute vault file paths.
+		if vaultDB := vault.DBFromContext(ctx); vaultDB != nil {
+			_ = vault.ResolveConfig(ctx, vaultDB, resolvedConfig)
+			// Resolve @secret:<name> references to decrypted vault values.
+			_ = secrets.ResolveConfig(ctx, vaultDB, vault.ProfileIDFromContext(ctx), resolvedConfig)
+		}
+
+		// Extract retry policy and on_error behaviour from config.
+		retryPolicy := extractRetryPolicy(resolvedConfig)
+		onError := extractOnError(resolvedConfig)
 
 		// Create execution-node record in RUNNING state.
 		now := time.Now().UTC()
@@ -718,4 +715,95 @@ func extractOnError(config map[string]interface{}) string {
 		}
 	}
 	return "stop"
+}
+
+// perItemFieldState is the token extractPerItemFields returns, holding the
+// raw values it removed from a node's config so restorePerItemFields can put
+// them back unresolved after expr.ResolveConfig runs.
+type perItemFieldState struct {
+	topLevel map[string]interface{} // top-level key -> saved raw value
+	nested   []nestedPerItemField
+}
+
+// nestedPerItemField holds the raw values saved from one sub-key (e.g.
+// "value") across every element of one top-level array field (e.g.
+// "assignments") that extractPerItemFields protected.
+type nestedPerItemField struct {
+	arrayKey string
+	subKey   string
+	saved    map[int]interface{} // element index -> saved raw value
+}
+
+// parsePerItemFieldSpec splits a PerItemConfigResolver field spec into an
+// array key and sub-key, e.g. "assignments[].value" -> ("assignments",
+// "value"). A spec with no "[]." is a plain top-level field; arrayKey is
+// returned empty and key holds the spec itself.
+func parsePerItemFieldSpec(spec string) (arrayKey, key string) {
+	if idx := strings.Index(spec, "[]."); idx >= 0 {
+		return spec[:idx], spec[idx+3:]
+	}
+	return "", spec
+}
+
+// extractPerItemFields removes the config fields named by specs — see
+// PerItemConfigResolver — from config in place, so the caller's subsequent
+// expr.ResolveConfig pass (which only sees the first input item) leaves them
+// untouched. restorePerItemFields puts the raw values back afterward so the
+// node itself can resolve them once per item.
+func extractPerItemFields(config map[string]interface{}, specs []string) *perItemFieldState {
+	state := &perItemFieldState{topLevel: make(map[string]interface{})}
+	for _, spec := range specs {
+		arrayKey, key := parsePerItemFieldSpec(spec)
+		if arrayKey == "" {
+			if v, ok := config[key]; ok {
+				state.topLevel[key] = v
+				delete(config, key)
+			}
+			continue
+		}
+		rawArr, ok := config[arrayKey].([]interface{})
+		if !ok {
+			continue
+		}
+		nested := nestedPerItemField{arrayKey: arrayKey, subKey: key, saved: make(map[int]interface{})}
+		for i, rawElem := range rawArr {
+			elem, ok := rawElem.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if v, ok := elem[key]; ok {
+				nested.saved[i] = v
+				delete(elem, key)
+			}
+		}
+		state.nested = append(state.nested, nested)
+	}
+	return state
+}
+
+// restorePerItemFields writes the raw values extractPerItemFields removed
+// back into resolvedConfig, unresolved. resolvedConfig is expr.ResolveConfig's
+// output: a freshly built map/slice tree of the same shape (and, for arrays,
+// the same length and order) as the config extractPerItemFields was called
+// on, so the saved element indices still line up.
+func restorePerItemFields(resolvedConfig map[string]interface{}, state *perItemFieldState) {
+	for k, v := range state.topLevel {
+		resolvedConfig[k] = v
+	}
+	for _, nested := range state.nested {
+		rawArr, ok := resolvedConfig[nested.arrayKey].([]interface{})
+		if !ok {
+			continue
+		}
+		for i, v := range nested.saved {
+			if i < 0 || i >= len(rawArr) {
+				continue
+			}
+			elem, ok := rawArr[i].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			elem[nested.subKey] = v
+		}
+	}
 }

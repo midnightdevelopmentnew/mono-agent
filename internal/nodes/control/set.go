@@ -21,6 +21,11 @@ type SetNode struct{}
 
 func (n *SetNode) Type() string { return "core.set" }
 
+// PerItemConfigFields declares that each assignment's "value" must not be
+// pre-resolved using only the first input item: Execute below evaluates it
+// fresh for every item via engine.EvaluateValue.
+func (n *SetNode) PerItemConfigFields() []string { return []string{"assignments[].value"} }
+
 func (n *SetNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	rawAssignments, ok := config["assignments"]
 	if !ok {

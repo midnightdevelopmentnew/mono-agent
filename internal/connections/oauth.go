@@ -1,6 +1,7 @@
 package connections
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -22,6 +23,10 @@ type OAuthResult struct {
 	TokenType    string `json:"token_type,omitempty"`
 	ExpiresIn    int    `json:"expires_in,omitempty"`
 	Scope        string `json:"scope,omitempty"`
+	// InstanceURL is Salesforce-specific: the per-org API base URL returned
+	// alongside the token (e.g. https://yourInstance.salesforce.com). Empty
+	// for every other provider.
+	InstanceURL string `json:"instance_url,omitempty"`
 }
 
 // RunOAuthFlow opens the browser to the provider's auth URL, starts a local
@@ -193,7 +198,7 @@ func exchangeCode(cfg OAuthConfig, code, redirectURI, codeVerifier string) (*OAu
 		form.Set("code_verifier", codeVerifier)
 	}
 
-	body, status, err := PostTokenRequestWithAudienceFallback(cfg.TokenURL, form)
+	body, status, err := PostTokenRequestWithAudienceFallback(cfg.PlatformID, cfg.TokenURL, form)
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
@@ -224,8 +229,8 @@ func exchangeCode(cfg OAuthConfig, code, redirectURI, codeVerifier string) (*OAu
 // Exported so every OAuth token-refresh call site (CLI, GUI, workflow
 // engine) shares this one fallback implementation instead of each keeping
 // its own copy that silently misses the fix.
-func PostTokenRequestWithAudienceFallback(tokenURL string, form url.Values) ([]byte, int, error) {
-	body, status, err := postForm(tokenURL, form)
+func PostTokenRequestWithAudienceFallback(platformID, tokenURL string, form url.Values) ([]byte, int, error) {
+	body, status, err := postForm(platformID, tokenURL, form)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -243,7 +248,7 @@ func PostTokenRequestWithAudienceFallback(tokenURL string, form url.Values) ([]b
 				altSegment = "/organizations/"
 			}
 			altURL := strings.Replace(tokenURL, "/common/", altSegment, 1)
-			return postForm(altURL, form)
+			return postForm(platformID, altURL, form)
 		}
 	}
 	return body, status, nil
@@ -254,13 +259,86 @@ func PostTokenRequestWithAudienceFallback(tokenURL string, form url.Values) ([]b
 // flow) forever — http.DefaultClient has no timeout.
 var tokenHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
-func postForm(tokenURL string, form url.Values) ([]byte, int, error) {
-	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+// usesBasicClientAuth reports whether platformID's token endpoint requires
+// client credentials via HTTP Basic Auth (RFC 6749 §2.3.1) instead of as
+// form body fields. Reddit rejects client_id/client_secret sent as form
+// fields — https://github.com/reddit-archive/reddit/wiki/OAuth2 requires
+// Basic Auth for every client type, including "installed" apps with an
+// empty client_secret. Every other provider here keeps the current
+// form-field path unchanged.
+func usesBasicClientAuth(platformID string) bool {
+	return platformID == "reddit"
+}
+
+// postForm POSTs a token request. Notion is handled by a separate path
+// (postNotionJSON) since its token endpoint rejects this function's
+// form-urlencoded body entirely; every other provider, including the
+// Basic-Auth branch for Reddit, still sends a form-urlencoded body.
+func postForm(platformID, tokenURL string, form url.Values) ([]byte, int, error) {
+	if platformID == "notion" {
+		return postNotionJSON(tokenURL, form)
+	}
+
+	body := form
+	var basicUser, basicPass string
+	useBasic := usesBasicClientAuth(platformID)
+	if useBasic {
+		basicUser, basicPass = form.Get("client_id"), form.Get("client_secret")
+		body = url.Values{}
+		for k, v := range form {
+			if k == "client_id" || k == "client_secret" {
+				continue
+			}
+			body[k] = v
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(body.Encode()))
 	if err != nil {
 		return nil, 0, fmt.Errorf("build token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
+	if useBasic {
+		req.SetBasicAuth(basicUser, basicPass)
+	}
+
+	resp, err := tokenHTTPClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("reading response: %w", err)
+	}
+	return respBody, resp.StatusCode, nil
+}
+
+// postNotionJSON exchanges a code (or refresh_token) via Notion's OAuth
+// token endpoint, which — unlike every other provider registered here —
+// requires a JSON body and Basic Auth, and rejects client_id/client_secret
+// as body fields entirely: https://developers.notion.com/docs/authorization
+func postNotionJSON(tokenURL string, form url.Values) ([]byte, int, error) {
+	payload := map[string]string{"grant_type": form.Get("grant_type")}
+	for _, k := range []string{"code", "redirect_uri", "refresh_token"} {
+		if v := form.Get(k); v != "" {
+			payload[k] = v
+		}
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal notion token request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, tokenURL, bytes.NewReader(data))
+	if err != nil {
+		return nil, 0, fmt.Errorf("build token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.SetBasicAuth(form.Get("client_id"), form.Get("client_secret"))
 
 	resp, err := tokenHTTPClient.Do(req)
 	if err != nil {

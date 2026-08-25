@@ -20,6 +20,15 @@ type SwitchNode struct{}
 
 func (n *SwitchNode) Type() string { return "core.switch" }
 
+// PerItemConfigFields declares that "expression" must not be pre-resolved
+// using only the first input item — it's evaluated fresh for every item
+// below. Deliberately does NOT include "field", the primary documented
+// config key: today "field" is always resolved once for the whole batch
+// (same as every other node's config), and switching it to per-item
+// resolution would change the routing behavior of existing workflows built
+// around that. That's a separate, live behavior change, not this bug fix.
+func (n *SwitchNode) PerItemConfigFields() []string { return []string{"expression"} }
+
 // switchCase is the normalized form of one entry in the "cases" config array.
 type switchCase struct {
 	value  string

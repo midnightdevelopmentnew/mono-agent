@@ -399,19 +399,31 @@ func validateJira(ctx context.Context, c *Connection) (string, error) {
 	return result.DisplayName, nil
 }
 
+// linearAuthHeader returns the Authorization header value for a Linear
+// connection: personal API keys are sent as-is, OAuth access tokens need
+// the standard "Bearer " prefix — sending either the wrong way
+// authenticates neither. Returns "" if neither field is present.
+// https://linear.app/developers/oauth-2-0-authentication
+func linearAuthHeader(data map[string]interface{}) string {
+	if apiKey := getStr(data, "api_key"); apiKey != "" {
+		return apiKey
+	}
+	if token := getStr(data, "access_token"); token != "" {
+		return "Bearer " + token
+	}
+	return ""
+}
+
 // validateLinear validates a Linear connection using the api_key or access_token field.
 func validateLinear(ctx context.Context, c *Connection) (string, error) {
-	token := getStr(c.Data, "api_key")
-	if token == "" {
-		token = getStr(c.Data, "access_token")
-	}
+	authHeader := linearAuthHeader(c.Data)
 
 	bodyStr := `{"query":"{ viewer { name email } }"}`
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.linear.app/graphql", strings.NewReader(bodyStr))
 	if err != nil {
 		return "", fmt.Errorf("validateLinear: create request: %w", err)
 	}
-	req.Header.Set("Authorization", token)
+	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
@@ -1008,11 +1020,24 @@ func validateHashnode(ctx context.Context, c *Connection) (string, error) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", token)
-	resp, err := http.DefaultClient.Do(req)
+	// Don't follow redirects: since 2026-05-13 Hashnode 301s every GraphQL
+	// request — valid token or not — to an HTML announcement page when the
+	// publication isn't on a Pro plan. The default client would silently
+	// follow it, fail to parse HTML as JSON, and misreport this as a bad
+	// token via the "could not resolve username" case below.
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("validateHashnode: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return "", fmt.Errorf("validateHashnode: Hashnode redirected this request to %s instead of returning data — the publication likely needs a Pro plan for API access (see https://hashnode.com/changelog/2026-05-13-graphql-api-paid-access); the token was never actually checked", resp.Header.Get("Location"))
+	}
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("validateHashnode: API returned %d", resp.StatusCode)
 	}
@@ -1037,7 +1062,7 @@ func validateProductHunt(ctx context.Context, c *Connection) (string, error) {
 	if token == "" {
 		return "", fmt.Errorf("validateProductHunt: missing access_token")
 	}
-	payload := []byte(`{"query":"{ viewer { name } }"}`)
+	payload := []byte(`{"query":"{ viewer { user { name } } }"}`)
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.producthunt.com/v2/api/graphql", bytes.NewReader(payload))
 	if err != nil {
 		return "", err
@@ -1055,14 +1080,16 @@ func validateProductHunt(ctx context.Context, c *Connection) (string, error) {
 	var r struct {
 		Data struct {
 			Viewer struct {
-				Name string `json:"name"`
+				User struct {
+					Name string `json:"name"`
+				} `json:"user"`
 			} `json:"viewer"`
 		} `json:"data"`
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = json.Unmarshal(body, &r)
-	if r.Data.Viewer.Name == "" {
+	if r.Data.Viewer.User.Name == "" {
 		return "", fmt.Errorf("validateProductHunt: could not resolve viewer name")
 	}
-	return r.Data.Viewer.Name, nil
+	return r.Data.Viewer.User.Name, nil
 }

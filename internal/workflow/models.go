@@ -55,6 +55,22 @@ type TriggerProvider interface {
 	Deactivate(workflowID string, nodeID string) error
 }
 
+// PerItemConfigResolver is implemented by nodes that evaluate part of their
+// config once per input item rather than once for the whole batch (e.g. a
+// filter condition, or a URL template that reads from $json). RunExecution
+// normally resolves a node's config templates once, using only the first
+// input item — correct for nodes that run once per batch, wrong for these.
+// Each returned field spec is either a top-level config key (e.g.
+// "condition") or, to protect one sub-key of every element in a top-level
+// array-of-objects field, "arrayKey[].subKey" (e.g. "assignments[].value").
+// RunExecution holds these fields back from its own resolution pass so the
+// node receives them as raw (template-containing) values and can resolve
+// each one itself, once per item.
+type PerItemConfigResolver interface {
+	NodeExecutor
+	PerItemConfigFields() []string
+}
+
 // Workflow is the top-level entity stored in the workflows table.
 type Workflow struct {
 	ID          string    `json:"id" db:"id"`

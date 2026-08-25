@@ -31,6 +31,11 @@ type OAuthConfig struct {
 	Scopes       []string
 	CallbackPort int
 	ExtraParams  map[string]string // Additional auth URL query parameters (e.g., access_type=offline)
+	// PlatformID identifies which registry entry this config came from, set
+	// by callers when they copy *p.OAuth. It lets the token-exchange layer
+	// (postForm) apply a provider's required client-auth style — most
+	// providers are unaffected; see usesBasicClientAuth/postForm in oauth.go.
+	PlatformID string
 }
 
 // PlatformDef defines a platform's connection capabilities.

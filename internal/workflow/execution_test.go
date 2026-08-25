@@ -261,3 +261,111 @@ func TestRunExecution_OnlyFiredTriggerReceivesPayload(t *testing.T) {
 		t.Errorf("manual run: both triggers should fire, got t1=%d t2=%d", got["t1"], got["t2"])
 	}
 }
+
+func TestParsePerItemFieldSpec(t *testing.T) {
+	cases := []struct {
+		spec         string
+		wantArrayKey string
+		wantKey      string
+	}{
+		{"condition", "", "condition"},
+		{"assignments[].value", "assignments", "value"},
+	}
+	for _, c := range cases {
+		arrayKey, key := parsePerItemFieldSpec(c.spec)
+		if arrayKey != c.wantArrayKey || key != c.wantKey {
+			t.Errorf("parsePerItemFieldSpec(%q) = (%q, %q), want (%q, %q)", c.spec, arrayKey, key, c.wantArrayKey, c.wantKey)
+		}
+	}
+}
+
+// TestExtractRestorePerItemFields_TopLevel verifies a top-level field spec
+// (e.g. "condition") survives a real ResolveConfig pass unresolved, while an
+// unrelated field in the same config is resolved normally.
+func TestExtractRestorePerItemFields_TopLevel(t *testing.T) {
+	config := map[string]interface{}{
+		"condition": "{{$json.status}}",
+		"other":     "{{$json.name}}",
+	}
+	state := extractPerItemFields(config, []string{"condition"})
+
+	if _, ok := config["condition"]; ok {
+		t.Fatal("condition should have been removed from config before resolution")
+	}
+	if _, ok := config["other"]; !ok {
+		t.Fatal("other should remain in config for normal resolution")
+	}
+
+	engine := NewExpressionEngine()
+	resolvedConfig, err := engine.ResolveConfig(config, ExpressionContext{JSON: map[string]interface{}{"status": "open", "name": "alice"}})
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	restorePerItemFields(resolvedConfig, state)
+
+	if resolvedConfig["condition"] != "{{$json.status}}" {
+		t.Errorf("condition = %v, want raw template preserved", resolvedConfig["condition"])
+	}
+	if resolvedConfig["other"] != "alice" {
+		t.Errorf("other = %v, want resolved to \"alice\"", resolvedConfig["other"])
+	}
+}
+
+// TestExtractRestorePerItemFields_NestedArray verifies an "arrayKey[].subKey"
+// spec (core.set's "assignments[].value") protects only that sub-key of
+// every element, while sibling keys in each element still resolve normally
+// and element order/count survive the round trip.
+func TestExtractRestorePerItemFields_NestedArray(t *testing.T) {
+	config := map[string]interface{}{
+		"assignments": []interface{}{
+			map[string]interface{}{"field": "a", "value": "{{$json.x}}"},
+			map[string]interface{}{"field": "b", "value": "{{$json.y}}"},
+		},
+	}
+	state := extractPerItemFields(config, []string{"assignments[].value"})
+
+	for i, raw := range config["assignments"].([]interface{}) {
+		elem := raw.(map[string]interface{})
+		if _, ok := elem["value"]; ok {
+			t.Fatalf("assignments[%d].value should have been removed before resolution", i)
+		}
+		if _, ok := elem["field"]; !ok {
+			t.Fatalf("assignments[%d].field should remain for normal resolution", i)
+		}
+	}
+
+	engine := NewExpressionEngine()
+	resolvedConfig, err := engine.ResolveConfig(config, ExpressionContext{JSON: map[string]interface{}{"x": 1, "y": 2}})
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	restorePerItemFields(resolvedConfig, state)
+
+	resolvedAssignments, ok := resolvedConfig["assignments"].([]interface{})
+	if !ok || len(resolvedAssignments) != 2 {
+		t.Fatalf("resolved assignments = %#v, want a 2-element slice", resolvedConfig["assignments"])
+	}
+	elem0 := resolvedAssignments[0].(map[string]interface{})
+	if elem0["field"] != "a" || elem0["value"] != "{{$json.x}}" {
+		t.Errorf("assignments[0] = %+v, want field=a value={{$json.x}} (raw)", elem0)
+	}
+	elem1 := resolvedAssignments[1].(map[string]interface{})
+	if elem1["field"] != "b" || elem1["value"] != "{{$json.y}}" {
+		t.Errorf("assignments[1] = %+v, want field=b value={{$json.y}} (raw)", elem1)
+	}
+}
+
+// TestExtractPerItemFields_AbsentFieldsAreNoop verifies a spec naming a field
+// that isn't present in config (e.g. a node registered but not using one of
+// its optional per-item fields) is silently skipped rather than erroring or
+// fabricating an entry.
+func TestExtractPerItemFields_AbsentFieldsAreNoop(t *testing.T) {
+	config := map[string]interface{}{"other": "x"}
+	state := extractPerItemFields(config, []string{"condition", "assignments[].value"})
+	if len(state.topLevel) != 0 || len(state.nested) != 0 {
+		t.Fatalf("extractPerItemFields state = %+v, want empty (no matching fields present)", state)
+	}
+	if len(config) != 1 {
+		t.Fatalf("config = %v, want untouched", config)
+	}
+}

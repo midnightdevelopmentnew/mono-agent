@@ -2,6 +2,7 @@ package extension
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -27,6 +28,11 @@ type Server struct {
 
 	connected chan struct{} // closed when first connection arrives
 	connOnce  sync.Once
+
+	// token authenticates /monoagent/relay requests (see handleRelay). Set
+	// once Start has won the port bind; empty (and thus relay-rejecting)
+	// before that.
+	token string
 
 	logger zerolog.Logger
 	ctx    context.Context
@@ -123,8 +129,24 @@ func (s *Server) Start(ctx context.Context) error {
 		_ = s.server.Shutdown(shutCtx)
 	}()
 
+	// Listen and Serve are split (instead of the equivalent ListenAndServe)
+	// so the token is only generated after this process has actually won
+	// the port bind — a process that loses the bind never writes a token
+	// that could otherwise race with and clobber the winner's.
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		listener.Close()
+		return fmt.Errorf("generate extension relay token: %w", err)
+	}
+	s.token = token
+
 	s.logger.Info().Str("addr", addr).Msg("extension server listening")
-	err := s.server.ListenAndServe()
+	err = s.server.Serve(listener)
 	if err == http.ErrServerClosed {
 		return nil
 	}
@@ -339,6 +361,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get(tokenHeader)), []byte(s.token)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	var cmd Command

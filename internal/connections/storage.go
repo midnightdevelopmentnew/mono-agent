@@ -302,6 +302,7 @@ func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 	}
 
 	cfg := *p.OAuth
+	cfg.PlatformID = p.ID
 	// Load client credentials from platform_oauth_credentials table (scoped
 	// per profile — two connections for the same platform under different
 	// profiles may need different Azure/OAuth app registrations), then fall
@@ -332,7 +333,7 @@ func (s *Store) RefreshToken(ctx context.Context, conn *Connection) error {
 	form.Set("client_id", cfg.ClientID)
 	form.Set("client_secret", cfg.ClientSecret)
 
-	body, status, err := PostTokenRequestWithAudienceFallback(cfg.TokenURL, form)
+	body, status, err := PostTokenRequestWithAudienceFallback(cfg.PlatformID, cfg.TokenURL, form)
 	if err != nil {
 		return fmt.Errorf("token request: %w", err)
 	}

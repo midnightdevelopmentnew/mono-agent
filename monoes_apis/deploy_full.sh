@@ -5,7 +5,7 @@ IP="18.199.91.233"
 KEY="deploy_key.pem"
 DOMAIN="apiv1.monoes.me"
 ZONE_ID="Z062787384KQWDBDUKUH"
-API_KEY="AIzaSyAoGR8ZqHgLHHVtOmNtBezVr-VtoBUCPw0"
+API_KEY="${GEMINI_API_KEY:?GEMINI_API_KEY must be set in the environment before running this script, e.g. GEMINI_API_KEY=... ./deploy_full.sh}"
 
 echo "=== 1. Setting up Domain Record ==="
 CHANGE_BATCH=$(cat <<EOF
@@ -73,7 +73,7 @@ ssh -o StrictHostKeyChecking=no -i $KEY ubuntu@$IP <<EOF
 
     # Setup .env
     echo "GEMINI_API_KEY=$API_KEY" > .env
-    echo "DEBUG=true" >> .env
+    echo "DEBUG=false" >> .env
 
     # Setup Systemd Service
     sudo bash -c 'cat > /etc/systemd/system/monoes.service <<SERVICE
