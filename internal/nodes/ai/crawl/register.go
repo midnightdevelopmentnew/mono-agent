@@ -5,11 +5,11 @@ import (
 	"monoagent/internal/workflow"
 )
 
-func RegisterAll(r *workflow.NodeTypeRegistry, cfgClient *cfgpkg.APIClient) {
+func RegisterAll(r *workflow.NodeTypeRegistry, generator *cfgpkg.AgentGenerator) {
 	r.Register("ai.read_page", func() workflow.NodeExecutor {
 		return &ReadPageNode{}
 	})
 	r.Register("ai.extract_page", func() workflow.NodeExecutor {
-		return &ExtractPageNode{CfgClient: cfgClient}
+		return &ExtractPageNode{Generator: generator}
 	})
 }

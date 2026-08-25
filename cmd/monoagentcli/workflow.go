@@ -81,8 +81,7 @@ func buildEngine(cfg *globalConfig, allowAllProfiles bool) (*workflow.WorkflowEn
 
 	cfgLogger := zerolog.New(os.Stderr).Level(zerolog.WarnLevel)
 	cfgStore := cfgpkg.ConfigStore(&cfgpkg.DBConfigStore{DB: db})
-	apiClient := cfgpkg.NewAPIClient(cfgLogger)
-	rawCfgMgr := cfgpkg.NewConfigManager(expandPath("~/.monoagent/configs"), cfgStore, apiClient, cfgLogger)
+	rawCfgMgr := cfgpkg.NewConfigManager(expandPath("~/.monoagent/configs"), cfgStore, cfgLogger)
 	nodes.SetGlobalConfigMgr(&cfgpkg.ConfigManagerAdapter{Mgr: rawCfgMgr})
 
 	sched := scheduler.NewScheduler(logger)

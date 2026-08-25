@@ -8,9 +8,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"monoagent/internal/ai"
 	ainodes "monoagent/internal/ai/nodes"
 	cfgpkg "monoagent/internal/config"
+	agentnodes "monoagent/internal/nodes/agent"
 	"monoagent/internal/nodes"
 	crawlnodes "monoagent/internal/nodes/ai/crawl"
 	"monoagent/internal/nodes/comm"
@@ -26,7 +26,7 @@ import (
 )
 
 // Build creates a registry with all built-in node types registered.
-// If db is non-nil, AI nodes are also registered (they need an AIStore backed by the DB).
+// If db is non-nil, DB-backed node packages get the connection.
 func Build(db *sql.DB) *workflow.NodeTypeRegistry {
 	registry := workflow.NewNodeTypeRegistry()
 	control.RegisterAll(registry)
@@ -39,19 +39,18 @@ func Build(db *sql.DB) *workflow.NodeTypeRegistry {
 	nodes.RegisterBrowserNodes(registry)
 	peoplenodes.RegisterAll(registry, db)
 
-	// Register AI nodes when a database connection is available.
-	if db != nil {
-		store, err := ai.NewAIStore(db)
-		if err == nil {
-			ainodes.RegisterAll(registry, store)
-		}
-	}
+	// Local AI agent nodes (monomind delegation) — no store needed.
+	agentnodes.RegisterAll(registry)
+
+	// Historical ai.* provider nodes are deprecated: fail-fast stubs keep
+	// saved workflows actionable instead of "unknown node type".
+	ainodes.RegisterDeprecated(registry)
 
 	// Image processing nodes (Tier 1)
 	imagenodes.RegisterAll(registry)
 
-	// AI crawl nodes
-	crawlnodes.RegisterAll(registry, cfgpkg.NewAPIClient(zerolog.Nop()))
+	// AI crawl nodes (natural extraction runs on a local agent)
+	crawlnodes.RegisterAll(registry, cfgpkg.NewAgentGenerator(zerolog.Nop()))
 
 	// Register legacy (unprefixed) aliases so old workflows still resolve.
 	for legacy, canonical := range map[string]string{

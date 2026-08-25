@@ -1,0 +1,11 @@
+{
+  "credential_platform": null,
+  "fields": [
+    { "key": "runtime", "label": "Agent Runtime", "type": "text", "required": true, "help": "Locally-installed agent runtime id — claude, codex, kimi, qwen, … (list: monoagentcli agent scan --installed)." },
+    { "key": "prompt", "label": "Prompt", "type": "textarea", "required": true, "rows": 4, "default": "{{$json.text}}", "help": "Supports {{$json.field}} placeholders." },
+    { "key": "model", "label": "Model", "type": "text", "required": false, "help": "Falls back to the runtime's default model." },
+    { "key": "system_prompt", "label": "System Prompt", "type": "textarea", "required": false, "rows": 3 },
+    { "key": "output_key", "label": "Output Key", "type": "text", "required": false, "default": "agent_response" },
+    { "key": "timeout", "label": "Timeout (seconds)", "type": "number", "required": false, "default": 300 }
+  ]
+}

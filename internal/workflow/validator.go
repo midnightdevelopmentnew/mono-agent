@@ -5,6 +5,25 @@ import (
 	"strings"
 )
 
+// DeprecatedNodeTypes lists node types that fail fast with a migration hint
+// (local-agent transition, docs/plans/local-agent-monomind-delegation.md D5).
+// The value is the per-type migration hint.
+var DeprecatedNodeTypes = map[string]string{
+	"ai.chat":      `replace it with the "agent.ask" node (local AI agent via monomind; see "monoagentcli ref nodes agent.ask")`,
+	"ai.extract":   `replace it with the "agent.ask" node whose prompt requests JSON extraction`,
+	"ai.classify":  `replace it with the "agent.ask" node whose prompt requests classification`,
+	"ai.transform": `replace it with the "agent.ask" node`,
+	"ai.agent":     `replace it with the "agent.ask" node`,
+	"ai.embed":     `no local-agent equivalent exists — remove the node, or approximate via an "agent.ask" prompt (no true embeddings API)`,
+}
+
+// IsDeprecatedNodeType reports whether a node type is deprecated, returning
+// its migration hint.
+func IsDeprecatedNodeType(nodeType string) (string, bool) {
+	hint, ok := DeprecatedNodeTypes[nodeType]
+	return hint, ok
+}
+
 // ValidateForSave checks a workflow definition before saving.
 // Returns a descriptive error for each violation (returns first error found).
 // Rules:
@@ -40,10 +59,13 @@ func ValidateForSave(w *Workflow) error {
 		nodeIDs[n.ID] = struct{}{}
 	}
 
-	// No node type may be empty.
+	// No node type may be empty; deprecated ai.* types fail fast with a hint.
 	for _, n := range w.Nodes {
 		if n.Type == "" {
 			return fmt.Errorf("workflow: node %q has empty type", n.ID)
+		}
+		if hint, deprecated := IsDeprecatedNodeType(n.Type); deprecated {
+			return fmt.Errorf("workflow: node %q uses deprecated type %q — %s", n.ID, n.Type, hint)
 		}
 	}
 

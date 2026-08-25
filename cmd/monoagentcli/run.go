@@ -602,11 +602,10 @@ func executeAction(
 		}
 	}
 
-	// Set up config resolution (3-tier: cache -> local/DB/API -> generate).
+	// Set up config resolution (3-tier: cache -> local/DB -> generate via local agent).
 	configLogger := logger.With().Str("component", "config").Logger()
-	apiClient := config.NewAPIClient(configLogger)
 	dbStore := &config.DBConfigStore{DB: db}
-	configMgr := config.NewConfigManager(cfg.ConfigDir, dbStore, apiClient, configLogger)
+	configMgr := config.NewConfigManager(cfg.ConfigDir, dbStore, configLogger)
 	configAdapter := &config.ConfigManagerAdapter{Mgr: configMgr}
 
 	// Create the executor.

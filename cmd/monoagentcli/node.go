@@ -546,8 +546,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					cfgStore = &cfgpkg.DBConfigStore{DB: cfgDB}
 					defer cfgDB.Close()
 				}
-				apiClient := cfgpkg.NewAPIClient(cfgLogger)
-				rawCfgMgr := cfgpkg.NewConfigManager(expandPath("~/.monoagent/configs"), cfgStore, apiClient, cfgLogger)
+				rawCfgMgr := cfgpkg.NewConfigManager(expandPath("~/.monoagent/configs"), cfgStore, cfgLogger)
 				nodes.SetGlobalConfigMgr(&cfgpkg.ConfigManagerAdapter{Mgr: rawCfgMgr})
 			}
 

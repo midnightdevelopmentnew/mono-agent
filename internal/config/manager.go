@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -79,18 +78,19 @@ type ConfigManager struct {
 	forceRefresh  bool
 	configDir     string
 	db            ConfigStore
-	api           *APIClient
+	generator     *AgentGenerator
 	logger        zerolog.Logger
 }
 
 // NewConfigManager creates a ConfigManager that looks for local config files
-// in configDir, persists configs via db, and calls the external API via api.
-func NewConfigManager(configDir string, db ConfigStore, api *APIClient, logger zerolog.Logger) *ConfigManager {
+// in configDir, persists configs via db, and generates new configs with a
+// locally-installed AI agent (via monomind) instead of the removed remote API.
+func NewConfigManager(configDir string, db ConfigStore, logger zerolog.Logger) *ConfigManager {
 	return &ConfigManager{
 		activeConfigs: make(map[string]string),
 		configDir:     configDir,
 		db:            db,
-		api:           api,
+		generator:     NewAgentGenerator(logger),
 		logger:        logger,
 	}
 }
@@ -264,29 +264,19 @@ func (cm *ConfigManager) testLocalConfigs(baseName, htmlContent string) (*Config
 		return cfg, nil
 	}
 
-	// Try the external API's /extracttest endpoint.
-	if cm.api != nil && htmlContent != "" {
-		apiCfg, apiErr := cm.testViaAPI(baseName, htmlContent)
-		if apiErr == nil {
-			return apiCfg, nil
-		}
-		cm.logger.Debug().Err(apiErr).Str("baseName", baseName).Msg("API extracttest failed")
-	}
-
 	return nil, fmt.Errorf(
 		"no valid local config for %q (file: %v, db: %v)",
 		baseName, fileErr, dbErr,
 	)
 }
 
-// generateConfig calls the external API to generate a new config via LLM.
+// generateConfig asks a locally-installed AI agent (via monomind) to
+// generate a new config. Fails fast to cache-only when no monomind/runtime
+// is installed — the caller surfaces it as the Tier-3 error.
 func (cm *ConfigManager) generateConfig(
 	baseName, htmlContent, purpose string,
 	schema map[string]interface{},
 ) (*Config, error) {
-	if cm.api == nil {
-		return nil, fmt.Errorf("no API client configured for generation of %q", baseName)
-	}
 	if htmlContent == "" {
 		return nil, fmt.Errorf("no HTML content for config generation of %q", baseName)
 	}
@@ -296,9 +286,9 @@ func (cm *ConfigManager) generateConfig(
 	}
 
 	ctx := context.Background()
-	raw, err := cm.api.GenerateConfig(ctx, baseName, htmlContent, purpose, schema)
+	raw, err := cm.generator.GenerateConfig(ctx, baseName, htmlContent, purpose, schema)
 	if err != nil {
-		return nil, fmt.Errorf("generate config %q via API: %w", baseName, err)
+		return nil, fmt.Errorf("generate config %q via local agent: %w", baseName, err)
 	}
 
 	cfg, err := parseAPIConfig(raw)
@@ -310,63 +300,6 @@ func (cm *ConfigManager) generateConfig(
 	cfg.ConfigName = strings.TrimSuffix(cfg.ConfigName, ".json")
 
 	// Persist to DB and cache for future lookups.
-	cm.persistAndCache(baseName, cfg)
-	return cfg, nil
-}
-
-// ---------------------------------------------------------------------------
-// API-based config testing (Tier 2 extension)
-// ---------------------------------------------------------------------------
-
-// testViaAPI sends HTML to the API's /extracttest endpoint, picks the best
-// scored candidate, fetches it, and persists it locally.
-func (cm *ConfigManager) testViaAPI(baseName, htmlContent string) (*Config, error) {
-	ctx := context.Background()
-
-	results, err := cm.api.ExtractTest(ctx, baseName, htmlContent)
-	if err != nil {
-		return nil, fmt.Errorf("extracttest for %q: %w", baseName, err)
-	}
-	if len(results) == 0 {
-		return nil, fmt.Errorf("extracttest returned no candidates for %q", baseName)
-	}
-
-	// Sort by fieldsWithValue descending — best candidate first.
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].FieldsWithValue > results[j].FieldsWithValue
-	})
-
-	best := results[0]
-	if best.FieldsWithValue == 0 {
-		return nil, fmt.Errorf("best candidate %q has 0 fields with value", best.ConfigName)
-	}
-
-	cm.logger.Debug().
-		Str("baseName", baseName).
-		Str("bestConfig", best.ConfigName).
-		Int("fieldsWithValue", best.FieldsWithValue).
-		Msg("API extracttest best candidate")
-
-	// Fetch the full config from the API.
-	raw, err := cm.api.GetConfig(ctx, best.ConfigName)
-	if err != nil {
-		return nil, fmt.Errorf("fetch best config %q: %w", best.ConfigName, err)
-	}
-
-	cfg, err := parseAPIConfig(raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse API config %q: %w", best.ConfigName, err)
-	}
-
-	// The GET /configs/{name} endpoint may return bare fields without a
-	// config_name. Use the filename we already know.
-	if cfg.ConfigName == "" {
-		cfg.ConfigName = best.ConfigName
-	}
-	// Normalize: strip .json suffix to avoid double-extension in loadFromFile.
-	cfg.ConfigName = strings.TrimSuffix(cfg.ConfigName, ".json")
-
-	// Persist to DB and cache for future Tier 2 local lookups.
 	cm.persistAndCache(baseName, cfg)
 	return cfg, nil
 }
