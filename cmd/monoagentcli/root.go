@@ -102,6 +102,8 @@ be used — prefer it over guessing from --help output alone.`,
 		newSecretCmd(cfg),
 		newHILCmd(cfg),
 		newAICmd(cfg),
+		newAgentCmd(cfg),
+		newChatCmd(cfg),
 	)
 
 	return cmd

@@ -78,6 +78,13 @@ func (ct *CanvasTools) checkWorkflowOwnership(workflowID string) error {
 	return nil
 }
 
+// CheckWorkflowOwnership is the exported pre-flight for external callers
+// (e.g. the CLI chat command) that want to fail fast when the workflow
+// doesn't exist or belongs to another profile — before spawning a backend.
+func (ct *CanvasTools) CheckWorkflowOwnership(workflowID string) error {
+	return ct.checkWorkflowOwnership(workflowID)
+}
+
 // ToolDefs returns the tool definitions the AI model can call.
 func (ct *CanvasTools) ToolDefs() []ai.ToolDef {
 	return []ai.ToolDef{

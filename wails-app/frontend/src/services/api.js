@@ -104,6 +104,10 @@ export const api = {
   stopAIChat:         (workflowID) => GoApp.StopAIChat(workflowID).then(s => JSON.parse(s)).catch(guard('stop AI chat', null)),
   getAIChatHistory:   (workflowID) => GoApp.GetAIChatHistory(workflowID).then(s => JSON.parse(s)).catch(guard('chat history', [])),
   clearAIChatHistory: (workflowID) => GoApp.ClearAIChatHistory(workflowID).then(s => JSON.parse(s)),
+  // Agent Chat (monomind delegation — local AI agent runtimes)
+  scanAgentRuntimes:  () => GoApp.ScanAgentRuntimes().then(s => JSON.parse(s)).catch(guard('scan agent runtimes', null)),
+  streamAgentChat:    (workflowID, message, runtime, model) => GoApp.StreamAgentChat(workflowID, message, runtime, model).then(s => JSON.parse(s)),
+  stopAgentChat:      (workflowID) => GoApp.StopAgentChat(workflowID).then(s => JSON.parse(s)).catch(guard('stop agent chat', null)),
 }
 
 export function onLogEntry(callback) {

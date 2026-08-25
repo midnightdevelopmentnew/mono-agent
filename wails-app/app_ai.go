@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
+	"strings"
 	"time"
 
-	"monoagent/internal/ai"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"monoagent/internal/ai"
+	"monoagent/internal/monomind"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -236,3 +240,189 @@ func (a *App) GetRunLogs(limit int) []LogEntry {
 	return out
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent chat (monomind delegation — Agent Exec Protocol)
+//
+// The in-process provider chat above remains during the parallel-run window;
+// these bindings are the doctrine-compliant replacement: the UI is a runner
+// of `monoagentcli chat`, whose NDJSON stdout IS the stream contract.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ScanAgentRuntimes detects installed agent runtimes through the monomind
+// engine. Returns JSON {v, agents} or {error} with the actionable install
+// hint when monomind itself is missing.
+func (a *App) ScanAgentRuntimes() string {
+	ctx, cancel := context.WithTimeout(a.ctx, 90*time.Second)
+	defer cancel()
+	res, err := monomind.Scan(ctx)
+	if err != nil {
+		return aiError(err)
+	}
+	b, _ := json.Marshal(res)
+	return string(b)
+}
+
+// StreamAgentChat runs one canvas-builder chat turn through the locally
+// installed agent runtime. Emits the same ai:chunk/ai:tool/ai:error events
+// as the provider chat (frontend-compatible), plus agent:session carrying
+// the resumable session id.
+func (a *App) StreamAgentChat(workflowID, message, agentRuntime, model string) string {
+	cliBin, err := findMonoAgentCLI()
+	if err != nil {
+		return aiError(err)
+	}
+	args := []string{"--profile", a.getActiveProfileID(), "chat",
+		"--runtime", agentRuntime, "--canvas", workflowID}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	args = append(args, message)
+
+	cmd := exec.Command(cliBin, args...)
+	setChatProcessGroup(cmd)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return aiError(err)
+	}
+	cmd.Stderr = a.chatLogWriter()
+	if err := cmd.Start(); err != nil {
+		return aiError(fmt.Errorf("start chat: %w", err))
+	}
+
+	// Supersede any in-flight agent chat for this workflow.
+	a.runningMu.Lock()
+	if prev, ok := a.runningCmds["chat:"+workflowID]; ok {
+		killChatProcessGroup(prev)
+		delete(a.runningCmds, "chat:"+workflowID)
+	}
+	a.runningCmds["chat:"+workflowID] = cmd
+	a.runningMu.Unlock()
+
+	go func() {
+		defer func() {
+			a.runningMu.Lock()
+			delete(a.runningCmds, "chat:"+workflowID)
+			a.runningMu.Unlock()
+		}()
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		sawDone := false
+		for sc.Scan() {
+			line := sc.Bytes()
+			if len(line) == 0 || line[0] != '{' {
+				continue
+			}
+			var ev struct {
+				Type      string `json:"type"`
+				Text      string `json:"text"`
+				SessionID string `json:"session_id"`
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				Code      string `json:"code"`
+				Message   string `json:"message"`
+				Fatal     bool   `json:"fatal"`
+			}
+			if json.Unmarshal(line, &ev) != nil {
+				continue
+			}
+			switch ev.Type {
+			case "assistant":
+				runtime.EventsEmit(a.ctx, "ai:chunk", map[string]interface{}{
+					"workflowID": workflowID,
+					"content":    ev.Text,
+					"done":       false,
+				})
+			case "session":
+				runtime.EventsEmit(a.ctx, "agent:session", map[string]interface{}{
+					"workflowID": workflowID,
+					"session_id": ev.SessionID,
+					"runtime":    agentRuntime,
+				})
+			case "tool_call":
+				runtime.EventsEmit(a.ctx, "ai:tool", map[string]interface{}{
+					"workflowID": workflowID,
+					"tool":       ev.Name,
+					"args":       string(line),
+					"result":     "",
+					"pending":    true,
+				})
+			case "tool_result":
+				runtime.EventsEmit(a.ctx, "ai:tool", map[string]interface{}{
+					"workflowID": workflowID,
+					"tool":       ev.Name,
+					"result":     ev.Text,
+					"call_id":    ev.ID,
+				})
+			case "error":
+				runtime.EventsEmit(a.ctx, "ai:error", map[string]interface{}{
+					"workflowID": workflowID,
+					"error":      ev.Message,
+					"code":       ev.Code,
+					"fatal":      ev.Fatal,
+				})
+			case "done":
+				sawDone = true
+			}
+		}
+		_ = cmd.Wait()
+		runtime.EventsEmit(a.ctx, "ai:chunk", map[string]interface{}{
+			"workflowID": workflowID,
+			"content":    "",
+			"done":       true,
+		})
+		if !sawDone {
+			a.emitLog("AI", "WARN", "agent chat stream ended without a done event")
+		}
+	}()
+	return `{"ok":true}`
+}
+
+// StopAgentChat kills the in-flight agent chat subprocess tree for a workflow.
+func (a *App) StopAgentChat(workflowID string) string {
+	a.runningMu.Lock()
+	cmd, ok := a.runningCmds["chat:"+workflowID]
+	if ok {
+		delete(a.runningCmds, "chat:"+workflowID)
+	}
+	a.runningMu.Unlock()
+	if !ok {
+		return `{"ok":false,"error":"no active agent chat"}`
+	}
+	killChatProcessGroup(cmd)
+	return `{"ok":true}`
+}
+
+// chatLogWriter sinks the chat CLI's stderr into the UI log pane.
+func (a *App) chatLogWriter() *chatLogPipe {
+	return &chatLogPipe{app: a}
+}
+
+type chatLogPipe struct {
+	app *App
+	buf []byte
+}
+
+func (p *chatLogPipe) Write(b []byte) (int, error) {
+	p.buf = append(p.buf, b...)
+	for {
+		i := indexOfByte(p.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimSpace(string(p.buf[:i]))
+		p.buf = p.buf[i+1:]
+		if line != "" {
+			p.app.emitLog("AI", "INFO", line)
+		}
+	}
+	return len(b), nil
+}
+
+func indexOfByte(b []byte, c byte) int {
+	for i, x := range b {
+		if x == c {
+			return i
+		}
+	}
+	return -1
+}

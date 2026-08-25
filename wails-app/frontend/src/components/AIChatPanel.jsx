@@ -115,10 +115,27 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
   const [providers, setProviders]           = useState([])
   const [selectedProvider, setSelectedProvider] = useState('')
   const [selectedModel, setSelectedModel]   = useState('')
+  const [runtimes, setRuntimes]             = useState([])
+  const [selectedRuntime, setSelectedRuntime] = useState('')
+  const [useAgents, setUseAgents]           = useState(false)
+  const [monomindMissing, setMonomindMissing] = useState(false)
 
   const messagesEndRef   = useRef(null)
   const textareaRef      = useRef(null)
   const createdWfIdRef   = useRef(null)
+
+  // ── Load local agent runtimes on mount (monomind delegation) ───────────
+  useEffect(() => {
+    api.scanAgentRuntimes().then(res => {
+      if (!res || res.error) { setMonomindMissing(true); return }
+      const installed = (res.agents || []).filter(a => a.installed)
+      setRuntimes(installed)
+      if (installed.length > 0) {
+        setSelectedRuntime(installed[0].id)
+        setUseAgents(true) // prefer local agents when any is installed
+      }
+    })
+  }, [])
 
   // ── Load providers on mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -237,7 +254,9 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
   // ── Send message ────────────────────────────────────────────────────────
   const send = useCallback(async () => {
     const text = input.trim()
-    if (!text || streaming || !workflowID || !selectedProvider) return
+    if (!text || streaming || !workflowID) return
+    if (useAgents && !selectedRuntime) return
+    if (!useAgents && !selectedProvider) return
 
     setMessages(msgs => [...msgs, { role: 'user', content: text }])
     setInput('')
@@ -246,7 +265,11 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
     setCurrentToolCalls([])
 
     try {
-      await api.streamAIChat(workflowID, text, selectedProvider, selectedModel)
+      if (useAgents) {
+        await api.streamAgentChat(workflowID, text, selectedRuntime, selectedModel)
+      } else {
+        await api.streamAIChat(workflowID, text, selectedProvider, selectedModel)
+      }
     } catch (err) {
       setStreaming(false)
       setMessages(msgs => [
@@ -254,14 +277,18 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
         { role: 'error', content: String(err) },
       ])
     }
-  }, [input, streaming, workflowID, selectedProvider, selectedModel])
+  }, [input, streaming, workflowID, useAgents, selectedRuntime, selectedProvider, selectedModel])
 
   // ── Stop an in-flight stream ──────────────────────────────────────────────
   const stop = useCallback(async () => {
     if (!workflowID) return
-    await api.stopAIChat(workflowID)
+    if (useAgents) {
+      await api.stopAgentChat(workflowID)
+    } else {
+      await api.stopAIChat(workflowID)
+    }
     setStreaming(false)
-  }, [workflowID])
+  }, [workflowID, useAgents])
 
   // ── Clear history ───────────────────────────────────────────────────────
   const clearHistory = useCallback(async () => {
@@ -339,32 +366,78 @@ export default function AIChatPanel({ workflowID, isOpen, onClose, onWorkflowCre
         </button>
       </div>
 
-      {/* ── Provider / Model selectors ── */}
+      {/* ── Runtime / Provider / Model selectors ── */}
       <div style={{
         padding: '8px 12px',
         borderBottom: '1px solid rgba(0,180,216,0.06)',
         display: 'flex', gap: 6,
         flexShrink: 0,
       }}>
-        <select
-          value={selectedProvider}
-          onChange={handleProviderChange}
-          style={{
-            flex: 1,
-            background: '#020509',
-            border: '1px solid rgba(0,180,216,0.15)',
-            borderRadius: 6,
-            padding: '4px 8px',
-            color: '#e2e8f0',
-            fontFamily: 'var(--font-mono)', fontSize: 10,
-            outline: 'none',
-          }}
-        >
-          {providers.length === 0 && <option value="">No providers</option>}
-          {providers.map(p => (
-            <option key={p.id} value={String(p.id)}>{p.name}</option>
-          ))}
-        </select>
+        {(runtimes.length > 0 || providers.length > 0) && (
+          <select
+            value={useAgents ? 'agents' : 'providers'}
+            onChange={e => setUseAgents(e.target.value === 'agents')}
+            title="Chat backend"
+            style={{
+              background: '#020509',
+              border: '1px solid rgba(0,180,216,0.15)',
+              borderRadius: 6,
+              padding: '4px 6px',
+              color: '#e2e8f0',
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              outline: 'none',
+            }}
+          >
+            {runtimes.length > 0 && <option value="agents">agents</option>}
+            {providers.length > 0 && <option value="providers">providers</option>}
+          </select>
+        )}
+        {useAgents ? (
+          <select
+            value={selectedRuntime}
+            onChange={e => setSelectedRuntime(e.target.value)}
+            title="Locally installed AI agent (via monomind)"
+            style={{
+              flex: 1,
+              background: '#020509',
+              border: '1px solid rgba(0,180,216,0.15)',
+              borderRadius: 6,
+              padding: '4px 8px',
+              color: '#e2e8f0',
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              outline: 'none',
+            }}
+          >
+            {runtimes.length === 0 && (
+              <option value="">
+                {monomindMissing ? 'monomind missing — npm i -g @monoes/monomindcli' : 'No agent runtimes'}
+              </option>
+            )}
+            {runtimes.map(r => (
+              <option key={r.id} value={r.id}>{r.id}</option>
+            ))}
+          </select>
+        ) : (
+          <select
+            value={selectedProvider}
+            onChange={handleProviderChange}
+            style={{
+              flex: 1,
+              background: '#020509',
+              border: '1px solid rgba(0,180,216,0.15)',
+              borderRadius: 6,
+              padding: '4px 8px',
+              color: '#e2e8f0',
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              outline: 'none',
+            }}
+          >
+            {providers.length === 0 && <option value="">No providers</option>}
+            {providers.map(p => (
+              <option key={p.id} value={String(p.id)}>{p.name}</option>
+            ))}
+          </select>
+        )}
         <input
           type="text"
           value={selectedModel}
