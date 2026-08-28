@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -193,31 +194,39 @@ func (a *App) CreateWorkflowFromTemplate(templateID string) (*WorkflowSummary, e
 }
 
 func (a *App) ListWorkflows() ([]WorkflowSummary, error) {
-	if a.db == nil {
-		return nil, fmt.Errorf("database not available")
+	// Read through the hybrid store, NOT raw SQL. SetWorkflowActive writes the
+	// active flag through a.wfStore, which prefers the JSON file store, while
+	// this listing used to SELECT is_active straight out of SQLite. The two
+	// diverge the moment anything is toggled or edited from the CLI, and the
+	// GUI then shows an active workflow as switched off forever -- observed
+	// 2026-08-28 with four scheduled workflows displaying as off while the
+	// daemon was running all of them on cron. A stale toggle is worse than a
+	// missing one: switching an "off" workflow on is harmless, but the same
+	// staleness can present a running workflow as off and invite a click that
+	// genuinely deactivates it.
+	if a.wfStore == nil {
+		return nil, fmt.Errorf("workflow store not available")
 	}
-	rows, err := a.db.Query(`SELECT id, name, COALESCE(description,''), is_active, version,
-	                                 COALESCE(created_at,''), COALESCE(updated_at,'')
-	                          FROM workflows
-	                          WHERE profile_id = ?
-	                          ORDER BY updated_at DESC`, a.getActiveProfileID())
+	wfs, err := a.wfStore.ListWorkflows(context.Background(), a.getActiveProfileID())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var summaries []WorkflowSummary
-	for rows.Next() {
-		var s WorkflowSummary
-		var isActive int
-		if rows.Scan(&s.ID, &s.Name, &s.Description, &isActive, &s.Version, &s.CreatedAt, &s.UpdatedAt) == nil {
-			s.IsActive = isActive == 1
-			summaries = append(summaries, s)
-		}
+	summaries := make([]WorkflowSummary, 0, len(wfs))
+	for _, wf := range wfs {
+		summaries = append(summaries, WorkflowSummary{
+			ID:          wf.ID,
+			Name:        wf.Name,
+			Description: wf.Description,
+			IsActive:    wf.IsActive,
+			Version:     wf.Version,
+			CreatedAt:   wf.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:   wf.UpdatedAt.Format(time.RFC3339),
+		})
 	}
-	if summaries == nil {
-		summaries = []WorkflowSummary{}
-	}
-	return summaries, rows.Err()
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].UpdatedAt > summaries[j].UpdatedAt
+	})
+	return summaries, nil
 }
 
 func (a *App) GetWorkflow(id string) (*WorkflowDetail, error) {
