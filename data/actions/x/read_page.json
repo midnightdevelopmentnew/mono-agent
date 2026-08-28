@@ -1,0 +1,15 @@
+{
+  "actionType": "read_page",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Read the visible text of any web page. Read-only, no interaction.",
+  "metadata": { "requiresAuth": false, "supportsPagination": false, "supportsRetry": false },
+  "inputs": { "required": ["url"], "optional": [] },
+  "outputs": { "success": ["body"], "failure": ["error"] },
+  "steps": [
+    { "id": "goto", "type": "navigate", "url": "{{url}}", "waitFor": "page_load", "timeout": 30 },
+    { "id": "settle", "type": "wait", "duration": 8.0, "waitFor": "time" },
+    { "id": "body", "type": "eval", "text": "(function(){var t=document.body?document.body.innerText:'';return (document.title||'')+' ||| '+t.replace(/\\n{2,}/g,'\\n').slice(0,3000)})()" }
+  ],
+  "errorHandling": { "onFinalFailure": "log_and_continue" }
+}

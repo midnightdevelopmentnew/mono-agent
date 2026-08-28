@@ -1,0 +1,39 @@
+{
+  "platform": "chatgpt",
+  "name": "inspect_image_ui",
+  "description": "Read-only: open ChatGPT and report the controls around the most recent image. Generates nothing.",
+  "steps": [
+    {
+      "id": "navigate",
+      "type": "navigate",
+      "url": "https://chatgpt.com/",
+      "waitFor": "page_load",
+      "timeout": 45
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 9,
+      "_units": "SECONDS. steps.go: time.Duration(d * float64(time.Second))"
+    },
+    {
+      "id": "probe",
+      "type": "eval",
+      "variable_name": "uiProbe",
+      "_note": "Hover/menu controls only exist once the image container is hovered, so this also opens any menu it can find and re-reads the labels.",
+      "text": "(function(){var out={imgs:0,controls:[],menu:[],hrefs:[]};var im=[].slice.call(document.querySelectorAll('img')).filter(function(i){return i.naturalWidth>=512;});out.imgs=im.length;if(!im.length)return JSON.stringify(out);var img=im[im.length-1];var box=img.closest('div');for(var k=0;k<6&&box&&box.parentElement;k++){box=box.parentElement;}var ev=function(el,t){try{el.dispatchEvent(new MouseEvent(t,{bubbles:true}));}catch(e){}};ev(img,'mouseover');ev(img,'mouseenter');if(box){ev(box,'mouseover');ev(box,'mouseenter');}var grab=function(root){var r=[];[].slice.call(root.querySelectorAll('button,a,[role=\"button\"],[role=\"menuitem\"]')).forEach(function(x){var l=(x.getAttribute('aria-label')||x.title||x.textContent||'').trim();if(l&&l.length<70)r.push(l);if(x.tagName==='A'&&x.href)out.hrefs.push(x.href.slice(0,120));});return r;};out.controls=grab(box||document).slice(-30);var more=(box||document).querySelector('[aria-label*=\"More\" i],[data-testid*=\"more\" i]');if(more){more.click();}return JSON.stringify(out);})()"
+    },
+    {
+      "id": "after_menu",
+      "type": "wait",
+      "duration": 2,
+      "_units": "SECONDS. steps.go: time.Duration(d * float64(time.Second))"
+    },
+    {
+      "id": "probe_menu",
+      "type": "eval",
+      "variable_name": "menuProbe",
+      "text": "(function(){var r=[];[].slice.call(document.querySelectorAll('[role=\"menuitem\"],[role=\"menu\"] button,[data-radix-popper-content-wrapper] button,[data-radix-popper-content-wrapper] a')).forEach(function(x){var l=(x.getAttribute('aria-label')||x.title||x.textContent||'').trim();if(l&&l.length<70)r.push(l);});return JSON.stringify({menuItems:r.slice(0,40)});})()"
+    }
+  ]
+}

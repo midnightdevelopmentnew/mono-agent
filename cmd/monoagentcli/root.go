@@ -95,6 +95,7 @@ be used — prefer it over guessing from --help output alone.`,
 		newUpdateCmd(),
 		newWorkflowCmd(cfg),
 		newDaemonCmd(cfg),
+		newBridgeCmd(cfg),
 		newNodeCmd(cfg),
 		newConnectCmd(cfg),
 		newRefCmd(),
@@ -175,6 +176,9 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 		}
 		cfg.ProfileID = resolved
 	}
+	// Each profile drives its own browser, so the extension bridge must listen
+	// on a per-profile port — see configureExtensionPort in node.go.
+	configureExtensionPort(cfg.ProfileID)
 	return db, nil
 }
 

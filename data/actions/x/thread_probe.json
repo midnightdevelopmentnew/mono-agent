@@ -1,0 +1,70 @@
+{
+  "actionType": "thread_probe",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Diagnostic: build a 2-part thread in the composer, confirm both boxes filled, then clear. Never clicks Post.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [
+      "url"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [
+      "probe"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "{{url}}",
+      "waitFor": "page_load",
+      "timeout": 30
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 6.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_caret",
+      "type": "find_element",
+      "xpath": "(//article[@data-testid='tweet']//*[@data-testid='caret'])[1]",
+      "timeout": 20
+    },
+    {
+      "id": "click_caret",
+      "type": "click",
+      "elementRef": "find_caret"
+    },
+    {
+      "id": "w",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "menu",
+      "type": "eval",
+      "text": "(function(){var out=[];document.querySelectorAll('[role=\"menuitem\"]').forEach(function(e){out.push((e.getAttribute('data-testid')||'-')+'~'+(e.innerText||'').trim().slice(0,22))});return 'items='+out.length+' | '+out.join(' || ')})()"
+    },
+    {
+      "id": "esc",
+      "type": "eval",
+      "text": "(function(){document.body.click();return 'dismissed'})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "log_and_continue"
+  }
+}

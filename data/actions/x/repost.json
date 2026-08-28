@@ -1,0 +1,143 @@
+{
+  "actionType": "repost",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Repost a post, or quote it with your own text. mode=repost or mode=quote.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [
+      "url",
+      "mode"
+    ],
+    "optional": [
+      "text"
+    ]
+  },
+  "outputs": {
+    "success": [],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "{{url}}",
+      "waitFor": "page_load",
+      "timeout": 30
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 6.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_rt",
+      "type": "find_element",
+      "xpath": "(//article[@data-testid='tweet']//*[@data-testid='retweet'])[1]",
+      "timeout": 20
+    },
+    {
+      "id": "click_rt",
+      "type": "click",
+      "elementRef": "find_rt"
+    },
+    {
+      "id": "wait_menu",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "is_quote",
+      "type": "condition",
+      "condition": "mode == 'quote'",
+      "then": [
+        "click_quote",
+        "wait_composer",
+        "find_qbox",
+        "type_quote",
+        "settle_q",
+        "verify_q",
+        "find_qsend",
+        "click_qsend"
+      ],
+      "else": [
+        "click_repost"
+      ]
+    },
+    {
+      "id": "click_repost",
+      "type": "click",
+      "xpath": "//*[@data-testid='retweetConfirm']",
+      "timeout": 10
+    },
+    {
+      "id": "click_quote",
+      "type": "click",
+      "xpath": "//*[@role='menuitem'][.//span[text()='Quote']] | //*[@role='menuitem'][contains(.,'Quote')]",
+      "timeout": 10
+    },
+    {
+      "id": "wait_composer",
+      "type": "wait",
+      "duration": 4.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_qbox",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//div[@contenteditable='true' and @data-testid='tweetTextarea_0']",
+      "timeout": 15
+    },
+    {
+      "id": "type_quote",
+      "type": "type",
+      "elementRef": "find_qbox",
+      "text": "{{text}}",
+      "humanLike": true
+    },
+    {
+      "id": "settle_q",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "verify_q",
+      "type": "eval",
+      "text": "(function(){var dg=document.querySelector('[role=\"dialog\"]');var e=dg&&dg.querySelector('[data-testid=\"tweetTextarea_0\"]');return 'typed=['+(e?e.innerText.trim().slice(0,40):'EMPTY')+']'})()"
+    },
+    {
+      "id": "find_qsend",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//*[@data-testid='tweetButton']",
+      "timeout": 15
+    },
+    {
+      "id": "click_qsend",
+      "type": "click",
+      "elementRef": "find_qsend"
+    },
+    {
+      "id": "settle2",
+      "type": "wait",
+      "duration": 4.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "confirm",
+      "type": "eval",
+      "text": "(function(){var b=document.querySelector('[data-testid=\"unretweet\"]');var dg=document.querySelector('[role=\"dialog\"]');return 'reposted='+(!!b)+' dialogOpen='+(!!dg)})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "abort"
+  }
+}

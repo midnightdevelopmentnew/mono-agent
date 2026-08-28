@@ -1,0 +1,8 @@
+{"actionType":"claude_probe","platform":"x","version":"1.0.0","description":"probe claude.ai DOM",
+ "metadata":{"requiresAuth":true,"supportsPagination":false,"supportsRetry":false},
+ "inputs":{"required":[],"optional":[]},"outputs":{"success":["chk"],"failure":["error"]},
+ "steps":[
+  {"id":"goto","type":"navigate","url":"https://claude.ai/new","waitFor":"page_load","timeout":40},
+  {"id":"settle","type":"wait","duration":10.0,"waitFor":"time"},
+  {"id":"chk","type":"eval","text":"(function(){var b=document.body?document.body.innerText:'';var loggedOut=/log in|sign up|continue with google/i.test(b.slice(0,400));var ce=document.querySelectorAll('div[contenteditable=\"true\"]');var pm=document.querySelectorAll('.ProseMirror');var send=[];document.querySelectorAll('button').forEach(function(x){var al=x.getAttribute('aria-label')||'';if(/send|submit/i.test(al))send.push(al)});return 'url='+location.href.slice(0,50)+' | loggedOut='+loggedOut+' | contenteditable='+ce.length+' | proseMirror='+pm.length+' | sendBtns=['+send.slice(0,4).join(',')+'] | head='+b.slice(0,90).replace(/\\n/g,' / ')})()"}
+ ],"errorHandling":{"onFinalFailure":"log_and_continue"}}

@@ -134,3 +134,38 @@ func TestHandleRelayAcceptsMatchingValue(t *testing.T) {
 		t.Fatalf("matching value was rejected as unauthorized")
 	}
 }
+
+// TestTokenPathIsProfileScoped pins the fix for the 2026-08-22 outage: bridge
+// ports are per-profile, so two profiles can each win a bind, but the token
+// file was a single global path. The second bridge to start overwrote the
+// first's secret and every relay call on the first profile began returning
+// "unauthorized" — which surfaced to the caller as a JSON decode error,
+// because "unauthorized" is not JSON.
+func TestTokenPathIsProfileScoped(t *testing.T) {
+	orig := tokenProfile
+	defer SetTokenProfile(orig)
+
+	SetTokenProfile("default")
+	def, err := tokenPath()
+	if err != nil {
+		t.Fatalf("default profile: %v", err)
+	}
+
+	SetTokenProfile("")
+	empty, err := tokenPath()
+	if err != nil {
+		t.Fatalf("empty profile: %v", err)
+	}
+	if empty != def {
+		t.Errorf("empty profile must keep the legacy path: got %q want %q", empty, def)
+	}
+
+	SetTokenProfile("linkedin-management")
+	other, err := tokenPath()
+	if err != nil {
+		t.Fatalf("named profile: %v", err)
+	}
+	if other == def {
+		t.Fatalf("linkedin-management shares the default profile's token file (%q): starting one bridge locks the other out", other)
+	}
+}

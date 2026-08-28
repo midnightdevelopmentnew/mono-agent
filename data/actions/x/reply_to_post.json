@@ -1,0 +1,105 @@
+{
+  "actionType": "reply_to_post",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Comment on a post by URL. Opens the post, clicks its reply control to get the focused modal composer, types and sends.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [
+      "url",
+      "text"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "{{url}}",
+      "waitFor": "page_load",
+      "timeout": 30
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 6.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_reply_btn",
+      "type": "find_element",
+      "xpath": "(//article[@data-testid='tweet']//*[@data-testid='reply'])[1]",
+      "timeout": 20
+    },
+    {
+      "id": "click_reply_btn",
+      "type": "click",
+      "elementRef": "find_reply_btn"
+    },
+    {
+      "id": "wait_modal",
+      "type": "wait",
+      "duration": 4.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_modal_box",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//div[@contenteditable='true' and @data-testid='tweetTextarea_0']",
+      "timeout": 15
+    },
+    {
+      "id": "type_reply",
+      "type": "type",
+      "elementRef": "find_modal_box",
+      "text": "{{text}}",
+      "humanLike": true
+    },
+    {
+      "id": "settle2",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "verify_typed",
+      "type": "eval",
+      "text": "(function(){var dg=document.querySelector('[role=\"dialog\"]');var e=dg&&dg.querySelector('[data-testid=\"tweetTextarea_0\"]');return 'typed=['+(e?e.innerText.trim().slice(0,40):'EMPTY')+']'})()"
+    },
+    {
+      "id": "find_send",
+      "type": "find_element",
+      "xpath": "//div[@role='dialog']//*[@data-testid='tweetButton']",
+      "timeout": 15
+    },
+    {
+      "id": "click_send",
+      "type": "click",
+      "elementRef": "find_send"
+    },
+    {
+      "id": "settle3",
+      "type": "wait",
+      "duration": 5.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "confirm",
+      "type": "eval",
+      "text": "(function(){var dg=document.querySelector('[role=\"dialog\"]');return 'dialogStillOpen='+(!!dg)+' url='+location.pathname.slice(0,50)})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "abort"
+  }
+}

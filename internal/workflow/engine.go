@@ -565,6 +565,25 @@ func (e *WorkflowEngine) SaveWorkflow(ctx context.Context, w *Workflow) error {
 		if err := e.store.SetWorkflowActive(ctx, w.ID, false); err != nil {
 			return fmt.Errorf("engine: save workflow: deactivate: %w", err)
 		}
+		// Reactivate on EVERY return path, not just the successful one. A
+		// failure between here and the end of the save used to leave the
+		// workflow switched off permanently, and silently: the only symptom is
+		// a debug-level "workflow is not active, ignoring trigger" each time
+		// its cron fires. A scheduled workflow was found switched off this way
+		// after quietly failing to run for a day, and this is the class of bug
+		// that produces exactly that.
+		//
+		// Detached context because the caller's may already be cancelled;
+		// restoring the active flag has to happen regardless. Same pattern as
+		// the execution persistence above.
+		defer func() {
+			restoreCtx, restoreCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer restoreCancel()
+			if aerr := e.ActivateWorkflow(restoreCtx, w.ID); aerr != nil {
+				e.logger.Error().Err(aerr).Str("workflow_id", w.ID).
+					Msg("engine: save workflow: reactivate FAILED, workflow left inactive and will not run")
+			}
+		}()
 	}
 
 	// Preserve the active flag from the existing record; caller controls it
@@ -581,12 +600,8 @@ func (e *WorkflowEngine) SaveWorkflow(ctx context.Context, w *Workflow) error {
 		return fmt.Errorf("engine: save workflow: save connections: %w", err)
 	}
 
-	// Reactivate if it was active before the save.
-	if wasActive {
-		if err := e.ActivateWorkflow(ctx, w.ID); err != nil {
-			return fmt.Errorf("engine: save workflow: reactivate: %w", err)
-		}
-	}
+	// Reactivation is handled by the deferred restore registered above, so it
+	// runs on the error paths too.
 
 	e.logger.Info().Str("workflow_id", w.ID).Msg("engine: workflow saved")
 	return nil

@@ -1,0 +1,16 @@
+{
+  "actionType": "profile_stats",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Read follower / following / post counts from a profile. Read-only.",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": { "required": ["handle"], "optional": [] },
+  "outputs": { "success": ["stats"], "failure": ["error"] },
+  "steps": [
+    { "id": "goto", "type": "navigate", "url": "https://x.com/{{handle}}", "waitFor": "page_load", "timeout": 30 },
+    { "id": "settle", "type": "wait", "duration": 7.0, "waitFor": "time" },
+    { "id": "stats", "type": "eval",
+      "text": "(function(){var o={};document.querySelectorAll('a[href$=\"/verified_followers\"],a[href$=\"/followers\"],a[href$=\"/following\"]').forEach(function(a){var h=a.getAttribute('href')||'';var t=(a.innerText||'').trim().split('\\n')[0];if(/verified_followers$|\\/followers$/.test(h)&&!o.followers)o.followers=t;if(/\\/following$/.test(h)&&!o.following)o.following=t;});var n=document.querySelector('[data-testid=\"primaryColumn\"]');var m=n?(n.innerText.match(/([\\d.,KM]+)\\s+posts/i)||[])[1]:null;o.posts=m||null;o.handle=location.pathname.replace('/','');return JSON.stringify(o)})()" }
+  ],
+  "errorHandling": { "onFinalFailure": "log_and_continue" }
+}

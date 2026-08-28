@@ -36,6 +36,18 @@
       "timeout": 15
     },
     {
+      "id": "clear_composer",
+      "type": "eval",
+      "description": "X keeps BOTH unsent text and attached media in the composer. Text-only clearing once left a stale test image attached while the autopilot was live \u2014 any leftover attachment must be removed too, or a scheduled post ships someone else's picture.",
+      "text": "(function(){var out=[];var el=document.querySelector('[data-testid^=\"tweetTextarea\"]');if(el){el.focus();document.execCommand('selectAll',false,null);document.execCommand('delete',false,null);out.push('text-cleared');}else{out.push('no-composer');}var removed=0;for(var i=0;i<8;i++){var b=document.querySelector('[data-testid=\"attachments\"] [aria-label*=\"Remove\" i], [data-testid=\"removeMedia\"], [aria-label=\"Remove media\"]');if(!b)break;b.click();removed++;}out.push('media-removed='+removed);return out.join(' ');})()"
+    },
+    {
+      "id": "after_clear",
+      "type": "wait",
+      "description": "let X tear down any removed attachment preview",
+      "duration": 2
+    },
+    {
       "id": "type_tweet",
       "type": "type",
       "elementRef": "find_tweet_input",
@@ -43,29 +55,56 @@
       "humanLike": true
     },
     {
+      "id": "after_type",
+      "type": "wait",
+      "duration": 4,
+      "_note": "Typing is not awaited: on 2026-08-25 type_tweet and click_tweet logged in the SAME second for a 267-char post, so Post was clicked against an empty composer and X silently did nothing. This wait is the fix.\nA verify_composer eval was added alongside it and HUNG every publish from 07:30 on 2026-08-26 -- five stuck processes, nothing posted all morning. An eval step immediately after a wait step hangs in this browser path; the same shape hung three ChatGPT probes. Removed. Do not re-add an eval here without proving that pattern works.",
+      "_units": "SECONDS. steps.go: time.Duration(d * float64(time.Second))"
+    },
+    {
       "id": "check_has_media",
       "type": "condition",
       "condition": "media.length > 0",
       "then": [
-        "upload_media"
+        "upload_media",
+        "click_upload",
+        "wait_for_media"
       ],
-      "else": []
+      "else": [],
+      "_note": "Works for a string too: a string's .length is its character count."
     },
     {
       "id": "upload_media",
       "type": "find_element",
-      "xpath": "//input[@type='file'] | //button[contains(@aria-label, 'Media')]",
+      "description": "X's composer keeps a hidden file input; set files on it directly rather than clicking, which would open a native dialog automation cannot fill.",
+      "xpath": "//input[@type='file'][contains(@accept,'image')] | //input[@type='file']",
       "timeout": 10
     },
     {
       "id": "click_upload",
-      "type": "click",
-      "elementRef": "upload_media"
+      "type": "upload",
+      "elementRef": "upload_media",
+      "text": "{{media}}",
+      "_note": "media must be a STRING path, NOT an array. {{media}} renders an array as its literal form, so [\"/path.png\"] reached set_files as the single bogus path \"[/path.png]\" and X silently attached nothing -- the post went out text-only with no error. Verified 2026-08-26: a string path gives files:[\"/path.png\"] and check_button reports media-2."
+    },
+    {
+      "id": "wait_for_media",
+      "type": "wait",
+      "description": "X uploads and renders a preview before the Post button becomes usable.",
+      "duration": 20,
+      "_note": "X processes an attached image before enabling Post. 10s was not enough for a 1.6MB file."
+    },
+    {
+      "id": "check_button",
+      "type": "eval",
+      "variable_name": "buttonState",
+      "_note": "Report whether Post is actually enabled. A disabled button swallows the click silently, which is the whole silent-publish failure mode.",
+      "text": "(function(){var b=document.querySelector('[data-testid=\"tweetButtonInline\"]')||document.querySelector('[data-testid=\"tweetButton\"]');if(!b)return 'no-post-button';var dis=b.getAttribute('aria-disabled')==='true'||b.disabled===true;var c=document.querySelector('div[data-testid=\"tweetTextarea_0\"]');var media=document.querySelectorAll('[data-testid=\"attachments\"] img,[aria-label*=\"Remove media\" i]').length;return 'post-'+(dis?'DISABLED':'enabled')+' chars-'+((c&&(c.innerText||'').trim().length)||0)+' media-'+media;})()"
     },
     {
       "id": "find_tweet_button",
       "type": "find_element",
-      "xpath": "//button[@data-testid='tweetButton'] | //button[contains(text(), 'Post')]",
+      "xpath": "//button[@data-testid='tweetButtonInline'] | //button[@data-testid='tweetButton'] | //div[@role='button'][@data-testid='tweetButtonInline'] | //div[@role='button'][@data-testid='tweetButton'] | //button[.//span[text()='Post']]",
       "timeout": 10
     },
     {
@@ -76,6 +115,19 @@
       "onSuccess": {
         "action": "update_progress"
       }
+    },
+    {
+      "id": "after_click",
+      "type": "wait",
+      "duration": 6,
+      "_units": "SECONDS. steps.go: time.Duration(d * float64(time.Second))"
+    },
+    {
+      "id": "verify_posted",
+      "type": "eval",
+      "variable_name": "postedState",
+      "_note": "After a successful post the composer empties. If it still holds text, the click did nothing.",
+      "text": "(function(){var c=document.querySelector('div[data-testid=\"tweetTextarea_0\"]');var n=c?((c.innerText||'').trim().length):-1;return n===0?'POSTED-composer-empty':(n<0?'composer-gone':'NOT-POSTED-still-'+n+'-chars');})()"
     }
   ],
   "errorHandling": {

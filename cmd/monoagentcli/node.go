@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"regexp"
@@ -21,6 +22,7 @@ import (
 	_ "monoagent/internal/bot/instagram"
 	_ "monoagent/internal/bot/linkedin"
 	_ "monoagent/internal/bot/tiktok"
+	_ "monoagent/internal/bot/chatgpt"
 	_ "monoagent/internal/bot/gemini"
 	_ "monoagent/internal/bot/x"
 	"monoagent/internal/extension"
@@ -42,7 +44,7 @@ var reLinkedInActivity = regexp.MustCompile(`activity[-:](\d+)`)
 func isBrowserNodeType(t string) bool {
 	return strings.HasPrefix(t, "instagram.") || strings.HasPrefix(t, "linkedin.") ||
 		strings.HasPrefix(t, "x.") || strings.HasPrefix(t, "tiktok.") ||
-		strings.HasPrefix(t, "gemini.") || strings.HasPrefix(t, "hackernews.") ||
+		strings.HasPrefix(t, "chatgpt.") || strings.HasPrefix(t, "gemini.") || strings.HasPrefix(t, "hackernews.") ||
 		strings.HasPrefix(t, "producthunt.")
 }
 
@@ -138,7 +140,58 @@ func resolveCredentialData(ctx context.Context, store *connections.Store, creden
 	return conn.Data, nil
 }
 
-const extensionServerAddr = "http://127.0.0.1:9222"
+// extensionServerAddr / extensionServerBind address the extension bridge for
+// the *active profile*. They are package-level rather than constant because
+// each profile drives its own browser: the bridge server accepts a single
+// extension connection and evicts any existing one on a new connect, so two
+// profiles sharing one port means the second browser to connect silently
+// steals the first one's automation. configureExtensionPort resolves them
+// once, at startup, from the resolved profile ID.
+//
+// The "default" profile keeps 9222 so existing installs — and any Chrome
+// extension already configured against that URL — are unaffected.
+var (
+	extensionServerAddr = "http://127.0.0.1:9222"
+	extensionServerBind = "127.0.0.1:9222"
+)
+
+// extensionBasePort and extensionPortSpan bound the derived range. 9222 is the
+// default profile's port; other profiles hash into 9223-9299, chosen to stay
+// clear of the ephemeral range while leaving room for many profiles.
+const (
+	extensionBasePort = 9222
+	extensionPortSpan = 78
+)
+
+// extensionPortForProfile maps a profile ID to a stable bridge port. The
+// mapping is deterministic so that a profile's port is the same on every run
+// — the Chrome extension for that profile is configured once, by hand, with
+// the matching ws:// URL and never needs updating.
+func extensionPortForProfile(profileID string) int {
+	if profileID == "" || profileID == "default" {
+		return extensionBasePort
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(profileID))
+	return extensionBasePort + 1 + int(h.Sum32()%uint32(extensionPortSpan))
+}
+
+// configureExtensionPort points the bridge at the given profile's port. Called
+// from the root command once cfg.ProfileID has been resolved to a canonical ID.
+func configureExtensionPort(profileID string) {
+	port := extensionPortForProfile(profileID)
+	extensionServerAddr = fmt.Sprintf("http://127.0.0.1:%d", port)
+	extensionServerBind = fmt.Sprintf("127.0.0.1:%d", port)
+	// The relay token must be scoped the same way as the port, or a second
+	// profile's bridge overwrites the first's secret and locks it out.
+	extension.SetTokenProfile(profileID)
+}
+
+// ExtensionWSURLForProfile returns the ws:// URL a profile's Chrome extension
+// must be configured with, for display in CLI output.
+func ExtensionWSURLForProfile(profileID string) string {
+	return fmt.Sprintf("ws://127.0.0.1:%d/monoagent", extensionPortForProfile(profileID))
+}
 
 // waitForRelay polls addr until a monoagent relay answers its health endpoint,
 // returning a bridge through it, or nil if none appears within timeout. The
@@ -170,7 +223,7 @@ func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration
 		return &extension.RemoteBridge{Sender: extension.NewRemoteSender(extensionServerAddr)}
 	}
 
-	extServer := extension.NewServer("127.0.0.1:9222", logger)
+	extServer := extension.NewServer(extensionServerBind, logger)
 	errCh := extServer.StartAsync(context.Background())
 
 	// The probe above and the bind below are not atomic: another process can
@@ -189,8 +242,8 @@ func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration
 				fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (another process owns the extension port)")
 				return remote
 			}
-			fmt.Fprintf(os.Stderr, "  Extension port 9222 is held by a process that is not a monoagent relay (%v)\n", err)
-			fmt.Fprintln(os.Stderr, "  Free it (e.g. a Chrome started with --remote-debugging-port=9222) and retry.")
+			fmt.Fprintf(os.Stderr, "  Extension port %s is held by a process that is not a monoagent relay (%v)\n", extensionServerBind, err)
+			fmt.Fprintf(os.Stderr, "  Free it (e.g. a Chrome started with --remote-debugging-port=%s) and retry.\n", extensionServerBind)
 		}
 	case <-connCh:
 	}

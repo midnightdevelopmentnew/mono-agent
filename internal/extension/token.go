@@ -14,13 +14,32 @@ import (
 // an arbitrary local process or web page cannot.
 const tokenHeader = "X-Monoagent-Extension-Token"
 
-// tokenPath returns the path to the relay's shared-secret token file.
+// tokenProfile scopes the token file to a profile, mirroring the per-profile
+// bridge ports in cmd/monoagentcli. Set once at startup via SetTokenProfile.
+var tokenProfile string
+
+// SetTokenProfile scopes this process's token file to profileID. Ports are
+// already per-profile, so two profiles can each legitimately win a bind; with
+// a single global token file the second to start overwrote the first's secret
+// and every relay call on the first returned "unauthorized". Observed
+// 2026-08-22: starting a linkedin-management bridge silently killed the X
+// automation running on the default profile.
+func SetTokenProfile(profileID string) {
+	tokenProfile = profileID
+}
+
+// tokenPath returns the path to the relay's shared-secret token file. The
+// default profile keeps the unsuffixed name so existing installs still work.
 func tokenPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory: %w", err)
 	}
-	return filepath.Join(home, ".monoagent", "extension.token"), nil
+	name := "extension.token"
+	if tokenProfile != "" && tokenProfile != "default" {
+		name = "extension." + tokenProfile + ".token"
+	}
+	return filepath.Join(home, ".monoagent", name), nil
 }
 
 // generateToken creates a new random token and writes it to tokenPath,

@@ -60,12 +60,14 @@ func newProfileListCmd(cfg *globalConfig) *cobra.Command {
 				Name      string `json:"name"`
 				CreatedAt string `json:"created_at"`
 				Active    bool   `json:"active"`
+				WSURL     string `json:"ws_url"`
 			}
 			var profiles []profileRow
 			for rows.Next() {
 				var p profileRow
 				if rows.Scan(&p.ID, &p.Name, &p.CreatedAt) == nil {
 					p.Active = p.ID == activeID
+					p.WSURL = ExtensionWSURLForProfile(p.ID)
 					profiles = append(profiles, p)
 				}
 			}
@@ -80,14 +82,18 @@ func newProfileListCmd(cfg *globalConfig) *cobra.Command {
 				return printJSON(profiles)
 			}
 
-			fmt.Printf("%-36s  %-20s  %s\n", "ID", "NAME", "CREATED")
+			fmt.Printf("%-36s  %-20s  %-22s  %s\n", "ID", "NAME", "CREATED", "EXTENSION WS URL")
 			for _, p := range profiles {
 				marker := ""
 				if p.Active {
 					marker = " *"
 				}
-				fmt.Printf("%-36s  %-20s  %s%s\n", p.ID, p.Name, p.CreatedAt, marker)
+				fmt.Printf("%-36s  %-20s  %-22s  %s%s\n", p.ID, p.Name, p.CreatedAt, p.WSURL, marker)
 			}
+			fmt.Println()
+			fmt.Println("Each profile drives its own browser on its own bridge port. Configure the")
+			fmt.Println("mono-agent extension in that profile's Chrome with the WS URL shown above")
+			fmt.Println("(extension popup -> WebSocket URL). Two browsers on one port evict each other.")
 			return nil
 		},
 	}

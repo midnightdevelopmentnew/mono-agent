@@ -205,6 +205,15 @@ var Registry = map[string]PlatformDef{
 		},
 		IconEmoji: "📓",
 	},
+	"chatgpt": {
+		ID:         "chatgpt",
+		Name:       "ChatGPT Crawl",
+		Category:   "service",
+		ConnectVia: "UI",
+		Methods:    []AuthMethod{MethodBrowser},
+		Fields:     map[AuthMethod][]CredentialField{},
+		IconEmoji:  "🤖",
+	},
 	"gemini": {
 		ID:         "gemini",
 		Name:       "Gemini Crawl",

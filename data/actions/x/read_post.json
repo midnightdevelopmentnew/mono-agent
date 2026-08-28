@@ -1,0 +1,53 @@
+{
+  "actionType": "read_post",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Read a single X post by URL: returns its text and the visible reply/repost/like/view counts. Read-only, never interacts.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [
+      "url"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [
+      "read_body"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "{{url}}",
+      "timeout": 30
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 6.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_article",
+      "type": "find_element",
+      "xpath": "//article[@data-testid='tweet']",
+      "timeout": 20
+    },
+    {
+      "id": "read_body",
+      "type": "eval",
+      "text": "(function(){var a=document.querySelector('article[data-testid=\"tweet\"]');if(!a)return 'NOT_FOUND';var t=a.querySelector('[data-testid=\"tweetText\"]');var m=a.querySelector('[role=\"group\"]');var img=a.querySelectorAll('[data-testid=\"tweetPhoto\"], video').length;return JSON.stringify({text:(t?t.innerText:'').trim(),full:(a.innerText||'').trim().slice(0,700),media:img,metrics:(m?m.getAttribute('aria-label'):'')})})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "log_and_continue"
+  }
+}

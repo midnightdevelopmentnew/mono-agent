@@ -1,0 +1,60 @@
+{
+  "actionType": "read_thread",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Read the replies under one of our own posts, so they can be answered. Read-only.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [
+      "url"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [
+      "collect"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "{{url}}",
+      "waitFor": "page_load",
+      "timeout": 40
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 16.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "scroll",
+      "type": "scroll",
+      "direction": "down",
+      "amount": 1400
+    },
+    {
+      "id": "s2",
+      "type": "wait",
+      "duration": 6.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "collect",
+      "type": "eval",
+      "text": "(function(){var id=(location.pathname.match(/status\\/(\\d+)/)||[])[1];var out=[];document.querySelectorAll('article[data-testid=\"tweet\"]').forEach(function(a){var tm=a.querySelector('time');var lnk=tm?tm.closest('a'):null;var href=lnk?lnk.getAttribute('href'):'';var sid=(href.match(/status\\/(\\d+)/)||[])[1]||'';if(!sid||sid===id)return;var h=(href.match(/^\\/([^\\/]+)\\/status/)||[])[1]||'';var t=a.querySelector('[data-testid=\"tweetText\"]');out.push({id:sid,handle:'/'+h,text:(t?t.innerText:'').trim().slice(0,400),url:'https://x.com'+href,when:tm?tm.getAttribute('datetime'):''})});return JSON.stringify({n:document.querySelectorAll('article[data-testid=\"tweet\"]').length,replies:out.slice(0,25)})})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "log_and_continue"
+  }
+}

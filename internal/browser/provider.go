@@ -42,6 +42,7 @@ func (h *HybridSessionProvider) GetPage(ctx context.Context, platform, username 
 
 	platformURLs := map[string]string{
 		"gemini":    "https://gemini.google.com/app",
+		"chatgpt":   "https://chatgpt.com/",
 		"instagram": "https://www.instagram.com",
 		"linkedin":  "https://www.linkedin.com",
 		"x":         "https://x.com",

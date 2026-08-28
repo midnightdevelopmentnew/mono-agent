@@ -1,0 +1,66 @@
+{
+  "actionType": "upload_probe",
+  "platform": "X",
+  "version": "1.0.0",
+  "description": "Diagnostic: attach media to the X composer WITHOUT posting. Never clicks Post.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [
+      "media"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [
+      "probe"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "navigate_to_home",
+      "type": "navigate",
+      "url": "https://x.com/home",
+      "waitFor": "page_load",
+      "timeout": 30
+    },
+    {
+      "id": "find_file_input",
+      "type": "find_element",
+      "xpath": "//input[@type='file']",
+      "timeout": 15
+    },
+    {
+      "id": "report_input",
+      "type": "eval",
+      "text": "(function(){var n=document.querySelectorAll('input[type=file]');return 'file_inputs='+n.length;})()"
+    },
+    {
+      "id": "do_upload",
+      "type": "upload",
+      "elementRef": "find_file_input",
+      "text": "{{media}}"
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 8
+    },
+    {
+      "id": "check_preview",
+      "type": "eval",
+      "text": "(function(){var imgs=document.querySelectorAll('[data-testid=\"attachments\"] img, [aria-label*=\"Media\" i] img, [data-testid=\"tweetPhoto\"] img');return 'preview_imgs='+imgs.length;})()"
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 0,
+    "retryDelay": 1000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

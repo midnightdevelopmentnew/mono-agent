@@ -1,0 +1,26 @@
+{
+  "platform": "chatgpt",
+  "name": "list_chats",
+  "description": "Read-only: return the sidebar chat titles and their hrefs. Deletes nothing.",
+  "steps": [
+    {
+      "id": "navigate",
+      "type": "navigate",
+      "url": "https://chatgpt.com/",
+      "waitFor": "page_load",
+      "timeout": 45
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 8,
+      "_units": "SECONDS. steps.go: time.Duration(d * float64(time.Second))"
+    },
+    {
+      "id": "list",
+      "type": "eval",
+      "variable_name": "chats",
+      "text": "(function(){var r=[];[].slice.call(document.querySelectorAll('a[href^=\"/c/\"]')).forEach(function(a){var t=(a.textContent||'').trim();if(t)r.push({t:t.slice(0,60),h:a.getAttribute('href')});});return JSON.stringify(r.slice(0,60));})()"
+    }
+  ]
+}

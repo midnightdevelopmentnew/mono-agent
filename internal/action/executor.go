@@ -366,6 +366,7 @@ func (ae *ActionExecutor) initHandlers() {
 	ae.handlers["save_data"] = ae.stepSaveData
 	ae.handlers["mark_failed"] = ae.stepMarkFailed
 	ae.handlers["log"] = ae.stepLog
+	ae.handlers["eval"] = ae.stepEval
 	ae.handlers["call_bot_method"] = ae.stepCallBotMethod
 	ae.handlers["set_variable"] = ae.stepSetVariable
 }

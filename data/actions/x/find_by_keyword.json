@@ -17,6 +17,7 @@
   },
   "outputs": {
     "success": [
+      "extract_tweet_data",
       "resultsCount",
       "maxResultsCount"
     ],
@@ -34,7 +35,7 @@
       "id": "build_search_url",
       "type": "update_progress",
       "set": {
-        "searchUrl": "https://x.com/search?q={{keyword}}&src=typed_query"
+        "searchUrl": "https://x.com/search?q={{item}}&src=typed_query"
       }
     },
     {

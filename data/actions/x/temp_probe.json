@@ -1,0 +1,8 @@
+{"actionType":"temp_probe","platform":"x","version":"1.0.0","description":"probe",
+ "metadata":{"requiresAuth":true,"supportsPagination":false,"supportsRetry":false},
+ "inputs":{"required":[],"optional":[]},"outputs":{"success":["chk"],"failure":["error"]},
+ "steps":[
+  {"id":"goto","type":"navigate","url":"https://chatgpt.com/?temporary-chat=true","waitFor":"page_load","timeout":30},
+  {"id":"settle","type":"wait","duration":8.0,"waitFor":"time"},
+  {"id":"chk","type":"eval","text":"(function(){var a=document.querySelectorAll('[data-message-author-role=\"assistant\"]');var out=[];a.forEach(function(e,i){out.push(i+':len='+(e.innerText||'').trim().length+':['+(e.innerText||'').trim().slice(0,30)+']')});return 'assistantTurns='+a.length+' | '+out.join(' | ')})()"}
+ ],"errorHandling":{"onFinalFailure":"log_and_continue"}}

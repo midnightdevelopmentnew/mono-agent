@@ -1596,6 +1596,55 @@ func (ae *ActionExecutor) stepLog(ctx context.Context, step StepDef) (*StepResul
 }
 
 // ---------------------------------------------------------------------------
+// 16b. stepEval — Run JavaScript in the page
+// ---------------------------------------------------------------------------
+
+func (ae *ActionExecutor) stepEval(ctx context.Context, step StepDef) (*StepResult, error) {
+	js := step.Text
+	if js == "" {
+		if s, ok := step.Value.(string); ok {
+			js = s
+		}
+	}
+	if js == "" {
+		return &StepResult{
+			Success: false,
+			StepID:  step.ID,
+			Error:   fmt.Errorf("eval step %s: no script provided", step.ID),
+		}, nil
+	}
+
+	resolved := ae.resolver.Resolve(js)
+
+	// The extension path has no Rod page, so CDP evaluation is the only route.
+	var result interface{}
+	var err error
+	if ep, ok := ae.page.(*extpkg.ExtensionPage); ok {
+		result, err = ep.EvalCDP(resolved)
+	} else {
+		var evalRes *browser.EvalResult
+		evalRes, err = ae.page.Eval(resolved)
+		if evalRes != nil {
+			result = evalRes.Raw()
+		}
+	}
+	if err != nil {
+		return &StepResult{
+			Success: false,
+			StepID:  step.ID,
+			Error:   fmt.Errorf("eval step %s: %w", step.ID, err),
+		}, nil
+	}
+
+	ae.logger.Debug().
+		Str("stepID", step.ID).
+		Interface("result", result).
+		Msg("eval completed")
+
+	return &StepResult{Success: true, Data: result, StepID: step.ID}, nil
+}
+
+// ---------------------------------------------------------------------------
 // 17. stepCallBotMethod — Call a method on the BotAdapter
 // ---------------------------------------------------------------------------
 

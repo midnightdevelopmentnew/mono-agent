@@ -18,6 +18,10 @@ type Response struct {
 	Success bool        `json:"success"`
 	Data    interface{} `json:"data,omitempty"`
 	Error   string      `json:"error,omitempty"`
+	// Type carries control frames the extension sends unprompted — currently
+	// only "ping", its 20s keepalive (see chrome-extension/background.js).
+	// These have no ID and must not be treated as replies to a command.
+	Type string `json:"type,omitempty"`
 }
 
 // Command type constants.

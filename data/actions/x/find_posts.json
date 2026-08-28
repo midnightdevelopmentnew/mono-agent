@@ -1,0 +1,78 @@
+{
+  "actionType": "find_posts",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Read posts from an X search OR any X page (profile, timeline) as JSON with author, text, permalink and engagement metrics. Read-only.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [],
+    "optional": [
+      "query",
+      "url"
+    ]
+  },
+  "outputs": {
+    "success": [
+      "collect"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "{{url}}",
+      "timeout": 30
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 6.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "find_any",
+      "type": "find_element",
+      "xpath": "//article[@data-testid='tweet']",
+      "timeout": 20
+    },
+    {
+      "id": "scroll1",
+      "type": "scroll",
+      "direction": "down",
+      "amount": 2000
+    },
+    {
+      "id": "s2",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "scroll2",
+      "type": "scroll",
+      "direction": "down",
+      "amount": 2000
+    },
+    {
+      "id": "s3",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "collect",
+      "type": "eval",
+      "text": "(function(){var out=[];document.querySelectorAll('article[data-testid=\"tweet\"]').forEach(function(a){var t=a.querySelector('[data-testid=\"tweetText\"]');var g=a.querySelector('[role=\"group\"]');var lnk=a.querySelector('a[href*=\"/status/\"]');var tm=a.querySelector('time');var h='';var hs=a.querySelectorAll('a[href^=\"/\"]');for(var i=0;i<hs.length;i++){var p=hs[i].getAttribute('href');if(p&&p.indexOf('/status/')<0&&p.split('/').length===2){h=p;break}}out.push({handle:h,text:(t?t.innerText:'').trim().slice(0,400),metrics:(g?g.getAttribute('aria-label'):'')||'',url:lnk?('https://x.com'+lnk.getAttribute('href')):'',when:tm?tm.getAttribute('datetime'):''})});return JSON.stringify(out)})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "log_and_continue"
+  }
+}

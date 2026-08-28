@@ -1,0 +1,109 @@
+{
+  "actionType": "generate_text",
+  "platform": "CHATGPT",
+  "version": "1.0.0",
+  "description": "Send a prompt to ChatGPT via the browser session and extract the reply",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": true
+  },
+  "inputs": {
+    "required": [
+      {
+        "name": "prompt",
+        "type": "string",
+        "description": "The prompt to send"
+      }
+    ],
+    "optional": [
+      {
+        "name": "maxWaitSeconds",
+        "type": "number",
+        "default": 180,
+        "min": 15,
+        "max": 600
+      }
+    ]
+  },
+  "outputs": {
+    "success": [
+      "response_text"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "navigate",
+      "type": "navigate",
+      "url": "https://chatgpt.com/?temporary-chat=true",
+      "waitFor": "page_load",
+      "timeout": 45,
+      "description": "Temporary Chat: drafts run many times a day and would otherwise fill Jon's ChatGPT history. Nothing here is worth keeping."
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "description": "chatgpt.com hydrates its composer after first paint.",
+      "duration": 6
+    },
+    {
+      "id": "find_composer",
+      "type": "find_element",
+      "xpath": "//div[@id='prompt-textarea'] | //div[@contenteditable='true'][@id='prompt-textarea'] | //textarea[@id='prompt-textarea'] | //div[@contenteditable='true']",
+      "timeout": 30
+    },
+    {
+      "id": "clear_composer",
+      "type": "eval",
+      "description": "A previous turn can leave text behind; clear before typing.",
+      "text": "(function(){var el=document.querySelector('#prompt-textarea')||document.querySelector('div[contenteditable=\"true\"]');if(!el)return 'no-composer';el.focus();document.execCommand('selectAll',false,null);document.execCommand('delete',false,null);return 'cleared';})()"
+    },
+    {
+      "id": "type_prompt",
+      "type": "type",
+      "elementRef": "find_composer",
+      "text": "{{prompt}}"
+    },
+    {
+      "id": "pause_before_send",
+      "type": "wait",
+      "duration": 2
+    },
+    {
+      "id": "find_send",
+      "type": "find_element",
+      "xpath": "//button[@data-testid='send-button'] | //button[@aria-label='Send prompt'] | //button[@aria-label='Send message'] | //button[contains(@aria-label,'Send')]",
+      "timeout": 20
+    },
+    {
+      "id": "click_send",
+      "type": "click",
+      "elementRef": "find_send"
+    },
+    {
+      "id": "wait_response",
+      "type": "call_bot_method",
+      "methodName": "wait_for_response",
+      "args": [
+        "{{maxWaitSeconds}}"
+      ],
+      "variable_name": "responseReady",
+      "timeout": 620
+    },
+    {
+      "id": "extract_response",
+      "type": "call_bot_method",
+      "methodName": "extract_text_response",
+      "variable_name": "extractResult",
+      "timeout": 30
+    }
+  ],
+  "errorHandling": {
+    "globalRetries": 1,
+    "retryDelay": 3000,
+    "onFinalFailure": "log_and_continue"
+  }
+}

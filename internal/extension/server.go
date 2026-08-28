@@ -219,8 +219,13 @@ func (s *Server) SendCommand(cmd *Command, timeout time.Duration) (*Response, er
 		return nil, fmt.Errorf("no extension connected")
 	}
 
+	// Without a deadline a blocked socket parks the caller forever — a large
+	// payload (e.g. a base64 image for set_files) against a peer that has
+	// stopped reading would hang the whole action rather than failing.
 	s.writeMu.Lock()
+	_ = conn.SetWriteDeadline(time.Now().Add(timeout))
 	err = conn.WriteMessage(websocket.TextMessage, data)
+	_ = conn.SetWriteDeadline(time.Time{})
 	s.writeMu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("write command: %w", err)
@@ -414,6 +419,13 @@ func (s *Server) readLoop(conn *websocket.Conn) {
 		var resp Response
 		if err := json.Unmarshal(msg, &resp); err != nil {
 			s.logger.Error().Err(err).Str("raw", string(msg)).Msg("invalid response JSON")
+			continue
+		}
+
+		// The extension's 20s keepalive is not a reply to anything. Matching it
+		// against the pending map logged a "no pending request" warning every
+		// 20 seconds, which buried the real command traffic in the logs.
+		if resp.Type == "ping" || (resp.ID == "" && !resp.Success && resp.Error == "") {
 			continue
 		}
 

@@ -1,0 +1,79 @@
+{
+  "actionType": "delete_post",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Delete one of your own posts by URL. Picks the article whose permalink matches the URL, not merely the first on the page.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [
+      "url"
+    ],
+    "optional": []
+  },
+  "outputs": {
+    "success": [],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "{{url}}",
+      "waitFor": "page_load",
+      "timeout": 30
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 6.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "open_menu",
+      "type": "eval",
+      "text": "(function(){var id=(location.pathname.match(/status\\/(\\d+)/)||[])[1];if(!id)return 'no-id';var arts=document.querySelectorAll('article[data-testid=\"tweet\"]');for(var i=0;i<arts.length;i++){if(arts[i].querySelector('a[href*=\"/status/'+id+'\"]')){var c=arts[i].querySelector('[data-testid=\"caret\"]');if(c){c.click();return 'menu-opened-on-article-'+i}}}return 'own-article-not-found'})()"
+    },
+    {
+      "id": "wait_menu",
+      "type": "wait",
+      "duration": 3.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "click_delete",
+      "type": "eval",
+      "text": "(function(){var hit=null;document.querySelectorAll('[role=\"menuitem\"]').forEach(function(e){if(/delete/i.test(e.innerText||''))hit=e});if(!hit)return 'no-delete-item';hit.click();return 'delete-clicked'})()"
+    },
+    {
+      "id": "wait_confirm",
+      "type": "wait",
+      "duration": 2.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "click_confirm",
+      "type": "eval",
+      "text": "(function(){var b=document.querySelector('[data-testid=\"confirmationSheetConfirm\"]');if(!b)return 'no-confirm';b.click();return 'confirmed'})()"
+    },
+    {
+      "id": "settle2",
+      "type": "wait",
+      "duration": 5.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "confirm",
+      "type": "eval",
+      "text": "(function(){var b=document.body?document.body.innerText:'';return 'gone='+/doesn.t exist|Hmm...this page|page does not exist/i.test(b)})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "abort"
+  }
+}

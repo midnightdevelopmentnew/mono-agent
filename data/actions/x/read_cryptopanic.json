@@ -1,0 +1,17 @@
+{
+  "actionType": "read_cryptopanic",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Read CryptoPanic's aggregated news feed as JSON. Uses the logged-in PLUS session; no API plan needed.",
+  "metadata": { "requiresAuth": true, "supportsPagination": false, "supportsRetry": false },
+  "inputs": { "required": [], "optional": ["filter"] },
+  "outputs": { "success": ["collect"], "failure": ["error"] },
+  "steps": [
+    { "id": "goto", "type": "navigate", "url": "https://cryptopanic.com/news{{filter}}", "waitFor": "page_load", "timeout": 40 },
+    { "id": "settle", "type": "wait", "duration": 9.0, "waitFor": "time" },
+    { "id": "collect", "type": "eval",
+      "text": "(function(){var out=[];var seen={};document.querySelectorAll('a[href]').forEach(function(a){var h=a.getAttribute('href')||'';if(h.indexOf('/news/')!==0&&h.indexOf('/post/')!==0)return;var row=a.closest('div')||a;var t=(a.innerText||'').trim();if(t.length<25||seen[t])return;seen[t]=1;var blob=(row.innerText||'').trim();var src=(blob.match(/([a-z0-9-]+\\.(?:com|io|net|org|co))/i)||[])[1]||'';var ago=(blob.match(/(\\d+\\s*(?:min|hour|hr|day)s?)/i)||[])[1]||'';out.push({title:t.slice(0,220),source:src,ago:ago,url:'https://cryptopanic.com'+h})});return JSON.stringify(out.slice(0,40))})()"
+    }
+  ],
+  "errorHandling": { "onFinalFailure": "log_and_continue" }
+}

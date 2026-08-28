@@ -1,0 +1,48 @@
+{
+  "actionType": "read_analytics",
+  "platform": "x",
+  "version": "1.0.0",
+  "description": "Read X's own per-post analytics (impressions, likes, replies, reposts) from the Content tab. Real numbers, not scraped view counts.",
+  "metadata": {
+    "requiresAuth": true,
+    "supportsPagination": false,
+    "supportsRetry": false
+  },
+  "inputs": {
+    "required": [],
+    "optional": [
+      "range"
+    ]
+  },
+  "outputs": {
+    "success": [
+      "metrics"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "goto",
+      "type": "navigate",
+      "url": "https://x.com/i/account_analytics/content",
+      "waitFor": "page_load",
+      "timeout": 45
+    },
+    {
+      "id": "settle",
+      "type": "wait",
+      "duration": 16.0,
+      "waitFor": "time"
+    },
+    {
+      "id": "metrics",
+      "type": "eval",
+      "text": "(function(){var lines=(document.body?document.body.innerText:'').split('\\n').map(function(x){return x.trim()}).filter(Boolean);var out=[],i=0;function isNum(s){return /^[\\d,.]+[KM]?$/.test(s)}while(i<lines.length){if(lines[i]==='Midnight Crypto'&&lines[i+1]==='\\u00b7'){var date=lines[i+2],j=i+3,txt=[];while(j<lines.length&&!(isNum(lines[j])&&isNum(lines[j+1])&&isNum(lines[j+2])&&isNum(lines[j+3]))){txt.push(lines[j]);j++;if(j-i>40)break}if(j+3<lines.length&&isNum(lines[j])){out.push({date:date,text:txt.join(' ').slice(0,160),impressions:lines[j],likes:lines[j+1],replies:lines[j+2],reposts:lines[j+3]});i=j+4;continue}}i++}return JSON.stringify(out.slice(0,60))})()"
+    }
+  ],
+  "errorHandling": {
+    "onFinalFailure": "log_and_continue"
+  }
+}
